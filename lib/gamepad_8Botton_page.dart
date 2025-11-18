@@ -4,25 +4,31 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'ble_manager.dart'; // ⬅ เปลี่ยนจาก classic_manager.dart
+import 'ble_manager.dart'; // ⬅ ใช้ BLE
 import 'UI/gamepad_assets.dart';
 import 'UI/gamepad_components.dart';
 import 'widgets/logo_corner.dart';
 import 'widgets/connection_status_badge.dart';
 import 'utils/orientation_utils.dart';
 
+// ==================== PROTOCOL CONFIG ====================
 
-const kIdle = '48';
-const kRepeatMs = 120;
+// ไม่กดอะไรเลย → ส่ง "0"
+const String kIdle = '0';
 
-const kCmdUp = '1';
-const kCmdDown = '2';
-const kCmdLeft = '3';
-const kCmdRight = '4';
-const kCmdTriangle = '5';
-const kCmdCross = '6';
-const kCmdSquare = '7';
-const kCmdCircle = '8';
+// ส่งซ้ำทุก 120 ms
+const int kRepeatMs = 120;
+
+// ตัวย่อคำสั่งปุ่ม
+const String kCmdUp = 'U';
+const String kCmdDown = 'D';
+const String kCmdLeft = 'L';
+const String kCmdRight = 'R';
+
+const String kCmdTriangle = 'T';
+const String kCmdCross = 'X';
+const String kCmdSquare = 'SQ';
+const String kCmdCircle = 'C';
 
 class Gamepad_8Botton extends StatefulWidget {
   const Gamepad_8Botton({super.key});
@@ -32,21 +38,45 @@ class Gamepad_8Botton extends StatefulWidget {
 
 class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
   List<DeviceOrientation>? _prev;
-  String _command = '0';
 
-@override
-void initState() {
-  super.initState();
-  OrientationUtils.setLandscape(); // ← บังคับแนวนอน
-}
+  // คำสั่งล่าสุดที่ส่งแสดงบนการ์ด
+  String _command = kIdle;
 
-@override
-void dispose() {
-  OrientationUtils.setPortrait(); // ← คืนแนวตั้งตอนออก
-  super.dispose();
-}
+  // timer สำหรับส่งซ้ำ (เหมือน gamepad 4)
+  Timer? _tick;
 
+  // state ปุ่มฝั่งซ้าย (ทิศ)
+  bool _up = false;
+  bool _down = false;
+  bool _left = false;
+  bool _right = false;
 
+  // state ปุ่มฝั่งขวา (สัญลักษณ์)
+  bool _triangle = false;
+  bool _cross = false;
+  bool _square = false;
+  bool _circle = false;
+
+  @override
+  void initState() {
+    super.initState();
+    OrientationUtils.setLandscape(); // ← บังคับแนวนอน
+
+    // ส่งคำสั่งซ้ำทุก kRepeatMs ms ตาม state ปุ่มปัจจุบัน
+    _tick = Timer.periodic(
+      const Duration(milliseconds: kRepeatMs),
+      (_) => _sendLoop(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    OrientationUtils.setPortrait(); // ← คืนแนวตั้งตอนออก
+    super.dispose();
+  }
+
+  // (ของเดิม - ไม่ได้ใช้แล้ว แต่คงไว้ไม่แตะส่วนอื่น)
   Future<void> _lockLandscape() async {
     _prev = const [
       DeviceOrientation.portraitUp,
@@ -72,7 +102,99 @@ void dispose() {
     );
   }
 
+  // ---------- callback จากปุ่มฝั่งซ้าย (U/D/L/R) ----------
+  void _onLeftPress(String id, bool isDown) {
+    setState(() {
+      // กดปุ่มใหม่ → ปิดปุ่มอื่นฝั่งซ้าย เหลือได้ 1 ปุ่ม
+      if (isDown) {
+        _up = id == kCmdUp;
+        _down = id == kCmdDown;
+        _left = id == kCmdLeft;
+        _right = id == kCmdRight;
+      } else {
+        // ปล่อยปุ่ม: ปิดเฉพาะตัวเอง
+        if (id == kCmdUp) _up = false;
+        if (id == kCmdDown) _down = false;
+        if (id == kCmdLeft) _left = false;
+        if (id == kCmdRight) _right = false;
+      }
+    });
+  }
+
+  // ---------- callback จากปุ่มฝั่งขวา (T/X/SQ/C) ----------
+  void _onRightPress(String id, bool isDown) {
+    setState(() {
+      // กดปุ่มใหม่ → ปิดปุ่มอื่นฝั่งขวา เหลือได้ 1 ปุ่ม
+      if (isDown) {
+        _triangle = id == kCmdTriangle;
+        _cross = id == kCmdCross;
+        _square = id == kCmdSquare;
+        _circle = id == kCmdCircle;
+      } else {
+        // ปล่อยปุ่ม: ปิดเฉพาะตัวเอง
+        if (id == kCmdTriangle) _triangle = false;
+        if (id == kCmdCross) _cross = false;
+        if (id == kCmdSquare) _square = false;
+        if (id == kCmdCircle) _circle = false;
+      }
+    });
+  }
+
+  // ---------- สร้างคำสั่งจาก state ปัจจุบัน + ส่ง BLE ----------
+  void _sendLoop() {
+    // เลือกปุ่มฝั่งซ้าย 1 ปุ่ม (ถ้ามี)
+    String left = '';
+    if (_up) {
+      left = kCmdUp;
+    } else if (_down) {
+      left = kCmdDown;
+    } else if (_left) {
+      left = kCmdLeft;
+    } else if (_right) {
+      left = kCmdRight;
+    }
+
+    // เลือกปุ่มฝั่งขวา 1 ปุ่ม (ถ้ามี)
+    String right = '';
+    if (_triangle) {
+      right = kCmdTriangle;
+    } else if (_cross) {
+      right = kCmdCross;
+    } else if (_square) {
+      right = kCmdSquare;
+    } else if (_circle) {
+      right = kCmdCircle;
+    }
+
+    String cmd;
+
+    if (left.isEmpty && right.isEmpty) {
+      // ไม่กดอะไรเลย
+      cmd = kIdle; // "0"
+    } else if (left.isNotEmpty && right.isEmpty) {
+      // กดเฉพาะฝั่งซ้าย
+      cmd = left;
+    } else if (left.isEmpty && right.isNotEmpty) {
+      // กดเฉพาะฝั่งขวา
+      cmd = right;
+    } else {
+      // ซ้าย 1 ปุ่ม + ขวา 1 ปุ่ม
+      cmd = '$left+$right';
+    }
+
+    // ส่ง BLE
+    BleManager.instance.send(cmd);
+
+    // อัปเดตโชว์บน Command Card เฉพาะตอนเปลี่ยน
+    if (cmd != _command) {
+      setState(() {
+        _command = cmd;
+      });
+    }
+  }
+
   void _updateCommand(String cmd) {
+    // เดิมใช้จากปุ่ม → ตอนนี้ไม่จำเป็นแล้ว
     setState(() => _command = cmd);
   }
 
@@ -93,7 +215,7 @@ void dispose() {
                 final base = theme.colorScheme.surfaceVariant.withOpacity(.70);
 
                 final cardCfg = CommandCardCfg(
-                  width: math.min(cons.maxWidth * 0.25, 200),
+                  width: math.min(cons.maxWidth * 0.25, 240),
                   margin: EdgeInsets.zero,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -121,6 +243,7 @@ void dispose() {
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
+                      // ฝั่งซ้าย: ปุ่มทิศทาง U/D/L/R
                       Expanded(
                         child: _DpadPanel(
                           up: const _BtnSpec('Up', kCmdUp, kGamepad8AssetUp),
@@ -130,9 +253,10 @@ void dispose() {
                               'Left', kCmdLeft, kGamepad8AssetLeft),
                           right: const _BtnSpec(
                               'Right', kCmdRight, kGamepad8AssetRight),
-                          onCommandChanged: _updateCommand,
+                          onPressChanged: _onLeftPress,
                         ),
                       ),
+                      // การ์ดแสดงคำสั่ง
                       ConstrainedBox(
                         constraints: BoxConstraints(
                           minWidth: cardCfg.width,
@@ -146,6 +270,7 @@ void dispose() {
                           ),
                         ),
                       ),
+                      // ฝั่งขวา: ปุ่ม Triangle / Cross / Square / Circle
                       Expanded(
                         child: _DpadPanel(
                           up: const _BtnSpec(
@@ -156,7 +281,7 @@ void dispose() {
                               'Square', kCmdSquare, kGamepad8AssetSquare),
                           right: const _BtnSpec(
                               'Circle', kCmdCircle, kGamepad8AssetCircle),
-                          onCommandChanged: _updateCommand,
+                          onPressChanged: _onRightPress,
                         ),
                       ),
                     ],
@@ -172,6 +297,8 @@ void dispose() {
   }
 }
 
+// ==================== WIDGETS (UI เดิมทั้งหมด) ====================
+
 class _BtnSpec {
   final String label, sendValue, asset;
   const _BtnSpec(this.label, this.sendValue, this.asset);
@@ -179,7 +306,9 @@ class _BtnSpec {
 
 class _DpadPanel extends StatelessWidget {
   final _BtnSpec up, down, left, right;
-  final ValueChanged<String> onCommandChanged;
+
+  // callback: ส่ง id + กด/ปล่อย กลับขึ้นไปให้ parent
+  final void Function(String id, bool isDown) onPressChanged;
 
   const _DpadPanel({
     super.key,
@@ -187,7 +316,7 @@ class _DpadPanel extends StatelessWidget {
     required this.down,
     required this.left,
     required this.right,
-    required this.onCommandChanged,
+    required this.onPressChanged,
   });
 
   @override
@@ -214,7 +343,7 @@ class _DpadPanel extends StatelessWidget {
                     asset: up.asset,
                     diameter: btn,
                     showLabel: false,
-                    onCommandChanged: onCommandChanged,
+                    onPressChanged: onPressChanged,
                   ),
                 ),
                 Positioned(
@@ -226,7 +355,7 @@ class _DpadPanel extends StatelessWidget {
                     asset: down.asset,
                     diameter: btn,
                     showLabel: false,
-                    onCommandChanged: onCommandChanged,
+                    onPressChanged: onPressChanged,
                   ),
                 ),
                 Positioned(
@@ -238,7 +367,7 @@ class _DpadPanel extends StatelessWidget {
                     asset: left.asset,
                     diameter: btn,
                     showLabel: false,
-                    onCommandChanged: onCommandChanged,
+                    onPressChanged: onPressChanged,
                   ),
                 ),
                 Positioned(
@@ -250,7 +379,7 @@ class _DpadPanel extends StatelessWidget {
                     asset: right.asset,
                     diameter: btn,
                     showLabel: false,
-                    onCommandChanged: onCommandChanged,
+                    onPressChanged: onPressChanged,
                   ),
                 ),
               ],
@@ -268,7 +397,9 @@ class _ImagePressHoldButton extends StatefulWidget {
   final String asset;
   final double diameter;
   final bool showLabel;
-  final ValueChanged<String>? onCommandChanged;
+
+  // callback → ส่ง id + กด/ปล่อย
+  final void Function(String id, bool isDown)? onPressChanged;
 
   const _ImagePressHoldButton({
     super.key,
@@ -277,7 +408,7 @@ class _ImagePressHoldButton extends StatefulWidget {
     required this.asset,
     this.diameter = 120,
     this.showLabel = true,
-    this.onCommandChanged,
+    this.onPressChanged,
   });
 
   @override
@@ -285,45 +416,20 @@ class _ImagePressHoldButton extends StatefulWidget {
 }
 
 class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
-  Timer? _repeat;
   bool _pressed = false;
-
-  @override
-  void dispose() {
-    _stopRepeat(sendIdle: true);
-    super.dispose();
-  }
-
-  void _startRepeat() {
-    if (_repeat?.isActive == true) return;
-
-    widget.onCommandChanged?.call(widget.sendValue);
-    BleManager.instance.send(widget.sendValue); // ⬅ เปลี่ยน
-
-    _repeat = Timer.periodic(const Duration(milliseconds: kRepeatMs), (_) {
-      BleManager.instance.send(widget.sendValue); // ⬅ เปลี่ยน
-    });
-  }
-
-  void _stopRepeat({bool sendIdle = false}) {
-    _repeat?.cancel();
-    _repeat = null;
-    if (sendIdle) {
-      widget.onCommandChanged?.call(kIdle);
-      BleManager.instance.send(kIdle); // ⬅ เปลี่ยน
-    }
-  }
 
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);
-    _startRepeat();
+    // แจ้ง parent ว่าปุ่มนี้ถูกกดลง
+    widget.onPressChanged?.call(widget.sendValue, true);
   }
 
   void _onUpOrCancel() {
     if (!_pressed) return;
     setState(() => _pressed = false);
-    _stopRepeat(sendIdle: true);
+    // แจ้ง parent ว่าปุ่มนี้ถูกปล่อย
+    widget.onPressChanged?.call(widget.sendValue, false);
   }
 
   @override
@@ -417,8 +523,10 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
               height: 18,
               child: FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text(widget.label,
-                    style: theme.textTheme.bodyMedium),
+                child: Text(
+                  widget.label,
+                  style: theme.textTheme.bodyMedium,
+                ),
               ),
             ),
           ],
