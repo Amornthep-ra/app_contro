@@ -1,0 +1,33 @@
+// lib/widgets/logo_corner.dart
+import 'package:flutter/material.dart';
+import '../UI/app_assets.dart';
+
+class LogoCorner extends StatelessWidget {
+  const LogoCorner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: true, // ไม่บล็อกการแตะ
+      child: Align(
+        alignment: Alignment.bottomRight,
+        child: Padding(
+          padding: const EdgeInsets.all(16), // ระยะจากขอบหน้าจอ
+          child: Opacity(
+            opacity: 0.95,
+            child: SizedBox(
+              width: 56,   // ปรับขนาดโลโก้ได้ตามชอบ
+              height: 56,
+              child: ClipOval(
+                child: Image.asset(
+                  AppAssets.cornerLogo,
+                  fit: BoxFit.cover,   // ให้รูปเต็มวงกลม
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
