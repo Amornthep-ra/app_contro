@@ -4,12 +4,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'ble_manager.dart'; // ⬅ ใช้ BLE
-import 'UI/gamepad_assets.dart';
-import 'UI/gamepad_components.dart';
-import 'widgets/logo_corner.dart';
-import 'widgets/connection_status_badge.dart';
-import 'utils/orientation_utils.dart';
+import '../ble/ble_manager.dart'; // ⬅ ใช้ BLE
+import '../UI/gamepad_assets.dart';
+import '../UI/gamepad_components.dart';
+import '../widgets/logo_corner.dart';
+import '../widgets/connection_status_badge.dart';
+import '../utils/orientation_utils.dart';
 
 // ==================== PROTOCOL CONFIG ====================
 
@@ -17,7 +17,7 @@ import 'utils/orientation_utils.dart';
 const String kIdle = '0';
 
 // ส่งซ้ำทุก 120 ms
-const int kRepeatMs = 120;
+const int kRepeatMs = 1000 ~/ 60; // ≈16ms
 
 // ตัวย่อคำสั่งปุ่ม
 const String kCmdUp = 'U';

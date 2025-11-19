@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'ble_manager.dart'; // ⬅ เปลี่ยนมาใช้ BLE
-import 'UI/gamepad_assets.dart';
-import 'UI/gamepad_components.dart';
-import 'widgets/logo_corner.dart';
-import 'widgets/connection_status_badge.dart';
-import 'utils/orientation_utils.dart';
+import '../ble/ble_manager.dart'; // ⬅ เปลี่ยนมาใช้ BLE
+import '../UI/gamepad_assets.dart';
+import '../UI/gamepad_components.dart';
+import '../widgets/logo_corner.dart';
+import '../widgets/connection_status_badge.dart';
+import '../utils/orientation_utils.dart';
 
 
 /// ========================= PAGE CONFIG =========================
@@ -283,34 +283,42 @@ class _Gamepad_4BottonState extends State<Gamepad_4Botton> {
   }
 
   void _sendLoop() {
-    if (_f && _b) _b = false;
-    if (_l && _r) _r = false;
+  // ถ้ากดคู่กันในแกนเดียว ยกเลิกตัวที่หลัง (เหมือนของเดิม)
+  if (_f && _b) _b = false;
+  if (_l && _r) _r = false;
 
-    final left = _f ? 'F' : (_b ? 'B' : '');
-    final right = _l ? 'L' : (_r ? 'R' : '');
+  // แปลงปุ่มเป็นตัวอักษรแบบ Gamepad 8
+  final v = _f ? 'U' : (_b ? 'D' : '');   // แกนขึ้น-ลง
+  final h = _l ? 'L' : (_r ? 'R' : '');   // แกนซ้าย-ขวา
 
-    String cmd;
-    if (left.isEmpty && right.isEmpty) {
-      cmd = '0';
-    } else if (left == 'F' && right.isEmpty) {
-      cmd = 'S';
-    } else if (left == 'B' && right.isEmpty) {
-      cmd = 'B';
-    } else if (left.isEmpty && right.isNotEmpty) {
-      cmd = right;
-    } else {
-      cmd = '$left$right';
-    }
+  String cmd;
 
-    // เดิม: ClassicManager.instance.sendLine(cmd);
-    BleManager.instance.send(cmd);
-
-    if (cmd != _lastSent) {
-      _command = cmd;
-      _lastSent = cmd;
-      setState(() {});
-    }
+  // ไม่มีปุ่ม → ส่ง 0
+  if (v.isEmpty && h.isEmpty) {
+    cmd = '0';
   }
+  // เดินหน้า/ถอยหลังล้วน เช่น 'U' หรือ 'D'
+  else if (v.isNotEmpty && h.isEmpty) {
+    cmd = v;
+  }
+  // ซ้าย/ขวาล้วน เช่น 'L' หรือ 'R'
+  else if (v.isEmpty && h.isNotEmpty) {
+    cmd = h;
+  }
+  // ผสม เช่น UL, UR, DL, DR
+  else {
+    cmd = '$v$h';
+  }
+
+  // ส่ง BLE
+  BleManager.instance.send(cmd);
+
+  if (cmd != _lastSent) {
+    _command = cmd;
+    _lastSent = cmd;
+    setState(() {});
+  }
+}
 
   void _sendSpeed(String v) {
     _speedLabel = v;

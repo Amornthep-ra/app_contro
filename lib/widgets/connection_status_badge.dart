@@ -1,6 +1,6 @@
 // lib/widgets/connection_status_badge.dart
 import 'package:flutter/material.dart';
-import '../ble_manager.dart';
+import '../ble/ble_manager.dart';
 
 class ConnectionStatusBadge extends StatelessWidget {
   const ConnectionStatusBadge({super.key});

@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import '../joystick/joystick_packet.dart';
+
 
 class BleManager {
   BleManager._();
@@ -81,6 +83,13 @@ class BleManager {
       print("❌ ส่งข้อมูลล้มเหลว: $e");
     }
   }
+
+  /// ===== ส่งข้อมูล Joystick ให้ ESP32 =====
+  void sendJoystick(JoystickPacket packet) {
+    final data = packet.toBleString();
+    send(data); // ใช้ฟังก์ชันส่งเดิม
+  }
+
 
   /// อ่าน notify จาก TX
   Stream<List<int>>? onData() => _tx?.lastValueStream;

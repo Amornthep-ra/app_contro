@@ -2,9 +2,10 @@
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
-import 'gamepad_8Botton_page.dart';
-import 'gamepad_4Botton_page.dart';
-import 'bluetooth_ble_page.dart';
+import 'pages/gamepad_8Botton_page.dart';
+import 'pages/gamepad_4Botton_page.dart';
+import 'pages/bluetooth_ble_page.dart';
+import 'pages/joystick_control_page.dart';   // ⬅ เพิ่มไฟล์ Joystick Page
 
 import 'widgets/logo_corner.dart';
 import 'UI/app_assets.dart';   // ใช้ Asset จากไฟล์ที่คุณให้มา
@@ -45,6 +46,9 @@ class MyApp extends StatelessWidget {
         '/Gamepad_8Botton': (_) => const Gamepad_8Botton(),
         '/Gamepad_4Botton': (_) => const Gamepad_4Botton(),
         '/bluetooth': (_) => const BluetoothBlePage(),
+
+        // 🎮 ⬅ เพิ่ม route ใหม่
+        '/joystick': (_) => const JoystickControlPage(),
       },
     );
   }
@@ -71,7 +75,17 @@ class MenuPage extends StatelessWidget {
         asset: AppAssets.menuGamepad4,
       ),
 
-      // ใช้ BLE สำหรับทุก Platform
+
+      // 🎮 ⬅ เพิ่ม Joystick
+      _MenuItem(
+        'Joystick Control',
+        Icons.gamepad,
+        '/joystick',
+        'ควบคุมด้วยจอยสติ๊ก',
+        asset: AppAssets.menuBluetooth,  // ถ้าไม่มี icon joystick ใช้อันนี้ชั่วคราวได้
+      ),
+      
+      // BLE
       _MenuItem(
         'Bluetooth (BLE)',
         Icons.bluetooth,
@@ -79,6 +93,7 @@ class MenuPage extends StatelessWidget {
         'สแกน/เชื่อมต่ออุปกรณ์ BLE',
         asset: AppAssets.menuBluetooth,
       ),
+
 
       _MenuItem('About', Icons.info, '/about', 'PrinceBot Controller'),
     ];
