@@ -57,8 +57,7 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
     final t = widget.theme;
 
     // ⭐ เลือกรูปตามฝั่ง
-    final knobImage =
-        widget.isLeft ? t.leftKnobImage : t.rightKnobImage;
+    final knobImage = widget.isLeft ? t.leftKnobImage : t.rightKnobImage;
 
     return GestureDetector(
       onPanStart: (d) => _update(d.localPosition),
@@ -70,19 +69,49 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
         height: t.size,
         child: Stack(
           children: [
-            // BG circle
+            // ===============================================================
+            // ⭐ BG CIRCLE — PS5 STYLE: Gradient Border + Glow + Depth
+            // ===============================================================
             Container(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: t.bgColor.withOpacity(t.bgOpacity),
-                border: Border.all(
-                  color: t.borderColor,
-                  width: t.borderWidth,
+                gradient: SweepGradient(
+                  colors: [
+                    Colors.blueAccent,
+                    Colors.purpleAccent,
+                    Colors.blueAccent,
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+                boxShadow: [
+                  // Light Glow
+                  BoxShadow(
+                    color: Colors.blueAccent.withOpacity(0.3),
+                    blurRadius: 25,
+                    spreadRadius: 4,
+                  ),
+                  // Depth Shadow
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.45),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(t.borderWidth + 6), // ⭐ ขอบหนา + มิติ
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: t.bgColor.withOpacity(t.bgOpacity),
+                  ),
                 ),
               ),
             ),
 
-            // knob
+            // ===============================================================
+            // ⭐ Knob (ปุ่มกลมขยับ)
+            // ===============================================================
             Positioned(
               left: radius + _pos.dx - knobRadius,
               top: radius + _pos.dy - knobRadius,
@@ -104,6 +133,13 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                             color: t.knobBorderColor,
                             width: t.knobBorderWidth,
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            )
+                          ],
                         ),
                       ),
               ),

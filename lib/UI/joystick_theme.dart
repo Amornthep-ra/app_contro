@@ -39,7 +39,7 @@ class JoystickTheme {
     this.size = 280,
     this.knobSize = 90,
 
-    this.bgColor = Colors.black,
+    this.bgColor = const Color.fromARGB(255, 67, 155, 242),
     this.bgOpacity = 0.18,
     this.borderColor = const Color.fromARGB(82, 0, 0, 0),
     this.borderWidth = 2.0,

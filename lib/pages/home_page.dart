@@ -1,0 +1,158 @@
+// lib/pages/home_page.dart
+import 'package:flutter/material.dart';
+
+import '../UI/app_assets.dart';
+import '../widgets/logo_corner.dart';
+import '../ble/ble_manager.dart';
+
+// import pages
+import 'gamepad_8Botton_page.dart';
+import 'gamepad_4Botton_page.dart';
+import 'joystick_control_page.dart';
+import 'bluetooth_ble_page.dart';
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <_MenuItem>[
+      _MenuItem(
+        'Gamepad(8 Button)',
+        null,
+        const Gamepad_8Botton(),
+        'ควบคุมสองฝั่ง 8 ปุ่ม',
+        asset: AppAssets.menuGamepad8,
+      ),
+      _MenuItem(
+        'Gamepad(4 Button)',
+        null,
+        const Gamepad_4Botton(),
+        'ควบคุมสองฝั่ง 4 ปุ่ม',
+        asset: AppAssets.menuGamepad4,
+      ),
+      _MenuItem(
+        'Joystick Control',
+        Icons.gamepad,
+        const JoystickControlPage(),
+        'ควบคุมด้วยจอยสติ๊ก',
+        asset: AppAssets.menuBluetooth,
+      ),
+      _MenuItem(
+        'Bluetooth (BLE)',
+        Icons.bluetooth,
+        const BluetoothBlePage(),
+        'สแกน/เชื่อมต่ออุปกรณ์ BLE',
+        asset: AppAssets.menuBluetooth,
+      ),
+      _MenuItem(
+        'About',
+        Icons.info,
+        const AboutPage(),
+        'PrinceBot Controller',
+      ),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('PrinceBot Controller'),
+
+        /// ⭐ AppBar Style เฉพาะหน้า Home
+        centerTitle: true,
+        elevation: 6,
+        shadowColor: Colors.black54,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF0083FF),
+                Color(0xFF0051A8),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+        ),
+      ),
+
+      body: Stack(
+        children: [
+          /// ------------------------
+          ///      เมนูปกติ
+          /// ------------------------
+          ListView.separated(
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (ctx, i) {
+              final it = items[i];
+              return ListTile(
+                leading: it.asset != null
+                    ? Image.asset(it.asset!, width: 32, height: 32)
+                    : (it.icon != null
+                        ? Icon(it.icon)
+                        : const SizedBox(width: 32)),
+                title: Text(it.title),
+                subtitle: Text(it.subtitle),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => it.page),
+                ),
+              );
+            },
+          ),
+
+          const LogoCorner(),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuItem {
+  final String title;
+  final IconData? icon;
+  final Widget page;
+  final String subtitle;
+  final String? asset;
+
+  const _MenuItem(
+    this.title,
+    this.icon,
+    this.page,
+    this.subtitle, {
+    this.asset,
+  });
+}
+
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('About'),
+
+        /// ⭐ AppBar Style หน้า About
+        centerTitle: true,
+        elevation: 5,
+        shadowColor: Colors.black45,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF00A1FF), Color(0xFF0064C8)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+        ),
+      ),
+
+      body: const Center(
+        child: Text('PrinceBot Controller v1.0 — BLE Mode'),
+      ),
+    );
+  }
+}
