@@ -52,30 +52,60 @@ class _S {
 
 /// base config ปุ่ม hold
 BtnCfg _baseHoldCfg(BuildContext ctx) {
-  final s = Theme.of(ctx).colorScheme;
+  final theme = Theme.of(ctx);
+  final s = theme.colorScheme;
+
+  // ✅ ทำสีให้สวยใน Dark theme แต่ยังพอใช้ใน Light ได้
+  final platformB = MediaQuery.of(ctx).platformBrightness;
+  final isDark =
+      theme.brightness == Brightness.dark || platformB == Brightness.dark;
+
+  // ---------- Dark palette ----------
+  const darkBase = Color(0xFF0D0F14);     // ดำอมฟ้า (นุ่ม ไม่ทึบ)
+  const darkBorder = Color(0xFF343A46);   // เทาอมม่วงสำหรับขอบ
+  const darkNeon = Color(0xFF8B5CFF);     // neon violet
+  const darkNeon2 = Color(0xFF00E5FF);    // neon cyan สำหรับตอนกด
+
+  final baseColor = isDark ? darkBase : Colors.white;
+
+  // ขอบตอนปกติ: โทนเทา/ม่วง + โปร่งนิด ๆ ให้ดูแพง
+  final borderColor = isDark
+      ? darkBorder.withOpacity(.85)
+      : Colors.black.withOpacity(.20);
+
+  // สีเรืองตอนกด (glow)
+  final glowColor = isDark
+      ? darkNeon.withOpacity(.92)
+      : const Color(0xFF5C6BFF).withOpacity(.70);
+
+  final pressOverlayColor = isDark ? Colors.white : Colors.black;
+
+  // ปรับสีตัวหนังสือให้อ่านง่ายในโทนดำ
+  final labelColor = isDark ? Colors.white.withOpacity(.92) : s.onPrimaryContainer;
+
   return BtnCfg(
     width: 220,
     height: 160,
     margin: const EdgeInsets.all(0),
     radius: 26,
-    baseColor: Colors.black,
-    borderColor: lighten(Colors.black, .28),
-    borderWidthOn: 2.0,
-    borderWidthOff: 1.2,
-    glowBlurOn: 28,
-    glowSpreadOn: 1.0,
+    baseColor: baseColor,
+    borderColor: borderColor,
+    borderWidthOn: 2.4,
+    borderWidthOff: 1.4,
+    glowBlurOn: 30,
+    glowSpreadOn: 1.2,
     glowBlurOff: 14,
-    glowSpreadOff: 0.3,
+    glowSpreadOff: 0.4,
     shadowOffsetOn: const Offset(0, 8),
     shadowOffsetOff: const Offset(0, 5),
-    glowColor: const Color.fromARGB(255, 166, 101, 252).withOpacity(.85),
+    glowColor: glowColor,
     iconAsset: null,
     iconFit: BoxFit.cover,
     iconPadding: EdgeInsets.zero,
     label: 'Button',
     labelFontSize: 20,
-    labelColor: s.onPrimaryContainer,
-    pressOverlayColor: const Color.fromARGB(255, 0, 0, 0),
+    labelColor: labelColor,
+    pressOverlayColor: pressOverlayColor,
     pressOverlayOpacity: .10,
   );
 }
@@ -117,71 +147,126 @@ BtnCfg cfgRight(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
 const double SPEED_ROW_GAP = 6.0;
 
 TapCfg cfgSpeedLow(BuildContext ctx) {
+  final theme = Theme.of(ctx);
+  final platformB = MediaQuery.of(ctx).platformBrightness;
+  final isDark =
+      theme.brightness == Brightness.dark || platformB == Brightness.dark;
+
   final c = Colors.green;
+  final grad = [lighten(c, .18), darken(c, .06)];
+
+  // ✅ ปรับขอบ/เรืองให้เข้าธีมดำ แต่ไม่กระทบ light
+  final border = isDark
+      ? lighten(const Color(0xFF00FF9D), .10)   // neon green
+      : lighten(c, .24);
+
+  final glow = isDark
+      ? const Color(0xFF00FFB2).withOpacity(.55)
+      : Colors.black.withOpacity(.22);
+
+  final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
+  final textOff = isDark ? Colors.white.withOpacity(.85) : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+
   return TapCfg(
     width: 100,
     height: 80,
     margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
     radius: 18,
-    gradient: [lighten(c, .18), darken(c, .06)],
-    border: lighten(c, .24),
-    borderWidthSelected: 2,
-    borderWidthUnselected: 1.2,
-    glowBlurSelected: 16,
-    glowBlurUnselected: 10,
+    gradient: grad,
+    border: border,
+    borderWidthSelected: 2.2,
+    borderWidthUnselected: 1.4,
+    glowBlurSelected: 18,
+    glowBlurUnselected: 12,
     shadowOffsetSelected: const Offset(0, 6),
     shadowOffsetUnselected: const Offset(0, 4),
-    glowColor: Colors.black.withOpacity(.22),
+    glowColor: glow,
     label: 'Low',
     fontSize: 18,
-    textOn: const Color.fromARGB(255, 0, 0, 0),
-    textOff: const Color.fromARGB(255, 0, 0, 0).withOpacity(.85),
+    textOn: textOn,
+    textOff: textOff,
   );
 }
 
 TapCfg cfgSpeedMid(BuildContext ctx) {
+  final theme = Theme.of(ctx);
+  final platformB = MediaQuery.of(ctx).platformBrightness;
+  final isDark =
+      theme.brightness == Brightness.dark || platformB == Brightness.dark;
+
   final c = Colors.yellow;
+  final grad = [lighten(c, .18), darken(c, .06)];
+
+  final border = isDark
+      ? lighten(const Color(0xFFFFD36A), .06)   // neon warm yellow
+      : lighten(c, .24);
+
+  final glow = isDark
+      ? const Color(0xFFFFD54F).withOpacity(.55)
+      : Colors.black.withOpacity(.22);
+
+  final textOn = isDark ? Colors.black : Colors.black;
+  final textOff = isDark ? Colors.black.withOpacity(.85) : Colors.black.withOpacity(.85);
+
   return TapCfg(
     width: 100,
     height: 80,
     margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
     radius: 18,
-    gradient: [lighten(c, .18), darken(c, .06)],
-    border: lighten(c, .24),
-    borderWidthSelected: 2,
-    borderWidthUnselected: 1.2,
-    glowBlurSelected: 16,
-    glowBlurUnselected: 10,
+    gradient: grad,
+    border: border,
+    borderWidthSelected: 2.2,
+    borderWidthUnselected: 1.4,
+    glowBlurSelected: 18,
+    glowBlurUnselected: 12,
     shadowOffsetSelected: const Offset(0, 6),
     shadowOffsetUnselected: const Offset(0, 4),
-    glowColor: Colors.black.withOpacity(.22),
+    glowColor: glow,
     label: 'Medium',
     fontSize: 18,
-    textOn: Colors.black,
-    textOff: Colors.black.withOpacity(.85),
+    textOn: textOn,
+    textOff: textOff,
   );
 }
 
 TapCfg cfgSpeedHigh(BuildContext ctx) {
+  final theme = Theme.of(ctx);
+  final platformB = MediaQuery.of(ctx).platformBrightness;
+  final isDark =
+      theme.brightness == Brightness.dark || platformB == Brightness.dark;
+
   final c = Colors.red;
+  final grad = [lighten(c, .18), darken(c, .06)];
+
+  final border = isDark
+      ? lighten(const Color(0xFFFF6B6B), .06)   // neon red
+      : lighten(c, .24);
+
+  final glow = isDark
+      ? const Color(0xFFFF5A5A).withOpacity(.60)
+      : Colors.black.withOpacity(.22);
+
+  final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
+  final textOff = isDark ? Colors.white.withOpacity(.85) : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+
   return TapCfg(
     width: 100,
     height: 80,
     margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
     radius: 18,
-    gradient: [lighten(c, .18), darken(c, .06)],
-    border: lighten(c, .24),
-    borderWidthSelected: 2,
-    borderWidthUnselected: 1.2,
-    glowBlurSelected: 16,
-    glowBlurUnselected: 10,
+    gradient: grad,
+    border: border,
+    borderWidthSelected: 2.2,
+    borderWidthUnselected: 1.4,
+    glowBlurSelected: 18,
+    glowBlurUnselected: 12,
     shadowOffsetSelected: const Offset(0, 6),
     shadowOffsetUnselected: const Offset(0, 4),
-    glowColor: Colors.black.withOpacity(.22),
+    glowColor: glow,
     label: 'High',
     fontSize: 18,
-    textOn: const Color.fromARGB(255, 0, 0, 0),
-    textOff: const Color.fromARGB(255, 0, 0, 0).withOpacity(.85),
+    textOn: textOn,
+    textOff: textOff,
   );
 }
 
@@ -283,42 +368,42 @@ class _Gamepad_4BottonState extends State<Gamepad_4Botton> {
   }
 
   void _sendLoop() {
-  // ถ้ากดคู่กันในแกนเดียว ยกเลิกตัวที่หลัง (เหมือนของเดิม)
-  if (_f && _b) _b = false;
-  if (_l && _r) _r = false;
+    // ถ้ากดคู่กันในแกนเดียว ยกเลิกตัวที่หลัง (เหมือนของเดิม)
+    if (_f && _b) _b = false;
+    if (_l && _r) _r = false;
 
-  // แปลงปุ่มเป็นตัวอักษรแบบ Gamepad 8
-  final v = _f ? 'U' : (_b ? 'D' : '');   // แกนขึ้น-ลง
-  final h = _l ? 'L' : (_r ? 'R' : '');   // แกนซ้าย-ขวา
+    // แปลงปุ่มเป็นตัวอักษรแบบ Gamepad 8
+    final v = _f ? 'U' : (_b ? 'D' : '');   // แกนขึ้น-ลง
+    final h = _l ? 'L' : (_r ? 'R' : '');   // แกนซ้าย-ขวา
 
-  String cmd;
+    String cmd;
 
-  // ไม่มีปุ่ม → ส่ง 0
-  if (v.isEmpty && h.isEmpty) {
-    cmd = '0';
-  }
-  // เดินหน้า/ถอยหลังล้วน เช่น 'U' หรือ 'D'
-  else if (v.isNotEmpty && h.isEmpty) {
-    cmd = v;
-  }
-  // ซ้าย/ขวาล้วน เช่น 'L' หรือ 'R'
-  else if (v.isEmpty && h.isNotEmpty) {
-    cmd = h;
-  }
-  // ผสม เช่น UL, UR, DL, DR
-  else {
-    cmd = '$v$h';
-  }
+    // ไม่มีปุ่ม → ส่ง 0
+    if (v.isEmpty && h.isEmpty) {
+      cmd = '0';
+    }
+    // เดินหน้า/ถอยหลังล้วน เช่น 'U' หรือ 'D'
+    else if (v.isNotEmpty && h.isEmpty) {
+      cmd = v;
+    }
+    // ซ้าย/ขวาล้วน เช่น 'L' หรือ 'R'
+    else if (v.isEmpty && h.isNotEmpty) {
+      cmd = h;
+    }
+    // ผสม เช่น UL, UR, DL, DR
+    else {
+      cmd = '$v$h';
+    }
 
-  // ส่ง BLE
-  BleManager.instance.send(cmd);
+    // ส่ง BLE
+    BleManager.instance.send(cmd);
 
-  if (cmd != _lastSent) {
-    _command = cmd;
-    _lastSent = cmd;
-    setState(() {});
+    if (cmd != _lastSent) {
+      _command = cmd;
+      _lastSent = cmd;
+      setState(() {});
+    }
   }
-}
 
   void _sendSpeed(String v) {
     _speedLabel = v;

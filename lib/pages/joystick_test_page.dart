@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../widgets/joystick.dart';
+import '../shared/joystick/joystick_widget.dart';
+import '../shared/joystick/joystick_controller.dart';
 
 class JoystickTestPage extends StatefulWidget {
   const JoystickTestPage({super.key});
@@ -9,8 +10,10 @@ class JoystickTestPage extends StatefulWidget {
 }
 
 class _JoystickTestPageState extends State<JoystickTestPage> {
-  double lx = 0, ly = 0; // Joystick ซ้าย
-  double rx = 0, ry = 0; // Joystick ขวา
+  final joystickController = JoystickController();
+
+  double lx = 0, ly = 0; // normalized -1..1
+  double rx = 0, ry = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -26,11 +29,15 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  Text("Left Stick  :  X=$lx  |  Y=$ly",
-                      style: const TextStyle(fontSize: 18)),
+                  Text(
+                    "Left Stick  :  X=${(lx * 100).toStringAsFixed(0)}  |  Y=${(ly * 100).toStringAsFixed(0)}",
+                    style: const TextStyle(fontSize: 18),
+                  ),
                   const SizedBox(height: 6),
-                  Text("Right Stick :  X=$rx  |  Y=$ry",
-                      style: const TextStyle(fontSize: 18)),
+                  Text(
+                    "Right Stick :  X=${(rx * 100).toStringAsFixed(0)}  |  Y=${(ry * 100).toStringAsFixed(0)}",
+                    style: const TextStyle(fontSize: 18),
+                  ),
                 ],
               ),
             ),
@@ -42,25 +49,25 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   // JOYSTICK LEFT
-                  Joystick(
-                    size: 200,
-                    knobSize: 90,
-                    onMove: (dx, dy) {
+                  JoystickWidget(
+                    controller: joystickController,
+                    isLeft: true,
+                    onChanged: (x, y) {
                       setState(() {
-                        lx = dx;
-                        ly = dy;
+                        lx = x;
+                        ly = y;
                       });
                     },
                   ),
 
                   // JOYSTICK RIGHT
-                  Joystick(
-                    size: 200,
-                    knobSize: 90,
-                    onMove: (dx, dy) {
+                  JoystickWidget(
+                    controller: joystickController,
+                    isLeft: false,
+                    onChanged: (x, y) {
                       setState(() {
-                        rx = dx;
-                        ry = dy;
+                        rx = x;
+                        ry = y;
                       });
                     },
                   ),

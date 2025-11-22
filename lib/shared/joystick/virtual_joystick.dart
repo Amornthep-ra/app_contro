@@ -1,6 +1,6 @@
 // lib/widgets/virtual_joystick.dart
 import 'package:flutter/material.dart';
-import '../UI/joystick_theme.dart';
+import 'joystick_theme.dart';
 
 class VirtualJoystick extends StatefulWidget {
   final JoystickTheme theme;

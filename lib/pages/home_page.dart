@@ -8,7 +8,7 @@ import '../ble/ble_manager.dart';
 // import pages
 import 'gamepad_8Botton_page.dart';
 import 'gamepad_4Botton_page.dart';
-import 'joystick_control_page.dart';
+import 'mode1_dual_joystick.dart';
 import 'bluetooth_ble_page.dart';
 
 class HomePage extends StatelessWidget {
@@ -32,11 +32,11 @@ class HomePage extends StatelessWidget {
         asset: AppAssets.menuGamepad4,
       ),
       _MenuItem(
-        'Joystick Control',
+        'Joystick',
         Icons.gamepad,
-        const JoystickControlPage(),
-        'ควบคุมด้วยจอยสติ๊ก',
-        asset: AppAssets.menuBluetooth,
+        const Mode1DualJoystickPage(),
+        'ควบคุมแบบจอย',
+        asset: AppAssets.menuJoystick,
       ),
       _MenuItem(
         'Bluetooth (BLE)',
@@ -45,30 +45,29 @@ class HomePage extends StatelessWidget {
         'สแกน/เชื่อมต่ออุปกรณ์ BLE',
         asset: AppAssets.menuBluetooth,
       ),
-      _MenuItem(
-        'About',
-        Icons.info,
-        const AboutPage(),
-        'PrinceBot Controller',
-      ),
+      _MenuItem('About', Icons.info, const AboutPage(), 'PrinceBot Controller'),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PrinceBot Controller'),
+        title: const Text(
+          'PrinceBot Controller',
+          style: TextStyle(
+            fontSize: 24, // ✅ ปรับขนาดตรงนี้
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
 
         /// ⭐ AppBar Style เฉพาะหน้า Home
         centerTitle: true,
-        elevation: 6,
+        elevation: 5,
         shadowColor: Colors.black54,
         backgroundColor: Colors.transparent,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                Color(0xFF0083FF),
-                Color(0xFF0051A8),
-              ],
+              colors: [Color(0xFF0083FF), Color(0xFF0051A8)],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
@@ -87,13 +86,46 @@ class HomePage extends StatelessWidget {
             itemBuilder: (ctx, i) {
               final it = items[i];
               return ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 8,
+                ),
+
                 leading: it.asset != null
-                    ? Image.asset(it.asset!, width: 32, height: 32)
+                    ? Image.asset(
+                        it.asset!,
+                        width: 44, // ✅ ไอคอน asset ใหญ่ขึ้น
+                        height: 44,
+                      )
                     : (it.icon != null
-                        ? Icon(it.icon)
-                        : const SizedBox(width: 32)),
-                title: Text(it.title),
-                subtitle: Text(it.subtitle),
+                          ? Icon(
+                              it.icon,
+                              size: 40, // ✅ icon ปกติใหญ่ขึ้น
+                            )
+                          : const SizedBox(width: 44)),
+
+                title: Text(
+                  it.title,
+                  style: const TextStyle(
+                    fontSize: 18, // ✅ ตัวหัวใหญ่ขึ้น
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    it.subtitle,
+                    style: TextStyle(
+                      fontSize: 14, // ✅ ตัวรองใหญ่ขึ้น
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+
+                minLeadingWidth: 52, // ✅ กันแนวไอคอนชิดเกินไป
+                horizontalTitleGap: 14,
+
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => it.page),
@@ -150,9 +182,7 @@ class AboutPage extends StatelessWidget {
         ),
       ),
 
-      body: const Center(
-        child: Text('PrinceBot Controller v1.0 — BLE Mode'),
-      ),
+      body: const Center(child: Text('PrinceBot Controller v1.0 — BLE Mode')),
     );
   }
 }

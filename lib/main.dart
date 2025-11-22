@@ -2,8 +2,8 @@
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
-import 'pages/home_page.dart';               // ⭐ NEW
-import 'pages/joystick_control_page.dart';
+import 'pages/home_page.dart';
+import 'pages/mode1_dual_joystick.dart';
 import 'pages/gamepad_8Botton_page.dart';
 import 'pages/gamepad_4Botton_page.dart';
 import 'pages/bluetooth_ble_page.dart';

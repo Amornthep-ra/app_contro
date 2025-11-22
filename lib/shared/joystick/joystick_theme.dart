@@ -1,4 +1,4 @@
-// lib/UI/joystick_theme.dart
+// lib/shared/joystick/joystick_theme.dart
 import 'package:flutter/material.dart';
 
 class JoystickTheme {
@@ -39,15 +39,21 @@ class JoystickTheme {
     this.size = 280,
     this.knobSize = 90,
 
-    this.bgColor = const Color.fromARGB(255, 67, 155, 242),
-    this.bgOpacity = 0.18,
-    this.borderColor = const Color.fromARGB(82, 0, 0, 0),
-    this.borderWidth = 2.0,
+    // ✅ base BG (จะถูกใช้เป็น fallback ใน Light mode
+    // ใน Dark mode วงใหญ่ใช้ RadialGradient ใน joystick_view.dart อยู่แล้ว)
+    this.bgColor = const Color(0xFF0D0F14),
+    this.bgOpacity = 0.26,
 
-    this.knobColorStart = const Color(0xFF5C6BFF),
-    this.knobColorEnd = const Color(0xFF2D39B5),
-    this.knobOpacity = 0.90,
-    this.knobBorderColor = Colors.white70,
+    // ✅ ขอบวงใหญ่ — ตั้งเป็น “neon-ish” ในโทนดำ
+    // joystick_view.dart จะเอาไป withOpacity เพิ่ม/ลดตาม dark-light อีกที
+    this.borderColor = const Color(0xFF6B7CFF), // ฟ้าอมม่วงแบบปุ่ม
+    this.borderWidth = 2.4,
+
+    // ✅ สี knob fallback (ถ้าไม่ได้ใช้รูป)
+    this.knobColorStart = const Color(0xFF8A5CFF),
+    this.knobColorEnd = const Color(0xFF3D42D6),
+    this.knobOpacity = 0.92,
+    this.knobBorderColor = const Color(0xFFB9C6FF),
     this.knobBorderWidth = 2.0,
 
     // ⭐ แยกซ้าย/ขวาแล้ว
@@ -55,7 +61,7 @@ class JoystickTheme {
     this.rightKnobImage,
 
     this.knobShadowBlur = 16,
-    this.knobShadowColor = const Color(0x55000000),
+    this.knobShadowColor = const Color(0x66000000),
 
     this.debugBgColor = Colors.black87,
     this.debugTextColor = Colors.greenAccent,

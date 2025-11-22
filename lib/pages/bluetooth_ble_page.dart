@@ -19,6 +19,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   StreamSubscription<List<ScanResult>>? _scanSub;
   List<ScanResult> _results = const [];
 
+  BluetoothDevice? _connectedDevice; // ✅ เก็บ device ที่ต่ออยู่ในหน้านี้เอง
+
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
       (uuid) => uuid.str.toLowerCase().startsWith("6e400001"),
@@ -59,6 +61,21 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     if (mounted) setState(() => _scanning = false);
   }
 
+  Future<void> _disconnect() async {
+    final d = _connectedDevice;
+    if (d == null) return;
+
+    try {
+      await d.disconnect();
+    } catch (_) {}
+
+    if (!mounted) return;
+    setState(() => _connectedDevice = null);
+
+    AppConnection.instance.setBleConnected(false);
+    _showSnack('ตัดการเชื่อมต่อแล้ว');
+  }
+
   @override
   void dispose() {
     _scanSub?.cancel();
@@ -68,7 +85,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
   }
 
   Future<void> _connect(ScanResult r) async {
@@ -83,16 +102,21 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         autoConnect: false,
       );
 
-      AppConnection.instance.setBleConnected(true);
-      _showSnack(
-        'เชื่อมต่อกับ ${d.platformName.isEmpty ? d.remoteId.str : d.platformName} สำเร็จ',
-      );
+      if (!mounted) return;
 
+      setState(() => _connectedDevice = d);
+      AppConnection.instance.setBleConnected(true);
+
+      final showName =
+          d.platformName.isEmpty ? d.remoteId.str : d.platformName;
+
+      _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
+
+      // ✅ setDevice ใช้เฉพาะตอนต่อสำเร็จ ไม่ส่ง null แน่นอน
       BleManager.instance.setDevice(d);
 
       final ok = await BleManager.instance.discoverServices();
       if (!ok) _showSnack("ไม่พบ UART RX/TX characteristic");
-
     } catch (e) {
       AppConnection.instance.setBleConnected(false);
       _showSnack('เชื่อมต่อไม่สำเร็จ: $e');
@@ -100,7 +124,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   // ===========================================================
-  // ⭐ GLASSMORPHISM STATUS BAR (Premium)
+  // ⭐ GLASS + BLE TONE STATUS BAR
   // ===========================================================
   Widget _buildBleStatusBar() {
     return StreamBuilder<bool>(
@@ -110,36 +134,67 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         final connected = snap.data ?? false;
 
         final name = connected
-            ? (BleManager.instance.currentDeviceName ??
-                BleManager.instance.currentDeviceId ??
-                "Unknown")
-            : "Unknown";
+            ? (_connectedDevice?.platformName.isNotEmpty == true
+                ? _connectedDevice!.platformName
+                : _connectedDevice?.remoteId.str ?? "Unknown")
+            : "Not Connected";
+
+        final t = Theme.of(context).textTheme;
+        final titleStyle = t.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              shadows: const [
+                Shadow(blurRadius: 6, color: Colors.black54),
+              ],
+            ) ??
+            const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              shadows: [Shadow(blurRadius: 6, color: Colors.black54)],
+            );
+
+        final grad = connected
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF0EA5E9).withOpacity(0.30), // BLE blue
+                  const Color(0xFF22D3EE).withOpacity(0.18), // cyan
+                ],
+              )
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.10),
+                  Colors.white.withOpacity(0.04),
+                ],
+              );
+
+        final border = connected
+            ? const Color(0xFF38BDF8).withOpacity(0.55)
+            : const Color(0xFF60A5FA).withOpacity(0.35);
 
         return ClipRRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               width: double.infinity,
               decoration: BoxDecoration(
-                color: connected
-                    ? Colors.greenAccent.withOpacity(0.22)
-                    : Colors.redAccent.withOpacity(0.22),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.25),
-                  width: 1.2,
-                ),
+                gradient: grad,
+                border: Border.all(color: border, width: 1.4),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
+                    color: Colors.black.withOpacity(0.22),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   )
                 ],
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     connected
@@ -148,27 +203,85 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     color: Colors.white,
                     size: 20,
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    connected ? "Connected: $name" : "Not Connected",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      shadows: [
-                        Shadow(
-                          blurRadius: 6,
-                          color: Colors.black54,
-                        )
-                      ],
+                  const SizedBox(width: 8),
+
+                  Expanded(
+                    child: Text(
+                      connected ? "Connected: $name" : "Not Connected",
+                      style: titleStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+
+                  // ✅ Refresh / Rescan
+                  _smallAction(
+                    icon: _scanning ? Icons.hourglass_top : Icons.refresh,
+                    label: "Scan",
+                    onTap: _scanning ? null : _startScan,
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // ✅ Disconnect (เฉพาะตอนต่ออยู่)
+                  if (connected)
+                    _smallAction(
+                      icon: Icons.link_off,
+                      label: "Disconnect",
+                      onTap: _disconnect,
+                      danger: true,
+                    ),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _smallAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool danger = false,
+  }) {
+    final base = danger
+        ? const Color(0xFFFF6B6B)
+        : const Color(0xFF38BDF8);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: base.withOpacity(0.75), width: 1),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 10,
+              color: base.withOpacity(0.25),
+            )
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -182,17 +295,16 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       appBar: AppBar(
         title: const Text('Bluetooth (BLE)'),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
+          preferredSize: const Size.fromHeight(52),
           child: _buildBleStatusBar(),
         ),
         elevation: 0,
       ),
-
       body: results.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
-                'กำลังค้นหาอุปกรณ์ BLE…',
-                style: TextStyle(fontSize: 16),
+                _scanning ? 'กำลังสแกน BLE…' : 'ยังไม่พบอุปกรณ์ BLE',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
             )
           : ListView.separated(
@@ -207,9 +319,13 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     : d.remoteId.str;
 
                 return ListTile(
-                  leading: const Icon(Icons.bluetooth, color: Colors.blue),
+                  leading: const Icon(
+                    Icons.bluetooth,
+                    color: Color(0xFF38BDF8), // BLE blue tone
+                  ),
                   title: Text(name),
                   subtitle: Text("RSSI: ${r.rssi} • ${d.remoteId.str}"),
+                  trailing: const Icon(Icons.chevron_right),
                   onTap: () => _connect(r),
                 );
               },

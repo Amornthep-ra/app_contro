@@ -437,29 +437,62 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
     final theme = Theme.of(context);
     final btnSize = widget.diameter;
 
+    // ✅ เช็คธีมดำแบบกัน iPad mismatch
+    final themeB = theme.brightness;
+    final platformB = MediaQuery.of(context).platformBrightness;
+    final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
+
+    // ================
+    // ✅ แก้ "เฉพาะสี"
+    // ================
+
     final baseColor = theme.colorScheme.surface;
     final accent = const Color(0xFF5C6BFF);
 
-    final normalTop = lighten(baseColor, .08);
-    final normalBottom = darken(baseColor, .12);
-    final pressedTop = lighten(accent, .10);
-    final pressedBottom = darken(accent, .18);
+    // ปกติ (ไม่กด)
+    final normalTop = isDark
+        ? const Color(0xFF2B2F3A) // ดำอมฟ้า
+        : lighten(baseColor, .08);
+
+    final normalBottom = isDark
+        ? const Color(0xFF0E1015) // ดำขอบ
+        : darken(baseColor, .12);
+
+    // ตอนกด
+    final pressedTop = isDark
+        ? lighten(accent, .18)
+        : lighten(accent, .10);
+
+    final pressedBottom = isDark
+        ? darken(accent, .28)
+        : darken(accent, .18);
 
     final gradientColors = _pressed
         ? [pressedTop, pressedBottom]
         : [normalTop, normalBottom];
 
+    // สีขอบ
     final borderColor = _pressed
-        ? Colors.cyanAccent.withOpacity(0.95)
-        : Colors.black.withOpacity(0.45);
+        ? (isDark
+            ? const Color(0xFF00F0FF).withOpacity(0.95) // neon ฟ้า
+            : Colors.cyanAccent.withOpacity(0.95))
+        : (isDark
+            ? const Color(0xFF6B7CFF).withOpacity(0.85) // ฟ้าอมม่วง
+            : Colors.black.withOpacity(0.45));
 
-    final borderWidth = _pressed ? 3.0 : 1.4;
+    final borderWidth = _pressed ? 3.0 : (isDark ? 2.2 : 1.4);
 
-    final shadowBlur = _pressed ? 22.0 : 14.0;
+    // เงา/โกลว์
+    final shadowBlur = _pressed ? 22.0 : (isDark ? 18.0 : 14.0);
     final shadowOffset = _pressed ? const Offset(0, 6) : const Offset(0, 4);
+
     final shadowColor = _pressed
-        ? const Color(0xFF00FFFF).withOpacity(0.55)
-        : Colors.black.withOpacity(0.30);
+        ? (isDark
+            ? const Color(0xFF00F0FF).withOpacity(0.55)
+            : const Color(0xFF00FFFF).withOpacity(0.55))
+        : (isDark
+            ? Colors.black.withOpacity(0.65)
+            : Colors.black.withOpacity(0.30));
 
     return Listener(
       onPointerDown: (_) => _onDown(),
@@ -493,6 +526,16 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
                       offset: shadowOffset,
                       color: shadowColor,
                     ),
+
+                    // ✅ glow วงนอกเบาๆ เฉพาะ Dark + ไม่กด
+                    if (isDark && !_pressed)
+                      BoxShadow(
+                        blurRadius: btnSize * 0.22,
+                        spreadRadius: btnSize * 0.02,
+                        color:
+                            const Color(0xFF6B7CFF).withOpacity(0.25),
+                        offset: const Offset(0, 0),
+                      ),
                   ],
                 ),
                 child: ClipOval(

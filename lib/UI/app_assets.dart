@@ -9,5 +9,6 @@ class AppAssets {
   // ไอคอนเมนูหน้าแรก
   static const String menuGamepad8   = 'assets/icons/gamepad.png';
   static const String menuGamepad4   = 'assets/icons/gamepad.png';
+  static const String menuJoystick   = 'assets/icons/joystick.png';
   static const String menuBluetooth  = 'assets/icons/bluetooth_searching.png';
 }

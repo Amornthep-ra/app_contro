@@ -1,7 +1,7 @@
 // lib/ble/ble_manager.dart
 import 'dart:async';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import '../joystick/joystick_packet.dart';
+import '../shared/joystick/joystick_packet.dart';
 
 class BleManager {
   BleManager._();
