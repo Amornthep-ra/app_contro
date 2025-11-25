@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../ble/ble_manager.dart'; // ⬅ เปลี่ยนมาใช้ BLE
-import '../UI/gamepad_assets.dart';
-import '../UI/gamepad_components.dart';
-import '../widgets/logo_corner.dart';
-import '../widgets/connection_status_badge.dart';
-import '../utils/orientation_utils.dart';
+import '../../core/ble/ble_manager.dart'; // ⬅ เปลี่ยนมาใช้ BLE
+import '../../core/ui/gamepad_assets.dart';
+import '../../core/ui/gamepad_components.dart';
+import '../../widgets/logo_corner.dart';
+import '../../widgets/connection_status_badge.dart';
+import '../../core/utils/orientation_utils.dart';
 
 
 /// ========================= PAGE CONFIG =========================

@@ -1,15 +1,15 @@
 // lib/pages/home_page.dart
 import 'package:flutter/material.dart';
 
-import '../UI/app_assets.dart';
-import '../widgets/logo_corner.dart';
-import '../ble/ble_manager.dart';
+import '../../core/ui/app_assets.dart';
+import '../../widgets/logo_corner.dart';
+import '../../core/ble/ble_manager.dart';
 
 // import pages
-import 'gamepad_8Botton_page.dart';
-import 'gamepad_4Botton_page.dart';
-import 'mode1_dual_joystick.dart';
-import 'bluetooth_ble_page.dart';
+import '../gamepad/gamepad_8Botton_page.dart';
+import '../gamepad/gamepad_4Botton_page.dart';
+import '../joystick/mode1_dual_joystick.dart';
+import '../bluetooth/bluetooth_ble_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});

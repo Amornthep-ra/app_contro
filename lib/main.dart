@@ -2,11 +2,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
-import 'pages/home_page.dart';
-import 'pages/mode1_dual_joystick.dart';
-import 'pages/gamepad_8Botton_page.dart';
-import 'pages/gamepad_4Botton_page.dart';
-import 'pages/bluetooth_ble_page.dart';
+import 'features/home/home_page.dart';
+import 'features/joystick/mode1_dual_joystick.dart';
+import 'features/gamepad/gamepad_8Botton_page.dart';
+import 'features/gamepad/gamepad_4Botton_page.dart';
+import 'features/bluetooth/bluetooth_ble_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

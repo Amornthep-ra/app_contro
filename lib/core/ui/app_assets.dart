@@ -1,4 +1,4 @@
-// lib/UI/app_assets.dart
+// lib\core\ui\app_assets.dart
 class AppAssets {
   // Logo มุมขวาล่าง / ใช้ที่อื่นก็ได้
   static const String logoPrinceBot = 'assets/Logo/PrinceBot_Logo.png';

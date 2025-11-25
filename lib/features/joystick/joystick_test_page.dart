@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../shared/joystick/joystick_widget.dart';
-import '../shared/joystick/joystick_controller.dart';
+import 'components/joystick_widget.dart';
+import 'components/joystick_controller.dart';
 
 class JoystickTestPage extends StatefulWidget {
   const JoystickTestPage({super.key});

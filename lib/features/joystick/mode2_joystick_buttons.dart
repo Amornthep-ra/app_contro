@@ -3,17 +3,17 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
-import '../ble/ble_manager.dart';
-import '../UI/gamepad_assets.dart';
-import '../widgets/logo_corner.dart';
-import '../widgets/connection_status_badge.dart';
-import '../utils/orientation_utils.dart';
-import '../shared/joystick/joystick_widget.dart';
-import '../shared/joystick/joystick_controller.dart';
-import '../shared/joystick/joystick_packet.dart';
-import '../shared/joystick/joystick_theme.dart';
+import '../../core/ble/ble_manager.dart';
+import '../../core/ui/gamepad_assets.dart';
+import '../../widgets/logo_corner.dart';
+import '../../widgets/connection_status_badge.dart';
+import '../../core/utils/orientation_utils.dart';
+import 'components/joystick_widget.dart';
+import 'components/joystick_controller.dart';
+import 'components/joystick_packet.dart';
+import 'components/joystick_theme.dart';
 import 'mode1_dual_joystick.dart';
-import 'home_page.dart';
+import '../home/home_page.dart';
 
 class Mode2JoystickButtonsPage extends StatefulWidget {
   const Mode2JoystickButtonsPage({super.key});

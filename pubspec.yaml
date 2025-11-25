@@ -12,6 +12,11 @@ dependencies:
   flutter_blue_plus: ^2.0.2
   shared_preferences: ^2.5.3
   permission_handler: ^11.3.1
+  flutter_riverpod: ^3.0.3
+  dio: ^5.9.0
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.9.0
+  device_info_plus: ^12.2.0
   cupertino_icons: ^1.0.8
   flutter_launcher_icons: ^0.14.4
 
@@ -21,6 +26,10 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_native_splash: ^2.4.7
 
+  build_runner: ^2.10.4
+  freezed: ^3.1.0
+  json_serializable: ^6.7.0
+
 flutter:
   uses-material-design: true
   assets:
@@ -28,36 +37,23 @@ flutter:
     - assets/Logo/
     - assets/icons/botton/
 
-# -------------------- Splash config (2.4.7) --------------------
 flutter_native_splash:
   android: true
   ios: true
-
-  # ค่าหลัก (ก่อน Android 12)
   color: "#121212"
   color_dark: "#000000"
   image: assets/Logo/PrinceBot_Logo.png
   image_dark: assets/Logo/PrinceBot_Logo_Dark.png
 
-  # ค่าที่ต้องประกาศซ้ำสำหรับ Android 12+
   android_12:
     color: "#121212"
     color_dark: "#000000"
     image: assets/Logo/PrinceBot_Logo.png
     image_dark: assets/Logo/PrinceBot_Logo_Dark.png
-# ---------------------------------------------------------------
 
-# -------------------- App Icon (flutter_launcher_icons) --------------------
-# ใช้รูปจาก: assets/icons/PrinceBot Logo.png
-# แพ็กเกจจะ generate ไอคอนให้ทั้ง Android/iOS อัตโนมัติ
 flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/Logo/PrinceBot_Logo.png"
   adaptive_icon_foreground: "assets/Logo/PrinceBot_Logo.png"
-  # ถ้าต้องการ Adaptive Icon สำหรับ Android (ทางเลือก):
-  # adaptive_icon_background: "#1E2A39"  # หรือใส่ภาพ bg: assets/icons/app_icon_bg.png
-  # adaptive_icon_foreground: "assets/icons/PrinceBot Logo.png"
-  # (ทางเลือก) Monochrome สำหรับ Android 13+
-  # adaptive_icon_monochrome: "assets/icons/PrinceBot Logo.png"
-# --------------------------------------------------------------------------
+

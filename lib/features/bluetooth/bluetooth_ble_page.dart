@@ -4,8 +4,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import '../app_connection.dart';
-import '../ble/ble_manager.dart';
+import '../../app_connection.dart';
+import '../../core/ble/ble_manager.dart';
 
 class BluetoothBlePage extends StatefulWidget {
   const BluetoothBlePage({super.key});

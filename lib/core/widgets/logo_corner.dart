@@ -1,6 +1,6 @@
 // lib/widgets/logo_corner.dart
 import 'package:flutter/material.dart';
-import '../UI/app_assets.dart';
+import '../core/ui/app_assets.dart';
 
 class LogoCorner extends StatelessWidget {
   const LogoCorner({super.key});
