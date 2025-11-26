@@ -313,6 +313,35 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           child: _buildBleStatusBar(),
         ),
       ),
+
+      // 🔹 เพิ่ม body แสดงรายชื่ออุปกรณ์ที่เจอ (แก้เฉพาะส่วนนี้)
+      body: results.isEmpty
+          ? const Center(
+              child: Text(
+                'No PrinceBot device found.\nTap Scan to try again.',
+                textAlign: TextAlign.center,
+              ),
+            )
+          : ListView.builder(
+              itemCount: results.length,
+              itemBuilder: (context, index) {
+                final r = results[index];
+                final name = r.device.platformName.isNotEmpty
+                    ? r.device.platformName
+                    : r.device.remoteId.str;
+
+                return ListTile(
+                  title: Text(name),
+                  subtitle: Text(
+                    r.advertisementData.serviceUuids
+                        .map((u) => u.str)
+                        .join(', '),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _connect(r),
+                );
+              },
+            ),
     );
   }
 }
