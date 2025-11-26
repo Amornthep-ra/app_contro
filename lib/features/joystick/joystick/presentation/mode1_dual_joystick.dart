@@ -3,15 +3,16 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
-import '../../core/ble/ble_manager.dart';
-import 'components/joystick_controller.dart';
-import 'components/joystick_widget.dart';
-import '../../widgets/connection_status_badge.dart';
-import '../../core/utils/orientation_utils.dart';
-import 'components/joystick_theme.dart';
+import '../../../../core/ble/ble_manager.dart';
+import '../joystick_controller.dart';
+import '../widgets/joystick_widget.dart';
+import '../../../../core/widgets/connection_status_badge.dart';
+import '../../../../core/utils/orientation_utils.dart';
+import '../joystick_theme.dart';
 import 'mode2_joystick_buttons.dart';
-import '../home/home_page.dart';
-import 'components/joystick_packet.dart';
+import '../../../home/home_page.dart';
+import '../../../../core/ble/joystick_packet.dart';
+import '../../../../core/ui/custom_appbars.dart';
 
 class Mode1DualJoystickPage extends StatefulWidget {
   const Mode1DualJoystickPage({super.key});
@@ -46,7 +47,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
 
-  // ==== DEBUG FORMATTER (统一รูปแบบ) ====
   String _fmt(double v) => v.toStringAsFixed(2);
   String _leftDebug = "JL: (0.00, 0.00)";
   String _rightDebug = "JR: (0.00, 0.00)";
@@ -67,7 +67,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
     _controller.setLeftJoystick(0, 0);
 
-    // ส่ง 0 ซ้ำ 2 ครั้ง กันค้าง
     BleManager.instance.sendJoystick(
       JoystickPacket(lx: 0, ly: 0, rx: _lastRX, ry: _lastRY),
     );
@@ -103,7 +102,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
   void _showMenuOverlay() {
     if (_menuEntry != null) return;
 
-    // ✅ กัน tap แรกที่ใช้เปิดเมนูไม่ให้ไปโดน backdrop
     _ignoreOutsideOnce = true;
 
     _menuEntry = OverlayEntry(
@@ -111,25 +109,20 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
         return Positioned.fill(
           child: Stack(
             children: [
-              // ✅ คลิกพื้นหลังปิดเมนู
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () {
-                  if (_ignoreOutsideOnce) return; // ✅ ignore tap แรกที่หลุดมา
+                  if (_ignoreOutsideOnce) return;
                   _hideMenuOverlay();
                 },
                 child: Container(color: Colors.transparent),
               ),
-
               CompositedTransformFollower(
                 link: _menuLink,
                 showWhenUnlinked: false,
-
-                // ✅ ล็อกมุมให้ชิดกับ pill อัตโนมัติ
                 targetAnchor: Alignment.bottomCenter,
                 followerAnchor: Alignment.topCenter,
                 offset: const Offset(0, 8),
-
                 child: Material(
                   color: Colors.transparent,
                   child: _buildMenuContent(),
@@ -145,8 +138,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     _menuAnim.forward();
     setState(() => _showModeMenu = true);
 
-    // ✅ เดิมปลด ignore หลังเฟรมเดียว → บางเครื่องเร็วไปทำให้เมนูหายเอง
-    // เลยหน่วงนิดนึงให้ tap-up แรกผ่านไปก่อน
     Future.delayed(const Duration(milliseconds: 120), () {
       _ignoreOutsideOnce = false;
     });
@@ -166,7 +157,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     super.initState();
     OrientationUtils.setLandscape();
 
-    // Animation popup menu
     _menuAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 240),
@@ -178,11 +168,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    // joystick loop
     _timer = Timer.periodic(const Duration(milliseconds: 40), (_) {
       final packet = _controller.buildPacket();
 
-      // ✅ กันเหนียว: ถ้าค่าใกล้ 0 มากๆ ให้ snap กลับ 0 ทันที
       const zeroEps = 0.015;
 
       final nearZero =
@@ -206,7 +194,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
         _controller.setLeftJoystick(0, 0);
         _controller.setRightJoystick(0, 0);
 
-        // ส่ง 0 ซ้ำ กันค้างปลายทางเหมือน Mode 2
         BleManager.instance.sendJoystick(
           JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
         );
@@ -269,9 +256,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     return (snapX, snapY);
   }
 
-  // ================================
-  //  MODE MENU (Glass + Animation)
-  // ================================
   Widget _buildMenuContent() {
     return SlideTransition(
       position: _slide,
@@ -362,7 +346,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     );
   }
 
-  // Back → กลับหน้า Home
   Future<bool> _onBack() async {
     OrientationUtils.setPortrait();
     Navigator.pushAndRemoveUntil(
@@ -378,29 +361,16 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     return WillPopScope(
       onWillPop: _onBack,
       child: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 80,
+        appBar: JoystickAppBar(
+          title: "Joystick Control (Dual)",
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: _onBack,
           ),
-          title: const Text("Joystick Control (Dual)"),
-          flexibleSpace: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
-                ),
-              ),
-            ),
-          ),
           actions: [
             const ConnectionStatusBadge(),
             const SizedBox(width: 8),
-
             UnconstrainedBox(
-              // ✅ กัน AppBar บังคับ width
               child: CompositedTransformTarget(
                 link: _menuLink,
                 child: Padding(
@@ -501,9 +471,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     );
   }
 
-  // =========================
-  // DEBUG BOX (auto width X)
-  // =========================
   Widget _debugBox(String txt) {
     return AnimatedSize(
       duration: const Duration(milliseconds: 180),
@@ -511,10 +478,11 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       alignment: Alignment.centerLeft,
       child: IntrinsicWidth(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          constraints: BoxConstraints(minWidth: joystickTheme.debugMinWidth),
+          padding: joystickTheme.debugPadding,
           decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(12),
+            color: joystickTheme.debugBgColor,
+            borderRadius: BorderRadius.circular(joystickTheme.debugRadius),
             border: Border.all(color: Colors.white38),
           ),
           child: Text(
@@ -522,11 +490,11 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
             maxLines: 1,
             softWrap: false,
             overflow: TextOverflow.visible,
-            style: const TextStyle(
-              color: Colors.greenAccent,
+            style: TextStyle(
+              color: joystickTheme.debugTextColor,
               fontFamily: "monospace",
-              fontSize: 14,
-              height: 1.1,
+              fontSize: joystickTheme.debugFontSize,
+              height: 1.2,
             ),
           ),
         ),
@@ -535,9 +503,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
   }
 }
 
-// =========================
-// IOS PILL (single definition)
-// =========================
 class IosPill extends StatefulWidget {
   final IconData icon;
   final String label;

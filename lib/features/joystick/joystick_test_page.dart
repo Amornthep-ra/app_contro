@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'components/joystick_widget.dart';
-import 'components/joystick_controller.dart';
+import 'joystick/widgets/joystick_widget.dart';
+import 'joystick/joystick_controller.dart';
 
 class JoystickTestPage extends StatefulWidget {
   const JoystickTestPage({super.key});
@@ -12,7 +12,7 @@ class JoystickTestPage extends StatefulWidget {
 class _JoystickTestPageState extends State<JoystickTestPage> {
   final joystickController = JoystickController();
 
-  double lx = 0, ly = 0; // normalized -1..1
+  double lx = 0, ly = 0;
   double rx = 0, ry = 0;
 
   @override
@@ -24,7 +24,6 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // ค่าแสดงบนหน้าจอ
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -48,7 +47,6 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // JOYSTICK LEFT
                   JoystickWidget(
                     controller: joystickController,
                     isLeft: true,
@@ -60,7 +58,6 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
                     },
                   ),
 
-                  // JOYSTICK RIGHT
                   JoystickWidget(
                     controller: joystickController,
                     isLeft: false,

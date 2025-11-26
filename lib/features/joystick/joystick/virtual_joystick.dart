@@ -5,7 +5,6 @@ import 'joystick_theme.dart';
 class VirtualJoystick extends StatefulWidget {
   final JoystickTheme theme;
 
-  /// TRUE = joystick left → ใช้รูป leftKnobImage
   final bool isLeft;
 
   final Function(Offset offset) onChanged;
@@ -56,7 +55,6 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
   Widget build(BuildContext context) {
     final t = widget.theme;
 
-    // ⭐ เลือกรูปตามฝั่ง
     final knobImage = widget.isLeft ? t.leftKnobImage : t.rightKnobImage;
 
     return GestureDetector(
@@ -69,9 +67,6 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
         height: t.size,
         child: Stack(
           children: [
-            // ===============================================================
-            // ⭐ BG CIRCLE — PS5 STYLE: Gradient Border + Glow + Depth
-            // ===============================================================
             Container(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
@@ -84,13 +79,11 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                   stops: const [0.0, 0.5, 1.0],
                 ),
                 boxShadow: [
-                  // Light Glow
                   BoxShadow(
                     color: Colors.blueAccent.withOpacity(0.3),
                     blurRadius: 25,
                     spreadRadius: 4,
                   ),
-                  // Depth Shadow
                   BoxShadow(
                     color: Colors.black.withOpacity(0.45),
                     blurRadius: 14,
@@ -109,9 +102,6 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
               ),
             ),
 
-            // ===============================================================
-            // ⭐ Knob (ปุ่มกลมขยับ)
-            // ===============================================================
             Positioned(
               left: radius + _pos.dx - knobRadius,
               top: radius + _pos.dy - knobRadius,

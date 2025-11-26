@@ -1,6 +1,6 @@
-// lib/widgets/logo_corner.dart
+// lib/core/widgets/logo_corner.dart
 import 'package:flutter/material.dart';
-import '../core/ui/app_assets.dart';
+import '../ui/app_assets.dart';
 
 class LogoCorner extends StatelessWidget {
   const LogoCorner({super.key});
@@ -8,20 +8,20 @@ class LogoCorner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      ignoring: true, // ไม่บล็อกการแตะ
+      ignoring: true,
       child: Align(
         alignment: Alignment.bottomRight,
         child: Padding(
-          padding: const EdgeInsets.all(16), // ระยะจากขอบหน้าจอ
+          padding: const EdgeInsets.all(16),
           child: Opacity(
             opacity: 0.95,
             child: SizedBox(
-              width: 56,   // ปรับขนาดโลโก้ได้ตามชอบ
+              width: 56,
               height: 56,
               child: ClipOval(
                 child: Image.asset(
                   AppAssets.cornerLogo,
-                  fit: BoxFit.cover,   // ให้รูปเต็มวงกลม
+                  fit: BoxFit.cover,
                 ),
               ),
             ),

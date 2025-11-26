@@ -46,13 +46,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   Future<void> _startScan() async {
     if (_scanning) return;
 
-    final state = await FlutterBluePlus.adapterState.first;
-    if (state != BluetoothAdapterState.on) {
-      _showSnack('กรุณาเปิด Bluetooth แล้วลองใหม่');
-      AppConnection.instance.setBleConnected(false);
-      return;
-    }
-
     setState(() {
       _scanning = true;
       _results = [];
@@ -63,19 +56,18 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       if (mounted) setState(() => _results = list);
     });
 
-    try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
-    } catch (e) {
-      _showSnack('เริ่มสแกนไม่สำเร็จ: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _scanning = false);
-      }
-    }
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
+
+    if (mounted) setState(() => _scanning = false);
   }
 
   Future<void> _disconnect() async {
-    await BleManager.instance.disconnect();
+    final d = _connectedDevice;
+    if (d == null) return;
+
+    try {
+      await d.disconnect();
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() => _connectedDevice = null);
@@ -117,6 +109,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
       _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
 
+      // ✅ setDevice ใช้เฉพาะตอนต่อสำเร็จ ไม่ส่ง null แน่นอน
       BleManager.instance.setDevice(d);
 
       final ok = await BleManager.instance.discoverServices();
@@ -127,6 +120,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     }
   }
 
+  // ===========================================================
+  // ⭐ GLASS + BLE TONE STATUS BAR
+  // ===========================================================
   Widget _buildBleStatusBar() {
     return StreamBuilder<bool>(
       stream: BleManager.instance.connectionStream,
@@ -214,6 +210,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     ),
                   ),
 
+                  // ✅ Refresh / Rescan
                   _smallAction(
                     icon: _scanning ? Icons.hourglass_top : Icons.refresh,
                     label: "Scan",
@@ -222,6 +219,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
                   const SizedBox(width: 8),
 
+                  // ✅ Disconnect (เฉพาะตอนต่ออยู่)
                   if (connected)
                     _smallAction(
                       icon: Icons.link_off,
@@ -276,6 +274,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     );
   }
 
+  // ===========================================================
+
   @override
   Widget build(BuildContext context) {
     final results = _results.where(isRobot).toList();
@@ -283,9 +283,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
+        scrolledUnderElevation: 0,
         backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title: const Text('Bluetooth (BLE)'),
+        automaticallyImplyLeading: true,
+        centerTitle: false,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
@@ -295,24 +296,63 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color.fromARGB(
-                      255,
-                      158,
-                      184,
-                      247,
-                    ), // ปรับสองค่านี้เป็นโทนที่อยากได้
-                    Color.fromARGB(255, 192, 203, 250),
+                    Color(0xFF0F172A), // slate-900
+                    Color(0xFF020617), // almost black
                   ],
                 ),
               ),
             ),
           ),
         ),
+        title: Row(
+          children: const [
+            Icon(
+              Icons.bluetooth,
+              color: Color(0xFF38BDF8), // BLE blue
+              size: 20,
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Bluetooth (BLE)',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),
           child: _buildBleStatusBar(),
         ),
       ),
+      body: results.isEmpty
+          ? Center(
+              child: Text(
+                _scanning ? 'กำลังสแกน BLE…' : 'ยังไม่พบอุปกรณ์ BLE',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            )
+          : ListView.separated(
+              itemCount: results.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final r = results[i];
+                final d = r.device;
+
+                final name = d.platformName.isNotEmpty
+                    ? d.platformName
+                    : d.remoteId.str;
+
+                return ListTile(
+                  leading: const Icon(
+                    Icons.bluetooth,
+                    color: Color(0xFF38BDF8), // BLE blue tone
+                  ),
+                  title: Text(name),
+                  subtitle: Text("RSSI: ${r.rssi} • ${d.remoteId.str}"),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _connect(r),
+                );
+              },
+            ),
     );
   }
 }

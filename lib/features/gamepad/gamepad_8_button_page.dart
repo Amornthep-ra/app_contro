@@ -1,25 +1,22 @@
-// lib/gamepad_8Botton_page.dart
+// lib/features/gamepad/gamepad_8_button_page.dart
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/ble/ble_manager.dart'; // ⬅ ใช้ BLE
+import '../../core/ble/ble_manager.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
-import '../../widgets/logo_corner.dart';
-import '../../widgets/connection_status_badge.dart';
+import '../../core/widgets/logo_corner.dart';
+import '../../core/widgets/connection_status_badge.dart';
 import '../../core/utils/orientation_utils.dart';
+import '../../core/ui/custom_appbars.dart';
 
-// ==================== PROTOCOL CONFIG ====================
 
-// ไม่กดอะไรเลย → ส่ง "0"
 const String kIdle = '0';
 
-// ส่งซ้ำทุก 120 ms
-const int kRepeatMs = 1000 ~/ 60; // ≈16ms
+const int kRepeatMs = 1000 ~/ 60;
 
-// ตัวย่อคำสั่งปุ่ม
 const String kCmdUp = 'U';
 const String kCmdDown = 'D';
 const String kCmdLeft = 'L';
@@ -30,28 +27,24 @@ const String kCmdCross = 'X';
 const String kCmdSquare = 'SQ';
 const String kCmdCircle = 'C';
 
-class Gamepad_8Botton extends StatefulWidget {
-  const Gamepad_8Botton({super.key});
+class Gamepad_8_Botton extends StatefulWidget {
+  const Gamepad_8_Botton({super.key});
   @override
-  State<Gamepad_8Botton> createState() => _Gamepad_8BottonState();
+  State<Gamepad_8_Botton> createState() => _Gamepad_8_BottonState();
 }
 
-class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
+class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
   List<DeviceOrientation>? _prev;
 
-  // คำสั่งล่าสุดที่ส่งแสดงบนการ์ด
   String _command = kIdle;
 
-  // timer สำหรับส่งซ้ำ (เหมือน gamepad 4)
   Timer? _tick;
 
-  // state ปุ่มฝั่งซ้าย (ทิศ)
   bool _up = false;
   bool _down = false;
   bool _left = false;
   bool _right = false;
 
-  // state ปุ่มฝั่งขวา (สัญลักษณ์)
   bool _triangle = false;
   bool _cross = false;
   bool _square = false;
@@ -60,9 +53,8 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
   @override
   void initState() {
     super.initState();
-    OrientationUtils.setLandscape(); // ← บังคับแนวนอน
+    OrientationUtils.setLandscape();
 
-    // ส่งคำสั่งซ้ำทุก kRepeatMs ms ตาม state ปุ่มปัจจุบัน
     _tick = Timer.periodic(
       const Duration(milliseconds: kRepeatMs),
       (_) => _sendLoop(),
@@ -72,11 +64,10 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
   @override
   void dispose() {
     _tick?.cancel();
-    OrientationUtils.setPortrait(); // ← คืนแนวตั้งตอนออก
+    OrientationUtils.setPortrait();
     super.dispose();
   }
 
-  // (ของเดิม - ไม่ได้ใช้แล้ว แต่คงไว้ไม่แตะส่วนอื่น)
   Future<void> _lockLandscape() async {
     _prev = const [
       DeviceOrientation.portraitUp,
@@ -84,35 +75,25 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ];
-    await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
   }
 
   Future<void> _restoreOrientation() async {
-    await SystemChrome.setPreferredOrientations(
-      _prev ??
-          const [
-            DeviceOrientation.portraitUp,
-            DeviceOrientation.portraitDown,
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ],
-    );
+    _prev ??= const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ];
   }
 
-  // ---------- callback จากปุ่มฝั่งซ้าย (U/D/L/R) ----------
   void _onLeftPress(String id, bool isDown) {
     setState(() {
-      // กดปุ่มใหม่ → ปิดปุ่มอื่นฝั่งซ้าย เหลือได้ 1 ปุ่ม
       if (isDown) {
         _up = id == kCmdUp;
         _down = id == kCmdDown;
         _left = id == kCmdLeft;
         _right = id == kCmdRight;
       } else {
-        // ปล่อยปุ่ม: ปิดเฉพาะตัวเอง
         if (id == kCmdUp) _up = false;
         if (id == kCmdDown) _down = false;
         if (id == kCmdLeft) _left = false;
@@ -121,17 +102,14 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
     });
   }
 
-  // ---------- callback จากปุ่มฝั่งขวา (T/X/SQ/C) ----------
   void _onRightPress(String id, bool isDown) {
     setState(() {
-      // กดปุ่มใหม่ → ปิดปุ่มอื่นฝั่งขวา เหลือได้ 1 ปุ่ม
       if (isDown) {
         _triangle = id == kCmdTriangle;
         _cross = id == kCmdCross;
         _square = id == kCmdSquare;
         _circle = id == kCmdCircle;
       } else {
-        // ปล่อยปุ่ม: ปิดเฉพาะตัวเอง
         if (id == kCmdTriangle) _triangle = false;
         if (id == kCmdCross) _cross = false;
         if (id == kCmdSquare) _square = false;
@@ -140,9 +118,7 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
     });
   }
 
-  // ---------- สร้างคำสั่งจาก state ปัจจุบัน + ส่ง BLE ----------
   void _sendLoop() {
-    // เลือกปุ่มฝั่งซ้าย 1 ปุ่ม (ถ้ามี)
     String left = '';
     if (_up) {
       left = kCmdUp;
@@ -154,7 +130,6 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
       left = kCmdRight;
     }
 
-    // เลือกปุ่มฝั่งขวา 1 ปุ่ม (ถ้ามี)
     String right = '';
     if (_triangle) {
       right = kCmdTriangle;
@@ -169,23 +144,17 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
     String cmd;
 
     if (left.isEmpty && right.isEmpty) {
-      // ไม่กดอะไรเลย
-      cmd = kIdle; // "0"
+      cmd = kIdle;
     } else if (left.isNotEmpty && right.isEmpty) {
-      // กดเฉพาะฝั่งซ้าย
       cmd = left;
     } else if (left.isEmpty && right.isNotEmpty) {
-      // กดเฉพาะฝั่งขวา
       cmd = right;
     } else {
-      // ซ้าย 1 ปุ่ม + ขวา 1 ปุ่ม
       cmd = '$left+$right';
     }
 
-    // ส่ง BLE
     BleManager.instance.send(cmd);
 
-    // อัปเดตโชว์บน Command Card เฉพาะตอนเปลี่ยน
     if (cmd != _command) {
       setState(() {
         _command = cmd;
@@ -194,16 +163,15 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
   }
 
   void _updateCommand(String cmd) {
-    // เดิมใช้จากปุ่ม → ตอนนี้ไม่จำเป็นแล้ว
     setState(() => _command = cmd);
   }
 
   @override
+    @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 40,
-        title: const Text('Gamepad(8 Button)'),
+      appBar: GamepadAppBar(
+        title: 'Gamepad(8 Button)',
         actions: const [ConnectionStatusBadge()],
       ),
       body: SafeArea(
@@ -243,7 +211,6 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      // ฝั่งซ้าย: ปุ่มทิศทาง U/D/L/R
                       Expanded(
                         child: _DpadPanel(
                           up: const _BtnSpec('Up', kCmdUp, kGamepad8AssetUp),
@@ -256,7 +223,6 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
                           onPressChanged: _onLeftPress,
                         ),
                       ),
-                      // การ์ดแสดงคำสั่ง
                       ConstrainedBox(
                         constraints: BoxConstraints(
                           minWidth: cardCfg.width,
@@ -270,7 +236,6 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
                           ),
                         ),
                       ),
-                      // ฝั่งขวา: ปุ่ม Triangle / Cross / Square / Circle
                       Expanded(
                         child: _DpadPanel(
                           up: const _BtnSpec(
@@ -297,8 +262,6 @@ class _Gamepad_8BottonState extends State<Gamepad_8Botton> {
   }
 }
 
-// ==================== WIDGETS (UI เดิมทั้งหมด) ====================
-
 class _BtnSpec {
   final String label, sendValue, asset;
   const _BtnSpec(this.label, this.sendValue, this.asset);
@@ -307,7 +270,6 @@ class _BtnSpec {
 class _DpadPanel extends StatelessWidget {
   final _BtnSpec up, down, left, right;
 
-  // callback: ส่ง id + กด/ปล่อย กลับขึ้นไปให้ parent
   final void Function(String id, bool isDown) onPressChanged;
 
   const _DpadPanel({
@@ -398,7 +360,6 @@ class _ImagePressHoldButton extends StatefulWidget {
   final double diameter;
   final bool showLabel;
 
-  // callback → ส่ง id + กด/ปล่อย
   final void Function(String id, bool isDown)? onPressChanged;
 
   const _ImagePressHoldButton({
@@ -421,14 +382,12 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);
-    // แจ้ง parent ว่าปุ่มนี้ถูกกดลง
     widget.onPressChanged?.call(widget.sendValue, true);
   }
 
   void _onUpOrCancel() {
     if (!_pressed) return;
     setState(() => _pressed = false);
-    // แจ้ง parent ว่าปุ่มนี้ถูกปล่อย
     widget.onPressChanged?.call(widget.sendValue, false);
   }
 
@@ -437,28 +396,21 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
     final theme = Theme.of(context);
     final btnSize = widget.diameter;
 
-    // ✅ เช็คธีมดำแบบกัน iPad mismatch
     final themeB = theme.brightness;
     final platformB = MediaQuery.of(context).platformBrightness;
     final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
 
-    // ================
-    // ✅ แก้ "เฉพาะสี"
-    // ================
-
     final baseColor = theme.colorScheme.surface;
     final accent = const Color(0xFF5C6BFF);
 
-    // ปกติ (ไม่กด)
     final normalTop = isDark
-        ? const Color(0xFF2B2F3A) // ดำอมฟ้า
+        ? const Color(0xFF2B2F3A)
         : lighten(baseColor, .08);
 
     final normalBottom = isDark
-        ? const Color(0xFF0E1015) // ดำขอบ
+        ? const Color(0xFF0E1015)
         : darken(baseColor, .12);
 
-    // ตอนกด
     final pressedTop = isDark
         ? lighten(accent, .18)
         : lighten(accent, .10);
@@ -471,18 +423,16 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
         ? [pressedTop, pressedBottom]
         : [normalTop, normalBottom];
 
-    // สีขอบ
     final borderColor = _pressed
         ? (isDark
-            ? const Color(0xFF00F0FF).withOpacity(0.95) // neon ฟ้า
+            ? const Color(0xFF00F0FF).withOpacity(0.95)
             : Colors.cyanAccent.withOpacity(0.95))
         : (isDark
-            ? const Color(0xFF6B7CFF).withOpacity(0.85) // ฟ้าอมม่วง
+            ? const Color(0xFF6B7CFF).withOpacity(0.85)
             : Colors.black.withOpacity(0.45));
 
     final borderWidth = _pressed ? 3.0 : (isDark ? 2.2 : 1.4);
 
-    // เงา/โกลว์
     final shadowBlur = _pressed ? 22.0 : (isDark ? 18.0 : 14.0);
     final shadowOffset = _pressed ? const Offset(0, 6) : const Offset(0, 4);
 
@@ -526,14 +476,11 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
                       offset: shadowOffset,
                       color: shadowColor,
                     ),
-
-                    // ✅ glow วงนอกเบาๆ เฉพาะ Dark + ไม่กด
                     if (isDark && !_pressed)
                       BoxShadow(
                         blurRadius: btnSize * 0.22,
                         spreadRadius: btnSize * 0.02,
-                        color:
-                            const Color(0xFF6B7CFF).withOpacity(0.25),
+                        color: const Color(0xFF6B7CFF).withOpacity(0.25),
                         offset: const Offset(0, 0),
                       ),
                   ],

@@ -1,4 +1,3 @@
-
 // lib/shared/joystick/joystick_view.dart
 import 'package:flutter/material.dart';
 import 'joystick_controller.dart';
@@ -27,8 +26,8 @@ class _JoystickViewState extends State<JoystickView>
   Offset _knob = Offset.zero;
   late AnimationController _resetCtrl;
 
-  late double _size;
-  late double _knobSize;
+  double get _size => joystickTheme.size;
+  double get _knobSize => joystickTheme.knobSize;
 
   double get _radius => _size / 2;
   double get _knobRadius => _knobSize / 2;
@@ -36,8 +35,6 @@ class _JoystickViewState extends State<JoystickView>
   @override
   void initState() {
     super.initState();
-    _size = joystickTheme.size;
-    _knobSize = joystickTheme.knobSize;
 
     _resetCtrl = AnimationController(
       vsync: this,
@@ -92,12 +89,10 @@ class _JoystickViewState extends State<JoystickView>
 
   @override
   Widget build(BuildContext context) {
-    // ใช้ทั้ง Theme + platformBrightness กัน iOS mismatch
     final themeB = Theme.of(context).brightness;
     final platformB = MediaQuery.of(context).platformBrightness;
     final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
 
-    // -------- BG color (fallback for light mode) --------
     const minOpacityLight = 0.22;
     const minOpacityDark = 0.30;
     final minOpacity = isDark ? minOpacityDark : minOpacityLight;
@@ -106,12 +101,9 @@ class _JoystickViewState extends State<JoystickView>
 
     final bgColor = joystickTheme.bgColor.withOpacity(effectiveOpacity);
 
-    // -------- Border color --------
-    // ให้ใช้สีใน JoystickTheme ตรง ๆ
     final borderOpacity = isDark ? 0.95 : 0.60;
     final borderColor = joystickTheme.borderColor.withOpacity(borderOpacity);
 
-    // knob (fallback เมื่อไม่มีรูป)
     final knobFallbackColor =
         joystickTheme.knobColorStart.withOpacity(joystickTheme.knobOpacity);
 
@@ -184,21 +176,13 @@ class _JoystickPainter extends CustomPainter {
     required this.isDark,
   });
 
-  // ==========================
-  // ปรับ “ความหนา” และ “ความฟุ้ง/เบลอ”
-  // ==========================
-  // เพิ่มได้เลยถ้าอยากหนากว่านี้
-  static const double _darkBorderMul = 5.0;   // เดิม 4 → ทำให้ขอบหลักหนาขึ้น
-  static const double _lightBorderMul = 2.6;  // เดิม 2 → หนาขึ้นนิดใน Light
+  static const double _darkBorderMul = 5.0;
+  static const double _lightBorderMul = 2.6;
 
-  // ความหนาขอบเบลอที่ซ้อน (ยิ่งเยอะยิ่งฟุ้ง)
-  static const double _blurExtraW = 14.0;     // เดิม +10 → ฟุ้งกว้างขึ้น
-  // ระดับ blur ของขอบเบลอ (ยิ่งเยอะยิ่งนุ่ม)
-  static const double _blurSigma = 18.0;      // เดิม 14 → เบลอมากขึ้น
-  // เงาใต้จอย
-  static const double _shadowSigma = 20.0;    // เดิม 18 → เงานุ่มขึ้น
-  // glow นอกสุด (Dark)
-  static const double _glowSigma = 18.0;      // เดิม 16 → เรืองนุ่มขึ้น
+  static const double _blurExtraW = 14.0;
+  static const double _blurSigma = 18.0;
+  static const double _shadowSigma = 20.0;
+  static const double _glowSigma = 18.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -210,7 +194,6 @@ class _JoystickPainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final rBig = size.width / 2;
 
-    // ===== 1) พื้นวงกลมใหญ่ =====
     final paintBg = Paint()..style = PaintingStyle.fill;
 
     if (isDark) {
@@ -228,7 +211,6 @@ class _JoystickPainter extends CustomPainter {
       paintBg.color = bgColor;
     }
 
-    // ===== 2) ขอบหลัก (หนาขึ้น) =====
     final mainBorderW = isDark
         ? borderWidth * _darkBorderMul
         : borderWidth * _lightBorderMul;
@@ -238,7 +220,6 @@ class _JoystickPainter extends CustomPainter {
       ..strokeWidth = mainBorderW
       ..color = borderColor;
 
-    // ===== 3) เงาใต้วง =====
     final paintShadow = Paint()
       ..color = Colors.black.withOpacity(isDark ? 0.55 : 0.12)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _shadowSigma);
@@ -247,7 +228,6 @@ class _JoystickPainter extends CustomPainter {
     canvas.drawCircle(center, rBig, paintBg);
     canvas.drawCircle(center, rBig, paintBorder);
 
-    // ===== 4) ขอบเบลอ/ฟุ้ง ซ้อนอีกชั้น =====
     final blurBorderPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = mainBorderW + _blurExtraW
@@ -256,7 +236,6 @@ class _JoystickPainter extends CustomPainter {
 
     canvas.drawCircle(center, rBig * 0.995, blurBorderPaint);
 
-    // ===== 5) Glow วงนอก (เฉพาะ Dark) =====
     if (isDark) {
       final glowPaint = Paint()
         ..style = PaintingStyle.stroke

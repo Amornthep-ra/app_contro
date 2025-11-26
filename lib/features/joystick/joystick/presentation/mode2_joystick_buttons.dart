@@ -3,17 +3,18 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
-import '../../core/ble/ble_manager.dart';
-import '../../core/ui/gamepad_assets.dart';
-import '../../widgets/logo_corner.dart';
-import '../../widgets/connection_status_badge.dart';
-import '../../core/utils/orientation_utils.dart';
-import 'components/joystick_widget.dart';
-import 'components/joystick_controller.dart';
-import 'components/joystick_packet.dart';
-import 'components/joystick_theme.dart';
+import '../../../../core/ble/ble_manager.dart';
+import '../../../../core/ui/gamepad_assets.dart';
+import '../../../../core/widgets/logo_corner.dart';
+import '../../../../core/widgets/connection_status_badge.dart';
+import '../../../../core/utils/orientation_utils.dart';
+import '../widgets/joystick_widget.dart';
+import '../joystick_controller.dart';
+import '../../../../core/ble/joystick_packet.dart';
+import '../joystick_theme.dart';
 import 'mode1_dual_joystick.dart';
-import '../home/home_page.dart';
+import '../../../home/home_page.dart';
+import '../../../../core/ui/custom_appbars.dart';
 
 class Mode2JoystickButtonsPage extends StatefulWidget {
   const Mode2JoystickButtonsPage({super.key});
@@ -27,7 +28,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     with SingleTickerProviderStateMixin {
   final JoystickController _joyController = JoystickController();
 
-  // ===== Mode menu overlay (เหมือน Mode 1) =====
   final LayerLink _menuLink = LayerLink();
   bool _showModeMenu = false;
   bool _ignoreOutsideOnce = false;
@@ -40,7 +40,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
   void _showMenuOverlay() {
     if (_menuEntry != null) return;
 
-    // ✅ กัน tap แรกที่ใช้เปิดเมนูไม่ให้ไปโดน backdrop
     _ignoreOutsideOnce = true;
 
     _menuEntry = OverlayEntry(
@@ -48,7 +47,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
         return Positioned.fill(
           child: Stack(
             children: [
-              // ✅ คลิกพื้นหลังปิดเมนู
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () {
@@ -57,7 +55,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                 },
                 child: Container(color: Colors.transparent),
               ),
-
               CompositedTransformFollower(
                 link: _menuLink,
                 showWhenUnlinked: false,
@@ -79,8 +76,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _menuAnim.forward();
     setState(() => _showModeMenu = true);
 
-    // ✅ เดิมปลด ignore หลังเฟรมเดียว → บางเครื่องเร็วไปทำให้เมนูหายเอง
-    // เลยหน่วงนิดนึงให้ tap-up แรกผ่านไปก่อน
     Future.delayed(const Duration(milliseconds: 120), () {
       _ignoreOutsideOnce = false;
     });
@@ -95,7 +90,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     });
   }
 
-  // --- Joystick values ---
   double _smoothX = 0.0, _smoothY = 0.0;
   double _lastX = 0.0, _lastY = 0.0;
 
@@ -105,7 +99,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
 
-  // --- Debug (统一รูปแบบให้เหมือน Mode 1) ---
   String _fmt(double v) => v.toStringAsFixed(2);
   String _joyDebug = "JL: (0.00, 0.00)";
   String _btnDebug = "BTN: 0";
@@ -118,7 +111,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _btnDebug = "BTN: $code";
   }
 
-  // --- Buttons ---
   String _currentButton = "0";
   Timer? _btnTimer;
 
@@ -127,7 +119,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     super.initState();
     OrientationUtils.setLandscape();
 
-    // Animation popup menu (เหมือน Mode 1)
     _menuAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 240),
@@ -138,7 +129,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    // ส่งปุ่มซ้ำทุก 16ms
     _btnTimer = Timer.periodic(
       const Duration(milliseconds: 16),
       (_) => BleManager.instance.send(_currentButton),
@@ -157,13 +147,9 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _menuAnim.dispose();
     _menuEntry?.remove();
     _menuEntry = null;
-    // ไม่ setPortrait ที่นี่ เพราะออกด้วย back เราคุมเองใน _onBack()
     super.dispose();
   }
 
-  // ======================================================
-  // JOYSTICK PROCESS
-  // ======================================================
   void _processJoystick(Offset off) {
     double x = (off.dx.abs() < _deadZone) ? 0 : off.dx;
     double y = (off.dy.abs() < _deadZone) ? 0 : off.dy;
@@ -186,16 +172,12 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     }
   }
 
-  // ======================================================
-  // RESET JOYSTICK (กันค่าค้าง)
-  // ======================================================
   void _resetJoystick() {
     _smoothX = 0;
     _smoothY = 0;
     _lastX = 0;
     _lastY = 0;
 
-    // ส่ง 0 ซ้ำ 2 ครั้ง กัน smoothing / ESP ค้าง
     BleManager.instance.sendJoystick(
       JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
     );
@@ -208,9 +190,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     setState(() => _setJoyDebug(0, 0));
   }
 
-  // ======================================================
-  // BUTTON
-  // ======================================================
   void _onButtonPress(String code, bool down) {
     setState(() {
       _currentButton = down ? code : "0";
@@ -218,9 +197,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     });
   }
 
-  // ================================
-  //  MODE MENU (Glass + Animation)
-  // ================================
   Widget _buildMenuContent() {
     return SlideTransition(
       position: _slide,
@@ -311,9 +287,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     );
   }
 
-  // ======================================================
-  // BACK → กลับ Home เสมอ (เหมือน Mode 1)
-  // ======================================================
   Future<bool> _onBack() async {
     OrientationUtils.setPortrait();
     Navigator.pushAndRemoveUntil(
@@ -324,37 +297,20 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     return false;
   }
 
-  // ======================================================
-  // BUILD
-  // ======================================================
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: _onBack,
       child: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 80,
+        appBar: JoystickAppBar(
+          title: "Joystick + Buttons Mode",
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: _onBack,
           ),
-          title: const Text("Joystick + Buttons Mode"),
-          // ✅ Glass AppBar เหมือนหน้าแรก/Mode1
-          flexibleSpace: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
-                ),
-              ),
-            ),
-          ),
           actions: [
             const ConnectionStatusBadge(),
             const SizedBox(width: 8),
-
-            // ✅ Mode pill เหมือนหน้าแรก/Mode1 + anchor overlay
             UnconstrainedBox(
               child: CompositedTransformTarget(
                 link: _menuLink,
@@ -384,9 +340,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
             children: [
               Row(
                 children: [
-                  // =========================================
-                  // LEFT: JOYSTICK
-                  // =========================================
                   Expanded(
                     child: Center(
                       child: JoystickWidget(
@@ -402,10 +355,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                       ),
                     ),
                   ),
-
-                  // =========================================
-                  // RIGHT: 4 BUTTONS (รูปจอย)
-                  // =========================================
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, c) {
@@ -420,14 +369,14 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                             Positioned(
                               left: cx - btn / 2,
                               top: cy - btn - gap,
-                              child: _buildRoundBtn(btn, "T",
-                                  kGamepad8AssetTriangle),
+                              child: _buildRoundBtn(
+                                  btn, "T", kGamepad8AssetTriangle),
                             ),
                             Positioned(
                               left: cx - btn / 2,
                               top: cy + gap,
-                              child: _buildRoundBtn(
-                                  btn, "X", kGamepad8AssetCross),
+                              child:
+                                  _buildRoundBtn(btn, "X", kGamepad8AssetCross),
                             ),
                             Positioned(
                               left: cx - btn - gap,
@@ -438,8 +387,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                             Positioned(
                               left: cx + gap,
                               top: cy - btn / 2,
-                              child: _buildRoundBtn(
-                                  btn, "C", kGamepad8AssetCircle),
+                              child:
+                                  _buildRoundBtn(btn, "C", kGamepad8AssetCircle),
                             ),
                           ],
                         );
@@ -448,8 +397,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                   ),
                 ],
               ),
-
-              // DEBUG BAR (เหมือน Mode 1 style)
               Positioned(
                 bottom: 16,
                 left: 0,
@@ -465,7 +412,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                   ),
                 ),
               ),
-
               const LogoCorner(),
             ],
           ),
@@ -474,10 +420,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     );
   }
 
-  // ======================================================
-  // UI HELPERS
-  // ======================================================
-  /// ✅ ปุ่มวงกลม + ขอบ gradient สวยๆ เฉพาะธีมดำ
   Widget _buildRoundBtn(double size, String id, String asset) {
     final themeB = Theme.of(context).brightness;
     final platformB = MediaQuery.of(context).platformBrightness;
@@ -497,8 +439,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                 shape: BoxShape.circle,
                 gradient: const SweepGradient(
                   colors: [
-                    Color(0xFF6B7CFF), // ฟ้าอมม่วง
-                    Color(0xFFB16BFF), // ม่วงพิงค์
+                    Color(0xFF6B7CFF),
+                    Color(0xFFB16BFF),
                     Color(0xFF6B7CFF),
                   ],
                 ),
@@ -528,9 +470,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     );
   }
 
-  // =========================
-  // DEBUG BOX (auto width X)
-  // =========================
   Widget _debugBox(String txt) {
     return AnimatedSize(
       duration: const Duration(milliseconds: 180),
@@ -538,10 +477,11 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       alignment: Alignment.centerLeft,
       child: IntrinsicWidth(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          constraints: BoxConstraints(minWidth: joystickTheme.debugMinWidth),
+          padding: joystickTheme.debugPadding,
           decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(12),
+            color: joystickTheme.debugBgColor,
+            borderRadius: BorderRadius.circular(joystickTheme.debugRadius),
             border: Border.all(color: Colors.white38),
           ),
           child: Text(
@@ -549,11 +489,11 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
             maxLines: 1,
             softWrap: false,
             overflow: TextOverflow.visible,
-            style: const TextStyle(
-              color: Colors.greenAccent,
+            style: TextStyle(
+              color: joystickTheme.debugTextColor,
               fontFamily: "monospace",
-              fontSize: 14,
-              height: 1.1,
+              fontSize: joystickTheme.debugFontSize,
+              height: 1.2,
             ),
           ),
         ),
@@ -562,9 +502,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
   }
 }
 
-// ======================================================
-// MODE BADGE (เก็บไว้ แต่ไม่ได้ใช้งานแล้ว)
-// ======================================================
 class _ModeBadge extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -598,9 +535,6 @@ class _ModeBadge extends StatelessWidget {
   }
 }
 
-// ======================================================
-// IOS PILL (ต้องมีในโปรเจกต์อยู่แล้วจาก Mode 1)
-// ======================================================
 class IosPill extends StatefulWidget {
   final IconData icon;
   final String label;

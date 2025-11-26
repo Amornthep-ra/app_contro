@@ -2,11 +2,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
-import 'features/home/home_page.dart';
-import 'features/joystick/mode1_dual_joystick.dart';
-import 'features/gamepad/gamepad_8Botton_page.dart';
-import 'features/gamepad/gamepad_4Botton_page.dart';
-import 'features/bluetooth/bluetooth_ble_page.dart';
+import 'core/routes/app_routes.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,14 +21,22 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: seed,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: seed,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
       ),
-      home: const HomePage(),   // ⭐ ใช้หน้าเมนูใหม่
+
+      initialRoute: AppRoutes.home,
+      onGenerateRoute: AppRoutes.onGenerateRoute,
     );
   }
 }

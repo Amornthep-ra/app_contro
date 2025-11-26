@@ -1,7 +1,6 @@
-// lib/widgets/connection_status_badge.dart
+// lib/core/widgets/connection_status_badge.dart
 import 'package:flutter/material.dart';
-import '../core/ui/app_assets.dart';
-import '../services/ble_manager.dart';
+import '../ble/ble_manager.dart';
 
 class ConnectionStatusBadge extends StatelessWidget {
   const ConnectionStatusBadge({super.key});
@@ -11,8 +10,8 @@ class ConnectionStatusBadge extends StatelessWidget {
     final theme = Theme.of(context);
 
     return StreamBuilder<bool>(
-      stream: BleManager.instance.connectionStream,     // ⭐ ฟังสถานะ BLE
-      initialData: BleManager.instance.isConnected,     // ⭐ เริ่มต้น
+      stream: BleManager.instance.connectionStream,
+      initialData: BleManager.instance.isConnected,
       builder: (context, snapshot) {
         final connected = snapshot.data ?? false;
 

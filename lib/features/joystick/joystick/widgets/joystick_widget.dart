@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'joystick_controller.dart';
-import 'joystick_view.dart';
+import '../joystick_controller.dart';
+import '../joystick_view.dart';
 
 class JoystickWidget extends StatelessWidget {
   final JoystickController controller;

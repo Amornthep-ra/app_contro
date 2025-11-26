@@ -8,11 +8,9 @@ class AppConnection extends ValueNotifier<bool> {
   bool _classicConnected = false;
   bool _bleConnected = false;
 
-  // ⬅⬅⬅ เพิ่ม stream controller
   final StreamController<bool> _bleStreamController =
       StreamController<bool>.broadcast();
 
-  // ⬅⬅⬅ เพิ่ม getter สำหรับ badge
   Stream<bool> get bleConnectedStream => _bleStreamController.stream;
   bool get isBleConnected => _bleConnected;
 
@@ -29,7 +27,7 @@ class AppConnection extends ValueNotifier<bool> {
     if (_bleConnected == v) return;
     _bleConnected = v;
 
-    _bleStreamController.add(v);    // ⬅ ส่งค่าใหม่ให้ ConnectionStatusBadge
+    _bleStreamController.add(v);
 
     _update();
   }
