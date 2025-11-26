@@ -121,7 +121,7 @@ BtnCfg cfgLeft(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Left',
   width: 240,
   height: 320,
-  margin: const EdgeInsets.fromLTRB(100, 80, 40, 0),
+  margin: const EdgeInsets.fromLTRB(0, 80, 0, 0),
   iconAsset: kGamepad4AssetLeft,
 );
 
@@ -129,7 +129,7 @@ BtnCfg cfgRight(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Right',
   width: 240,
   height: 320,
-  margin: const EdgeInsets.fromLTRB(30, 80, 80, 0),
+  margin: const EdgeInsets.fromLTRB(0, 80, 0, 0),
   iconAsset: kGamepad4AssetRight,
 );
 
@@ -452,31 +452,22 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     );
 
     final lrRow = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Expanded(
-          child: Align(
-            alignment: Alignment.center,
-            child: GamepadHoldButton(
-              cfg: cfgL,
-              onChange: (down) => setState(() {
-                _l = down;
-                if (down) _r = false;
-              }),
-            ),
-          ),
+        GamepadHoldButton(
+          cfg: cfgL,
+          onChange: (down) => setState(() {
+            _l = down;
+            if (down) _r = false;
+          }),
         ),
-        SizedBox(width: s.w(8)),
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: GamepadHoldButton(
-              cfg: cfgR,
-              onChange: (down) => setState(() {
-                _r = down;
-                if (down) _l = false;
-              }),
-            ),
-          ),
+        SizedBox(width: s.w(30)),
+        GamepadHoldButton(
+          cfg: cfgR,
+          onChange: (down) => setState(() {
+            _r = down;
+            if (down) _l = false;
+          }),
         ),
       ],
     );

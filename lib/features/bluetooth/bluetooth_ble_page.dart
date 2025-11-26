@@ -20,6 +20,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   List<ScanResult> _results = const [];
 
   BluetoothDevice? _connectedDevice;
+  static String? _lastDeviceName;
 
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
@@ -114,6 +115,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       AppConnection.instance.setBleConnected(true);
 
       final showName = d.platformName.isEmpty ? d.remoteId.str : d.platformName;
+      _lastDeviceName = showName;
 
       _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
 
@@ -134,21 +136,33 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       builder: (context, snap) {
         final connected = snap.data ?? false;
 
-        final name = connected
-            ? (_connectedDevice?.platformName.isNotEmpty == true
-                  ? _connectedDevice!.platformName
-                  : _connectedDevice?.remoteId.str ?? "Unknown")
-            : "Not Connected";
+        String name;
+        if (connected) {
+          if (_connectedDevice != null) {
+            if (_connectedDevice!.platformName.isNotEmpty) {
+              name = _connectedDevice!.platformName;
+            } else {
+              name = _connectedDevice!.remoteId.str;
+            }
+          } else if (_lastDeviceName != null && _lastDeviceName!.isNotEmpty) {
+            name = _lastDeviceName!;
+          } else {
+            name = "Unknown";
+          }
+        } else {
+          name = "Not Connect";
+        }
 
         final t = Theme.of(context).textTheme;
         final titleStyle =
             t.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: Colors.white,
+              fontSize: 15,
               shadows: const [Shadow(blurRadius: 6, color: Colors.black54)],
             ) ??
             const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
               color: Colors.white,
               shadows: [Shadow(blurRadius: 6, color: Colors.black54)],
@@ -176,20 +190,41 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
             ? const Color(0xFF38BDF8).withOpacity(0.55)
             : const Color(0xFF60A5FA).withOpacity(0.35);
 
+        final actions = <Widget>[];
+
+        if (!connected) {
+          actions.add(
+            _smallAction(
+              icon: _scanning ? Icons.hourglass_top : Icons.refresh,
+              label: "Scan",
+              onTap: _scanning ? null : _startScan,
+            ),
+          );
+        } else {
+          actions.add(
+            _smallAction(
+              icon: Icons.link_off,
+              label: "Disconnect",
+              onTap: _disconnect,
+              danger: true,
+            ),
+          );
+        }
+
         return ClipRRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
               width: double.infinity,
               decoration: BoxDecoration(
                 gradient: grad,
-                border: Border.all(color: border, width: 1.4),
+                border: Border.all(color: border, width: 1.2),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.22),
-                    blurRadius: 12,
+                    blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
                 ],
@@ -201,34 +236,21 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                         ? Icons.bluetooth_connected
                         : Icons.bluetooth_disabled,
                     color: Colors.white,
-                    size: 20,
+                    size: 18,
                   ),
                   const SizedBox(width: 8),
-
                   Expanded(
                     child: Text(
-                      connected ? "Connected: $name" : "Not Connected",
+                      connected ? "Connected: $name" : "Not Connect",
                       style: titleStyle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-
-                  _smallAction(
-                    icon: _scanning ? Icons.hourglass_top : Icons.refresh,
-                    label: "Scan",
-                    onTap: _scanning ? null : _startScan,
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  if (connected)
-                    _smallAction(
-                      icon: Icons.link_off,
-                      label: "Disconnect",
-                      onTap: _disconnect,
-                      danger: true,
-                    ),
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    ...actions,
+                  ],
                 ],
               ),
             ),
@@ -250,23 +272,23 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.08),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: base.withOpacity(0.75), width: 1),
-          boxShadow: [BoxShadow(blurRadius: 10, color: base.withOpacity(0.25))],
+          boxShadow: [BoxShadow(blurRadius: 8, color: base.withOpacity(0.25))],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: Colors.white),
+            Icon(icon, size: 15, color: Colors.white),
             const SizedBox(width: 6),
             Text(
               label,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 13.5,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -278,7 +300,15 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   @override
   Widget build(BuildContext context) {
-    final results = _results.where(isRobot).toList();
+    final results = _results
+        .where(isRobot)
+        .where((r) {
+          if (_connectedDevice == null) {
+            return true;
+          }
+          return r.device.remoteId != _connectedDevice!.remoteId;
+        })
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -313,8 +343,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           child: _buildBleStatusBar(),
         ),
       ),
-
-      // 🔹 เพิ่ม body แสดงรายชื่ออุปกรณ์ที่เจอ (แก้เฉพาะส่วนนี้)
       body: results.isEmpty
           ? const Center(
               child: Text(

@@ -293,7 +293,11 @@ class CommandCardCfg {
 class GamepadHoldButton extends StatefulWidget {
   final BtnCfg cfg;
   final void Function(bool down) onChange;
-  const GamepadHoldButton({super.key, required this.cfg, required this.onChange});
+  const GamepadHoldButton({
+    super.key,
+    required this.cfg,
+    required this.onChange,
+  });
 
   @override
   State<GamepadHoldButton> createState() => _GamepadHoldButtonState();
@@ -376,8 +380,7 @@ class _GamepadHoldButtonState extends State<GamepadHoldButton> {
               ),
               borderRadius: BorderRadius.circular(cfg.radius),
               border: Border.all(
-                color: lighten(cfg.borderColor, .08)
-                    .withOpacity(on ? .95 : .6),
+                color: lighten(cfg.borderColor, .08).withOpacity(on ? .95 : .6),
                 width: on ? cfg.borderWidthOn : cfg.borderWidthOff,
               ),
               boxShadow: [
@@ -398,8 +401,9 @@ class _GamepadHoldButtonState extends State<GamepadHoldButton> {
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 90),
                     color: on
-                        ? cfg.pressOverlayColor
-                            .withOpacity(cfg.pressOverlayOpacity)
+                        ? cfg.pressOverlayColor.withOpacity(
+                            cfg.pressOverlayOpacity,
+                          )
                         : Colors.transparent,
                   ),
                 ],
@@ -506,7 +510,7 @@ class GamepadCommandCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasSpeed = speed.trim().isNotEmpty;   // <= เช็คว่ามี speed จริงไหม
+    final hasSpeed = speed.trim().isNotEmpty; // <= เช็คว่ามี speed จริงไหม
 
     return Container(
       width: cfg.width,
@@ -529,37 +533,40 @@ class GamepadCommandCard extends StatelessWidget {
       ),
       child: DefaultTextStyle(
         style: TextStyle(color: cfg.textColor, fontSize: cfg.titleFont),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Command: '),
-            Text(
-              command,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: cfg.valueFont,
-                color: cfg.valueColor,
-              ),
-            ),
-
-            // ถ้าไม่มี speed → ไม่ต้องโชว์ส่วนนี้เลย
-            if (hasSpeed) ...[
-              const SizedBox(width: 16),
-              Container(
-                width: 1,
-                height: cfg.valueFont,
-                color: cfg.dividerColor,
-              ),
-              const SizedBox(width: 16),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Command: '),
               Text(
-                'Speed: $speed',
+                command,
                 style: TextStyle(
-                  color: cfg.textColor,
-                  fontSize: cfg.titleFont,
+                  fontWeight: FontWeight.w800,
+                  fontSize: cfg.valueFont,
+                  color: cfg.valueColor,
                 ),
               ),
+
+              if (hasSpeed) ...[
+                const SizedBox(width: 16),
+                Container(
+                  width: 1,
+                  height: cfg.valueFont,
+                  color: cfg.dividerColor,
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  'Speed: $speed',
+                  style: TextStyle(
+                    color: cfg.textColor,
+                    fontSize: cfg.titleFont,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

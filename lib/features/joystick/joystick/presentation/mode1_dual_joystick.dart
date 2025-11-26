@@ -405,53 +405,68 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        JoystickWidget(
-                          controller: _controller,
-                          isLeft: true,
-                          knobImage: joystickTheme.leftKnobImage,
-                          onChanged: (x, y) {
-                            final (sx, sy) = _process(
-                              x,
-                              y,
-                              _smoothLX,
-                              _smoothLY,
-                            );
+                        Expanded(
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: JoystickWidget(
+                                controller: _controller,
+                                isLeft: true,
+                                knobImage: joystickTheme.leftKnobImage,
+                                onChanged: (x, y) {
+                                  final (sx, sy) = _process(
+                                    x,
+                                    y,
+                                    _smoothLX,
+                                    _smoothLY,
+                                  );
 
-                            _smoothLX = sx;
-                            _smoothLY = sy;
-                            _controller.setLeftJoystick(sx, sy);
+                                  _smoothLX = sx;
+                                  _smoothLY = sy;
+                                  _controller.setLeftJoystick(sx, sy);
 
-                            if (x == 0 && y == 0) {
-                              _resetLeftJoystick();
-                              return;
-                            }
-                          },
+                                  if (x == 0 && y == 0) {
+                                    _resetLeftJoystick();
+                                    return;
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
                         ),
-                        JoystickWidget(
-                          controller: _controller,
-                          isLeft: false,
-                          knobImage: joystickTheme.rightKnobImage,
-                          onChanged: (x, y) {
-                            final (sx, sy) = _process(
-                              x,
-                              y,
-                              _smoothRX,
-                              _smoothRY,
-                            );
+                        Expanded(
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: JoystickWidget(
+                                controller: _controller,
+                                isLeft: false,
+                                knobImage: joystickTheme.rightKnobImage,
+                                onChanged: (x, y) {
+                                  final (sx, sy) = _process(
+                                    x,
+                                    y,
+                                    _smoothRX,
+                                    _smoothRY,
+                                  );
 
-                            _smoothRX = sx;
-                            _smoothRY = sy;
-                            _controller.setRightJoystick(sx, sy);
+                                  _smoothRX = sx;
+                                  _smoothRY = sy;
+                                  _controller.setRightJoystick(sx, sy);
 
-                            if (x == 0 && y == 0) {
-                              _resetRightJoystick();
-                              return;
-                            }
-                          },
+                                  if (x == 0 && y == 0) {
+                                    _resetRightJoystick();
+                                    return;
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
