@@ -286,8 +286,8 @@ class _DpadPanel extends StatelessWidget {
     return LayoutBuilder(
       builder: (ctx, c) {
         final s = math.min(c.maxWidth, c.maxHeight);
-        final btn = s * 0.35;
-        final gap = s * 0.10;
+        final btn = s * 0.30;
+        final gap = s * 0.08;
         final cx = s / 2, cy = s / 2;
 
         return Center(

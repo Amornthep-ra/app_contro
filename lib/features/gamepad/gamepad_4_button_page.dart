@@ -343,6 +343,8 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     super.initState();
     OrientationUtils.setLandscape();
 
+    _sendSpeed('V50');
+
     _tick = Timer.periodic(
       const Duration(milliseconds: kSendIntervalMs),
       (_) => _sendLoop(),

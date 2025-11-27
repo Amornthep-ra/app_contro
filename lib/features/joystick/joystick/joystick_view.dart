@@ -1,4 +1,4 @@
-// lib/shared/joystick/joystick_view.dart
+// lib/features/joystick/joystick/joystick_view.dart
 import 'package:flutter/material.dart';
 import 'joystick_controller.dart';
 import 'joystick_theme.dart';
@@ -26,11 +26,8 @@ class _JoystickViewState extends State<JoystickView>
   Offset _knob = Offset.zero;
   late AnimationController _resetCtrl;
 
-  double get _size => joystickTheme.size;
-  double get _knobSize => joystickTheme.knobSize;
-
-  double get _radius => _size / 2;
-  double get _knobRadius => _knobSize / 2;
+  // เก็บขนาดจริงของ widget (เอาไว้ใช้คำนวณ center / radius ให้ตรงกับที่แสดงจริง)
+  Size _lastSize = Size.zero;
 
   @override
   void initState() {
@@ -44,7 +41,7 @@ class _JoystickViewState extends State<JoystickView>
     _resetCtrl.addListener(() {
       setState(() {
         _knob = Offset.lerp(_knob, Offset.zero, _resetCtrl.value)!;
-        _emitToController(_knob);
+        _emitCurrent();
       });
     });
   }
@@ -60,24 +57,49 @@ class _JoystickViewState extends State<JoystickView>
   void _onPanEnd(DragEndDetails d) => _onRelease();
 
   void _onDrag(Offset localPos) {
-    final center = Offset(_radius, _radius);
+    if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
+
+    final side = _lastSize.shortestSide;
+    final radius = side / 2;
+
+    // ให้ knob มีสัดส่วนเทียบกับ size ตาม theme เดิม (เช่น 60/200)
+    final knobSizePx = side * (joystickTheme.knobSize / joystickTheme.size);
+    final knobRadius = knobSizePx / 2;
+
+    final center = Offset(radius, radius);
     Offset delta = localPos - center;
 
-    final maxDist = _radius - _knobRadius;
+    // จำกัดไม่ให้เกินขอบวงกลม (ให้ขอบนอกของ knob ชนขอบวงกลมพอดี)
+    final maxDist = radius - knobRadius;
+    if (maxDist <= 0) return;
+
     if (delta.distance > maxDist) {
       delta = Offset.fromDirection(delta.direction, maxDist);
     }
 
     setState(() => _knob = delta);
-    _emitToController(_knob);
+    _emitWith(maxDist);
   }
 
   void _onRelease() => _resetCtrl.forward(from: 0);
 
-  void _emitToController(Offset knobOffset) {
-    final maxDist = _radius - _knobRadius;
-    final nx = (knobOffset.dx / maxDist).clamp(-1.0, 1.0);
-    final ny = (knobOffset.dy / maxDist).clamp(-1.0, 1.0);
+  /// ส่งค่าจอยตามตำแหน่ง knob ปัจจุบัน โดยคำนวณ maxDist จาก _lastSize
+  void _emitCurrent() {
+    if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
+
+    final side = _lastSize.shortestSide;
+    final radius = side / 2;
+    final knobSizePx = side * (joystickTheme.knobSize / joystickTheme.size);
+    final knobRadius = knobSizePx / 2;
+    final maxDist = radius - knobRadius;
+    if (maxDist <= 0) return;
+
+    _emitWith(maxDist);
+  }
+
+  void _emitWith(double maxDist) {
+    final nx = (_knob.dx / maxDist).clamp(-1.0, 1.0);
+    final ny = (_knob.dy / maxDist).clamp(-1.0, 1.0);
 
     if (widget.isLeft) {
       widget.controller.setLeftJoystick(nx, ny);
@@ -107,47 +129,84 @@ class _JoystickViewState extends State<JoystickView>
     final knobFallbackColor =
         joystickTheme.knobColorStart.withOpacity(joystickTheme.knobOpacity);
 
-    return SizedBox(
-      width: _size,
-      height: _size,
-      child: GestureDetector(
-        onPanStart: _onPanStart,
-        onPanUpdate: _onPanUpdate,
-        onPanEnd: _onPanEnd,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _JoystickPainter(
-                  widget.controller,
-                  knob: _knob,
-                  knobSize: _knobSize,
-                  hideKnob: widget.knobImage != null,
-                  bgColor: bgColor,
-                  borderColor: borderColor,
-                  borderWidth: joystickTheme.borderWidth,
-                  knobColor: knobFallbackColor,
-                  isDark: isDark,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // ใช้ด้านสั้นสุดของพื้นที่จริง → วงกลมพอดีกับทุกอัตราส่วน
+        final side = constraints.biggest.shortestSide;
+        final size = side > 0 ? side : joystickTheme.size;
+
+        _lastSize = Size(size, size);
+
+        final radius = size / 2;
+        final knobSizePx = size * (joystickTheme.knobSize / joystickTheme.size);
+        final knobRadius = knobSizePx / 2;
+
+        return SizedBox(
+          width: size,
+          height: size,
+          child: ClipOval(
+            child: GestureDetector(
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // พื้นหลัง + วงกลม joy เนียน ๆ
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _JoystickPainter(
+                        widget.controller,
+                        knob: _knob,
+                        knobSize: knobSizePx,
+                        hideKnob: widget.knobImage != null,
+                        bgColor: bgColor,
+                        borderColor: borderColor,
+                        borderWidth: joystickTheme.borderWidth,
+                        knobColor: knobFallbackColor,
+                        isDark: isDark,
+                      ),
+                    ),
+                  ),
+
+                  // ถ้ามีรูป knob → วางเป็นเลเยอร์บนสุด กลม + มีเงา
+                  if (widget.knobImage != null)
+                    Positioned(
+                      left: radius + _knob.dx - knobRadius,
+                      top: radius + _knob.dy - knobRadius,
+                      child: SizedBox(
+                        width: knobSizePx,
+                        height: knobSizePx,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: joystickTheme.knobShadowColor,
+                                    blurRadius: joystickTheme.knobShadowBlur,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ClipOval(
+                              child: Image.asset(
+                                widget.knobImage!,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (widget.knobImage != null)
-              Positioned(
-                left: _radius + _knob.dx - _knobRadius,
-                top: _radius + _knob.dy - _knobRadius,
-                child: SizedBox(
-                  width: _knobSize,
-                  height: _knobSize,
-                  child: Image.asset(
-                    widget.knobImage!,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -194,7 +253,9 @@ class _JoystickPainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final rBig = size.width / 2;
 
-    final paintBg = Paint()..style = PaintingStyle.fill;
+    final paintBg = Paint()
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
 
     if (isDark) {
       paintBg.shader = const RadialGradient(
@@ -218,11 +279,13 @@ class _JoystickPainter extends CustomPainter {
     final paintBorder = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = mainBorderW
-      ..color = borderColor;
+      ..color = borderColor
+      ..isAntiAlias = true;
 
     final paintShadow = Paint()
       ..color = Colors.black.withOpacity(isDark ? 0.55 : 0.12)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _shadowSigma);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _shadowSigma)
+      ..isAntiAlias = true;
 
     canvas.drawCircle(center, rBig, paintShadow);
     canvas.drawCircle(center, rBig, paintBg);
@@ -232,7 +295,8 @@ class _JoystickPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = mainBorderW + _blurExtraW
       ..color = borderColor.withOpacity(isDark ? 0.42 : 0.22)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _blurSigma);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _blurSigma)
+      ..isAntiAlias = true;
 
     canvas.drawCircle(center, rBig * 0.995, blurBorderPaint);
 
@@ -241,7 +305,8 @@ class _JoystickPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = mainBorderW * 0.55
         ..color = const Color(0xFF6B7CFF).withOpacity(0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _glowSigma);
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _glowSigma)
+        ..isAntiAlias = true;
 
       canvas.drawCircle(center, rBig * 0.98, glowPaint);
     }
@@ -252,14 +317,16 @@ class _JoystickPainter extends CustomPainter {
 
     final paintKnob = Paint()
       ..color = knobColor
-      ..style = PaintingStyle.fill;
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
 
     canvas.drawCircle(center + knob, knobSize / 2, paintKnob);
 
     final paintKnobBorder = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = joystickTheme.knobBorderWidth
-      ..color = joystickTheme.knobBorderColor.withOpacity(isDark ? 0.9 : 0.6);
+      ..color = joystickTheme.knobBorderColor.withOpacity(isDark ? 0.9 : 0.6)
+      ..isAntiAlias = true;
 
     canvas.drawCircle(center + knob, knobSize / 2, paintKnobBorder);
   }
@@ -272,6 +339,7 @@ class _JoystickPainter extends CustomPainter {
         oldDelegate.borderColor != borderColor ||
         oldDelegate.borderWidth != borderWidth ||
         oldDelegate.knobColor != knobColor ||
-        oldDelegate.isDark != isDark;
+        oldDelegate.isDark != isDark ||
+        oldDelegate.knobSize != knobSize;
   }
 }

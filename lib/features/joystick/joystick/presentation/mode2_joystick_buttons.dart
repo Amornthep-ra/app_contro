@@ -299,6 +299,11 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
   @override
   Widget build(BuildContext context) {
+    // ใช้ด้านสั้นของหน้าจอคำนวณขนาดจอย ให้เหมือน Mode 1
+    final screenSize = MediaQuery.of(context).size;
+    final shortestSide = screenSize.shortestSide;
+    final joystickSize = shortestSide * 0.42;
+
     return WillPopScope(
       onWillPop: _onBack,
       child: Scaffold(
@@ -342,16 +347,20 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                 children: [
                   Expanded(
                     child: Center(
-                      child: JoystickWidget(
-                        controller: _joyController,
-                        isLeft: true,
-                        knobImage: joystickTheme.leftKnobImage,
-                        onChanged: (x, y) {
-                          _processJoystick(Offset(x, y));
-                          if (x == 0 && y == 0) {
-                            _resetJoystick();
-                          }
-                        },
+                      child: SizedBox(
+                        width: joystickSize,
+                        height: joystickSize,
+                        child: JoystickWidget(
+                          controller: _joyController,
+                          isLeft: true,
+                          knobImage: joystickTheme.leftKnobImage,
+                          onChanged: (x, y) {
+                            _processJoystick(Offset(x, y));
+                            if (x == 0 && y == 0) {
+                              _resetJoystick();
+                            }
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -360,7 +369,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                       builder: (context, c) {
                         final s = c.maxWidth * 0.55;
                         final btn = s * 0.36;
-                        final gap = s * 0.18;
+                        final gap = s * 0.12;
                         final cx = c.maxWidth * 0.5;
                         final cy = c.maxHeight * 0.45;
 
@@ -375,8 +384,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                             Positioned(
                               left: cx - btn / 2,
                               top: cy + gap,
-                              child:
-                                  _buildRoundBtn(btn, "X", kGamepad8AssetCross),
+                              child: _buildRoundBtn(
+                                  btn, "X", kGamepad8AssetCross),
                             ),
                             Positioned(
                               left: cx - btn - gap,
@@ -387,8 +396,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                             Positioned(
                               left: cx + gap,
                               top: cy - btn / 2,
-                              child:
-                                  _buildRoundBtn(btn, "C", kGamepad8AssetCircle),
+                              child: _buildRoundBtn(
+                                  btn, "C", kGamepad8AssetCircle),
                             ),
                           ],
                         );

@@ -13,6 +13,8 @@ import 'mode2_joystick_buttons.dart';
 import '../../../home/home_page.dart';
 import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/ui/custom_appbars.dart';
+import '../../../../core/widgets/logo_corner.dart';
+
 
 class Mode1DualJoystickPage extends StatefulWidget {
   const Mode1DualJoystickPage({super.key});
@@ -358,6 +360,11 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
   @override
   Widget build(BuildContext context) {
+    // ใช้ด้านสั้นของหน้าจอเป็นฐานคำนวณขนาดจอย → รองรับอัตราส่วนหลายแบบ
+    final size = MediaQuery.of(context).size;
+    final shortestSide = size.shortestSide;
+    final joystickSize = shortestSide * 0.42; // ปรับได้ถ้าอยากให้จอยใหญ่/เล็กลง
+
     return WillPopScope(
       onWillPop: _onBack,
       child: Scaffold(
@@ -407,8 +414,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                       children: [
                         Expanded(
                           child: Center(
-                            child: AspectRatio(
-                              aspectRatio: 1,
+                            child: SizedBox(
+                              width: joystickSize,
+                              height: joystickSize,
                               child: JoystickWidget(
                                 controller: _controller,
                                 isLeft: true,
@@ -436,8 +444,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                         ),
                         Expanded(
                           child: Center(
-                            child: AspectRatio(
-                              aspectRatio: 1,
+                            child: SizedBox(
+                              width: joystickSize,
+                              height: joystickSize,
                               child: JoystickWidget(
                                 controller: _controller,
                                 isLeft: false,
@@ -466,7 +475,6 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -479,6 +487,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                   const SizedBox(height: 16),
                 ],
               ),
+              const LogoCorner(),
             ],
           ),
         ),
@@ -504,7 +513,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
             txt,
             maxLines: 1,
             softWrap: false,
-            overflow: TextOverflow.visible,
+            overflow: TextOverflow.ellipsis, // กันล้นแถว debug
             style: TextStyle(
               color: joystickTheme.debugTextColor,
               fontFamily: "monospace",
