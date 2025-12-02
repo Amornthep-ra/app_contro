@@ -37,6 +37,35 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
   late Animation<double> _fade;
   late Animation<Offset> _slide;
 
+  Timer? _timer;
+
+  double _smoothX = 0.0, _smoothY = 0.0;
+  double _lastX = 0.0, _lastY = 0.0;
+
+  static const double _deadZone = 0.05;
+  static const double _smooth = 0.85;
+  static const double _delta = 0.005;
+
+  int _debugTick = 0;
+
+  double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  String _fmt(double v) => v.toStringAsFixed(2);
+  String _joyDebug = "JL: (0.00, 0.00)";
+  String _btnDebug = "BTN: 0";
+
+  void _setJoyDebug(double x, double y) {
+    _joyDebug = "JL: (${_fmt(x)}, ${_fmt(y)})";
+  }
+
+  void _setBtnDebug(String code) {
+    _btnDebug = "BTN: $code";
+  }
+
+  String _currentButton = "0";
+
+  String _lastBtnSent = "0";
+
   void _showMenuOverlay() {
     if (_menuEntry != null) return;
 
@@ -90,29 +119,32 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     });
   }
 
-  double _smoothX = 0.0, _smoothY = 0.0;
-  double _lastX = 0.0, _lastY = 0.0;
-
-  static const double _deadZone = 0.08;
-  static const double _smooth = 0.15;
-  static const double _delta = 0.02;
-
-  double _lerp(double a, double b, double t) => a + (b - a) * t;
-
-  String _fmt(double v) => v.toStringAsFixed(2);
-  String _joyDebug = "JL: (0.00, 0.00)";
-  String _btnDebug = "BTN: 0";
-
-  void _setJoyDebug(double x, double y) {
-    _joyDebug = "JL: (${_fmt(x)}, ${_fmt(y)})";
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
-  void _setBtnDebug(String code) {
-    _btnDebug = "BTN: $code";
-  }
+  void _sendZeroAndClear() {
+    _smoothX = 0;
+    _smoothY = 0;
+    _lastX = 0;
+    _lastY = 0;
 
-  String _currentButton = "0";
-  Timer? _btnTimer;
+    _joyController.setLeftJoystick(0, 0);
+
+    BleManager.instance.sendJoystick(
+      JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+    );
+    Future.delayed(const Duration(milliseconds: 20), () {
+      BleManager.instance.sendJoystick(
+        JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+      );
+    });
+
+    if (mounted) {
+      setState(() => _setJoyDebug(0, 0));
+    }
+  }
 
   @override
   void initState() {
@@ -129,10 +161,54 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    _btnTimer = Timer.periodic(
-      const Duration(milliseconds: 16),
-      (_) => BleManager.instance.send(_currentButton),
-    );
+    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      const zeroEps = 0.015;
+
+      final lx = _smoothX;
+      final ly = _smoothY;
+
+      final nearZero =
+          lx.abs() < zeroEps &&
+          ly.abs() < zeroEps;
+
+      if (nearZero && (_lastX != 0 || _lastY != 0)) {
+        _lastX = 0;
+        _lastY = 0;
+
+        BleManager.instance.sendJoystick(
+          JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+        );
+        Future.delayed(const Duration(milliseconds: 20), () {
+          BleManager.instance.sendJoystick(
+            JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+          );
+        });
+
+        if (mounted) {
+          setState(() => _setJoyDebug(0, 0));
+        }
+        return;
+      }
+
+      final changed =
+          (lx - _lastX).abs() > _delta ||
+          (ly - _lastY).abs() > _delta;
+
+      if (!changed) return;
+
+      _lastX = lx;
+      _lastY = ly;
+
+      BleManager.instance.sendJoystick(
+        JoystickPacket(lx: lx, ly: ly, rx: 0, ry: 0),
+      );
+
+      _debugTick++;
+      if (!mounted) return;
+      if (_debugTick % 3 == 0) {
+        setState(() => _setJoyDebug(lx, ly));
+      }
+    });
   }
 
   @override
@@ -143,8 +219,10 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
   @override
   void dispose() {
-    _btnTimer?.cancel();
     _menuAnim.dispose();
+    _sendZeroAndClear();
+    _stopTimer();
+    OrientationUtils.setPortrait();
     _menuEntry?.remove();
     _menuEntry = null;
     super.dispose();
@@ -157,19 +235,14 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     final sx = _lerp(_smoothX, x, _smooth);
     final sy = _lerp(_smoothY, y, _smooth);
 
-    _smoothX = sx;
-    _smoothY = sy;
+    const eps = 0.01;
+    final snapX = (sx.abs() < eps) ? 0.0 : sx;
+    final snapY = (sy.abs() < eps) ? 0.0 : sy;
 
-    if ((sx - _lastX).abs() > _delta || (sy - _lastY).abs() > _delta) {
-      _lastX = sx;
-      _lastY = sy;
+    _smoothX = snapX;
+    _smoothY = snapY;
 
-      BleManager.instance.sendJoystick(
-        JoystickPacket(lx: sx, ly: sy, rx: 0, ry: 0),
-      );
-
-      setState(() => _setJoyDebug(sx, sy));
-    }
+    _joyController.setLeftJoystick(snapX, snapY);
   }
 
   void _resetJoystick() {
@@ -177,6 +250,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _smoothY = 0;
     _lastX = 0;
     _lastY = 0;
+
+    _joyController.setLeftJoystick(0, 0);
 
     BleManager.instance.sendJoystick(
       JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
@@ -191,8 +266,15 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
   }
 
   void _onButtonPress(String code, bool down) {
+    final newCode = down ? code : "0";
+
+    if (newCode != _lastBtnSent) {
+      BleManager.instance.send(newCode);
+      _lastBtnSent = newCode;
+    }
+
     setState(() {
-      _currentButton = down ? code : "0";
+      _currentButton = newCode;
       _setBtnDebug(_currentButton);
     });
   }
@@ -232,6 +314,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                     icon: Icons.sports_esports,
                     onTap: () {
                       _hideMenuOverlay();
+                      _sendZeroAndClear();
+                      _stopTimer();
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
@@ -289,6 +373,8 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
   Future<bool> _onBack() async {
     OrientationUtils.setPortrait();
+    _sendZeroAndClear();
+    _stopTimer();
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const HomePage()),
@@ -299,7 +385,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
   @override
   Widget build(BuildContext context) {
-    // ใช้ด้านสั้นของหน้าจอคำนวณขนาดจอย ให้เหมือน Mode 1
     final screenSize = MediaQuery.of(context).size;
     final shortestSide = screenSize.shortestSide;
     final joystickSize = shortestSide * 0.42;

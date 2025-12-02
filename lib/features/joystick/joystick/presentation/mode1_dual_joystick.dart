@@ -15,7 +15,6 @@ import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/ui/custom_appbars.dart';
 import '../../../../core/widgets/logo_corner.dart';
 
-
 class Mode1DualJoystickPage extends StatefulWidget {
   const Mode1DualJoystickPage({super.key});
 
@@ -43,9 +42,11 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
   double _lastLX = 0.0, _lastLY = 0.0;
   double _lastRX = 0.0, _lastRY = 0.0;
 
-  static const double _deadZone = 0.08;
-  static const double _smooth = 0.15;
-  static const double _delta = 0.02;
+  static const double _deadZone = 0.05;
+  static const double _smooth = 0.85;
+  static const double _delta = 0.005;
+
+  int _debugTick = 0;
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
 
@@ -78,7 +79,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       );
     });
 
-    setState(() => _setLeftDebug(0, 0));
+    if (mounted) {
+      setState(() => _setLeftDebug(0, 0));
+    }
   }
 
   void _resetRightJoystick() {
@@ -98,7 +101,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       );
     });
 
-    setState(() => _setRightDebug(0, 0));
+    if (mounted) {
+      setState(() => _setRightDebug(0, 0));
+    }
   }
 
   void _showMenuOverlay() {
@@ -154,6 +159,42 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     });
   }
 
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void _sendZeroAndClear() {
+    _smoothLX = 0;
+    _smoothLY = 0;
+    _smoothRX = 0;
+    _smoothRY = 0;
+
+    _lastLX = 0;
+    _lastLY = 0;
+    _lastRX = 0;
+    _lastRY = 0;
+
+    _controller.setLeftJoystick(0, 0);
+    _controller.setRightJoystick(0, 0);
+
+    BleManager.instance.sendJoystick(
+      JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+    );
+    Future.delayed(const Duration(milliseconds: 20), () {
+      BleManager.instance.sendJoystick(
+        JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+      );
+    });
+
+    if (mounted) {
+      setState(() {
+        _setLeftDebug(0, 0);
+        _setRightDebug(0, 0);
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -170,7 +211,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    _timer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
       final packet = _controller.buildPacket();
 
       const zeroEps = 0.015;
@@ -205,10 +246,12 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
           );
         });
 
-        setState(() {
-          _setLeftDebug(0, 0);
-          _setRightDebug(0, 0);
-        });
+        if (mounted) {
+          setState(() {
+            _setLeftDebug(0, 0);
+            _setRightDebug(0, 0);
+          });
+        }
         return;
       }
 
@@ -227,17 +270,22 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
       BleManager.instance.sendJoystick(packet);
 
-      setState(() {
-        _setLeftDebug(packet.lx, packet.ly);
-        _setRightDebug(packet.rx, packet.ry);
-      });
+      _debugTick++;
+      if (!mounted) return;
+      if (_debugTick % 3 == 0) {
+        setState(() {
+          _setLeftDebug(packet.lx, packet.ly);
+          _setRightDebug(packet.rx, packet.ry);
+        });
+      }
     });
   }
 
   @override
   void dispose() {
     _menuAnim.dispose();
-    _timer?.cancel();
+    _sendZeroAndClear();
+    _stopTimer();
     OrientationUtils.setPortrait();
     _menuEntry?.remove();
     _menuEntry = null;
@@ -251,7 +299,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     final fx = _lerp(sx, x, _smooth);
     final fy = _lerp(sy, y, _smooth);
 
-    const eps = 0.015;
+    const eps = 0.01;
     final snapX = (fx.abs() < eps) ? 0.0 : fx;
     final snapY = (fy.abs() < eps) ? 0.0 : fy;
 
@@ -301,6 +349,8 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
                     icon: Icons.tune,
                     onTap: () {
                       _hideMenuOverlay();
+                      _sendZeroAndClear();
+                      _stopTimer();
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -350,6 +400,8 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
   Future<bool> _onBack() async {
     OrientationUtils.setPortrait();
+    _sendZeroAndClear();
+    _stopTimer();
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const HomePage()),
@@ -360,10 +412,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
   @override
   Widget build(BuildContext context) {
-    // ใช้ด้านสั้นของหน้าจอเป็นฐานคำนวณขนาดจอย → รองรับอัตราส่วนหลายแบบ
     final size = MediaQuery.of(context).size;
     final shortestSide = size.shortestSide;
-    final joystickSize = shortestSide * 0.42; // ปรับได้ถ้าอยากให้จอยใหญ่/เล็กลง
+    final joystickSize = shortestSide * 0.42;
 
     return WillPopScope(
       onWillPop: _onBack,
@@ -513,7 +564,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
             txt,
             maxLines: 1,
             softWrap: false,
-            overflow: TextOverflow.ellipsis, // กันล้นแถว debug
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: joystickTheme.debugTextColor,
               fontFamily: "monospace",

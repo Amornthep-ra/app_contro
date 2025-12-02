@@ -12,7 +12,6 @@ import '../../core/widgets/connection_status_badge.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/custom_appbars.dart';
 
-
 const String kIdle = '0';
 
 const int kRepeatMs = 1000 ~/ 60;
@@ -37,6 +36,8 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
   List<DeviceOrientation>? _prev;
 
   String _command = kIdle;
+
+  String _lastSent = kIdle;
 
   Timer? _tick;
 
@@ -142,7 +143,6 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
     }
 
     String cmd;
-
     if (left.isEmpty && right.isEmpty) {
       cmd = kIdle;
     } else if (left.isNotEmpty && right.isEmpty) {
@@ -153,12 +153,11 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
       cmd = '$left+$right';
     }
 
-    BleManager.instance.send(cmd);
-
-    if (cmd != _command) {
-      setState(() {
-        _command = cmd;
-      });
+    if (cmd != _lastSent) {
+      _lastSent = cmd;
+      _command = cmd;
+      BleManager.instance.send(cmd);
+      setState(() {});
     }
   }
 
@@ -167,7 +166,6 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
   }
 
   @override
-    @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: GamepadAppBar(
@@ -403,25 +401,20 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
     final baseColor = theme.colorScheme.surface;
     final accent = const Color(0xFF5C6BFF);
 
-    final normalTop = isDark
-        ? const Color(0xFF2B2F3A)
-        : lighten(baseColor, .08);
+    final normalTop =
+        isDark ? const Color(0xFF2B2F3A) : lighten(baseColor, .08);
 
-    final normalBottom = isDark
-        ? const Color(0xFF0E1015)
-        : darken(baseColor, .12);
+    final normalBottom =
+        isDark ? const Color(0xFF0E1015) : darken(baseColor, .12);
 
-    final pressedTop = isDark
-        ? lighten(accent, .18)
-        : lighten(accent, .10);
+    final pressedTop =
+        isDark ? lighten(accent, .18) : lighten(accent, .10);
 
-    final pressedBottom = isDark
-        ? darken(accent, .28)
-        : darken(accent, .18);
+    final pressedBottom =
+        isDark ? darken(accent, .28) : darken(accent, .18);
 
-    final gradientColors = _pressed
-        ? [pressedTop, pressedBottom]
-        : [normalTop, normalBottom];
+    final gradientColors =
+        _pressed ? [pressedTop, pressedBottom] : [normalTop, normalBottom];
 
     final borderColor = _pressed
         ? (isDark

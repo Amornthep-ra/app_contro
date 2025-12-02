@@ -377,13 +377,15 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
       cmd = '$v$h';
     }
 
+    if (cmd == _lastSent) {
+      return;
+    }
+
     BleManager.instance.send(cmd);
 
-    if (cmd != _lastSent) {
-      _command = cmd;
-      _lastSent = cmd;
-      setState(() {});
-    }
+    _command = cmd;
+    _lastSent = cmd;
+    setState(() {});
   }
 
   void _sendSpeed(String v) {
