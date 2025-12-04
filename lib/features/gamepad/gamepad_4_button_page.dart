@@ -16,11 +16,13 @@ const double COLUMN_GAP = 6;
 const int FLEX_LEFT = 4;
 const int FLEX_RIGHT = 6;
 
-const int kSendHz = 60;
-const int kSendIntervalMs = 1000 ~/ kSendHz;
-
 const double DESIGN_W = 1280;
 const double DESIGN_H = 720;
+
+const int kLoopHz = 60;
+const int kLoopMs = 1000 ~/ kLoopHz;
+const int kMinActiveMs = 150;
+const int kMinIdleMs = 600;
 
 class _S {
   final double _sx;
@@ -333,20 +335,22 @@ class Gamepad_4_Botton extends StatefulWidget {
 }
 
 class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
-  Timer? _tick;
-
   bool _f = false, _b = false, _l = false, _r = false;
-  String _command = '0', _lastSent = '', _speedLabel = 'V50';
+  String _command = '0';
+  String _speedLabel = 'Low';
+  String _lastCmdSent = '0';
+
+  Timer? _tick;
+  int _lastSendMs = 0;
 
   @override
   void initState() {
     super.initState();
     OrientationUtils.setLandscape();
-
-    _sendSpeed('V50');
+    _sendSpeed('Medium');
 
     _tick = Timer.periodic(
-      const Duration(milliseconds: kSendIntervalMs),
+      const Duration(milliseconds: kLoopMs),
       (_) => _sendLoop(),
     );
   }
@@ -354,44 +358,71 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
   @override
   void dispose() {
     _tick?.cancel();
+
+    if (BleManager.instance.isConnected && _lastCmdSent != '0') {
+      BleManager.instance.send('0');
+    }
     OrientationUtils.setPortrait();
     super.dispose();
   }
 
-  void _sendLoop() {
-    if (_f && _b) _b = false;
-    if (_l && _r) _r = false;
+  String _computeCommand() {
+    final bool forward = _f && !_b;
+    final bool backward = _b && !_f;
+    final bool left = _l && !_r;
+    final bool right = _r && !_l;
 
-    final v = _f ? 'U' : (_b ? 'D' : '');
-    final h = _l ? 'L' : (_r ? 'R' : '');
-
-    String cmd;
+    final v = forward ? 'F' : (backward ? 'B' : '');
+    final h = left ? 'L' : (right ? 'R' : '');
 
     if (v.isEmpty && h.isEmpty) {
-      cmd = '0';
+      return '0';
     } else if (v.isNotEmpty && h.isEmpty) {
-      cmd = v;
+      return v;
     } else if (v.isEmpty && h.isNotEmpty) {
-      cmd = h;
+      return h;
     } else {
-      cmd = '$v$h';
+      return '$v$h';
     }
+  }
 
-    if (cmd == _lastSent) {
+  void _updateCommandOnly() {
+    final cmd = _computeCommand();
+    setState(() {
+      _command = cmd;
+    });
+  }
+
+  void _sendLoop() {
+    if (!BleManager.instance.isConnected) return;
+
+    final cmd = _command;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final bool changed = cmd != _lastCmdSent;
+    final bool active = cmd != '0';
+
+    final int minInterval = active ? kMinActiveMs : kMinIdleMs;
+
+    if (!changed && (now - _lastSendMs) < minInterval) {
       return;
     }
 
+    _lastCmdSent = cmd;
+    _lastSendMs = now;
     BleManager.instance.send(cmd);
-
-    _command = cmd;
-    _lastSent = cmd;
-    setState(() {});
   }
 
   void _sendSpeed(String v) {
-    _speedLabel = v;
-    BleManager.instance.send(v);
-    setState(() {});
+    if (_speedLabel == v) return;
+
+    setState(() {
+      _speedLabel = v;
+    });
+
+    if (BleManager.instance.isConnected) {
+      BleManager.instance.send(v);
+    }
   }
 
   Widget _leftColumn(BuildContext context, _S s) {
@@ -407,17 +438,19 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
         children: [
           GamepadHoldButton(
             cfg: cfgF,
-            onChange: (down) => setState(() {
+            onChange: (down) {
               _f = down;
               if (down) _b = false;
-            }),
+              _updateCommandOnly();
+            },
           ),
           GamepadHoldButton(
             cfg: cfgB,
-            onChange: (down) => setState(() {
+            onChange: (down) {
               _b = down;
               if (down) _f = false;
-            }),
+              _updateCommandOnly();
+            },
           ),
         ],
       ),
@@ -439,18 +472,18 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
       children: [
         GamepadTapButton(
           cfg: low,
-          selected: _speedLabel == 'V30',
-          onTap: () => _sendSpeed('V30'),
+          selected: _speedLabel == 'Low',
+          onTap: () => _sendSpeed('Low'),
         ),
         GamepadTapButton(
           cfg: mid,
-          selected: _speedLabel == 'V50',
-          onTap: () => _sendSpeed('V50'),
+          selected: _speedLabel == 'Medium',
+          onTap: () => _sendSpeed('Medium'),
         ),
         GamepadTapButton(
           cfg: high,
-          selected: _speedLabel == 'V100',
-          onTap: () => _sendSpeed('V100'),
+          selected: _speedLabel == 'High',
+          onTap: () => _sendSpeed('High'),
         ),
       ],
     );
@@ -460,18 +493,20 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
       children: [
         GamepadHoldButton(
           cfg: cfgL,
-          onChange: (down) => setState(() {
+          onChange: (down) {
             _l = down;
             if (down) _r = false;
-          }),
+            _updateCommandOnly();
+          },
         ),
         SizedBox(width: s.w(30)),
         GamepadHoldButton(
           cfg: cfgR,
-          onChange: (down) => setState(() {
+          onChange: (down) {
             _r = down;
             if (down) _l = false;
-          }),
+            _updateCommandOnly();
+          },
         ),
       ],
     );

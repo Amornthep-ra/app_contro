@@ -25,6 +25,36 @@ class BleManager {
   static const uartRxPrefix = "6e400002";
   static const uartTxPrefix = "6e400003";
 
+  Timer? _heartbeatTimer;
+  DateTime? _lastRxTime;
+  StreamSubscription<List<int>>? _txSub;
+
+  static const Duration _heartbeatInterval = Duration(seconds: 2);
+  static const Duration _heartbeatTimeout = Duration(seconds: 15);
+
+  void _startHeartbeat() {
+    _lastRxTime = DateTime.now();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
+      if (!isConnected) {
+        _stopHeartbeat();
+        return;
+      }
+
+      final now = DateTime.now();
+      if (_lastRxTime != null &&
+          now.difference(_lastRxTime!) > _heartbeatTimeout) {
+        print("Heartbeat timeout – no data from board for > $_heartbeatTimeout");
+      }
+      send("PING");
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
   void setDevice(BluetoothDevice device) {
     _device = device;
     _connectionController.add(true);
@@ -38,6 +68,10 @@ class BleManager {
         _device = null;
         _tx = null;
         _rx = null;
+
+        _stopHeartbeat();
+        _txSub?.cancel();
+        _txSub = null;
 
         _connectionController.add(false);
       }
@@ -74,7 +108,21 @@ class BleManager {
       if (_tx!.properties.notify) {
         await _tx!.setNotifyValue(true);
         print("TX notify subscribed");
+
+        _txSub?.cancel();
+        _txSub = _tx!.lastValueStream.listen(
+          (data) {
+            if (data.isNotEmpty) {
+              _lastRxTime = DateTime.now();
+            }
+          },
+          onError: (e) {
+            print("TX notify error: $e");
+          },
+        );
       }
+
+      _startHeartbeat();
 
       print("BLE ready");
       return true;
@@ -131,6 +179,10 @@ class BleManager {
     _device = null;
     _tx = null;
     _rx = null;
+
+    _stopHeartbeat();
+    _txSub?.cancel();
+    _txSub = null;
 
     _connectionController.add(false);
 

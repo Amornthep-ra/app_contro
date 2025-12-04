@@ -143,7 +143,7 @@ class GamepadAppBar extends StatelessWidget implements PreferredSizeWidget {
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.teal.shade600, Colors.teal.shade300],
+            colors: [const Color.fromARGB(255, 177, 97, 252), const Color.fromARGB(255, 232, 157, 255)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),

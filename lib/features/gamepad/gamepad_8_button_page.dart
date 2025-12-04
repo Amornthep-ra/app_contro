@@ -2,7 +2,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/ble/ble_manager.dart';
 import '../../core/ui/gamepad_assets.dart';
@@ -14,33 +13,29 @@ import '../../core/ui/custom_appbars.dart';
 
 const String kIdle = '0';
 
-const int kRepeatMs = 1000 ~/ 60;
-
-const String kCmdUp = 'U';
-const String kCmdDown = 'D';
+const String kCmdUp = 'F';
+const String kCmdDown = 'B';
 const String kCmdLeft = 'L';
 const String kCmdRight = 'R';
 
 const String kCmdTriangle = 'T';
 const String kCmdCross = 'X';
-const String kCmdSquare = 'SQ';
+const String kCmdSquare = 'S';
 const String kCmdCircle = 'C';
+
+const int kLoopHz = 60;
+const int kLoopMs = 1000 ~/ kLoopHz;
+const int kMinActiveMs = 150;
+const int kMinIdleMs = 600;
 
 class Gamepad_8_Botton extends StatefulWidget {
   const Gamepad_8_Botton({super.key});
+
   @override
   State<Gamepad_8_Botton> createState() => _Gamepad_8_BottonState();
 }
 
 class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
-  List<DeviceOrientation>? _prev;
-
-  String _command = kIdle;
-
-  String _lastSent = kIdle;
-
-  Timer? _tick;
-
   bool _up = false;
   bool _down = false;
   bool _left = false;
@@ -51,13 +46,22 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
   bool _square = false;
   bool _circle = false;
 
+  String _command = kIdle;
+
+  String _moveCmd = kIdle;
+  String _actionCmd = '';
+
+  Timer? _tick;
+  String _lastCmdSent = kIdle;
+  int _lastSendMs = 0;
+
   @override
   void initState() {
     super.initState();
     OrientationUtils.setLandscape();
 
     _tick = Timer.periodic(
-      const Duration(milliseconds: kRepeatMs),
+      const Duration(milliseconds: kLoopMs),
       (_) => _sendLoop(),
     );
   }
@@ -65,104 +69,112 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
   @override
   void dispose() {
     _tick?.cancel();
+
+    if (BleManager.instance.isConnected && _lastCmdSent != kIdle) {
+      BleManager.instance.send(kIdle);
+    }
+
     OrientationUtils.setPortrait();
     super.dispose();
   }
 
-  Future<void> _lockLandscape() async {
-    _prev = const [
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ];
+  String _computeMoveCmd() {
+    final bool up = _up && !_down;
+    final bool down = _down && !_up;
+    final bool left = _left && !_right;
+    final bool right = _right && !_left;
+
+    final v = up ? kCmdUp : (down ? kCmdDown : '');
+    final h = left ? kCmdLeft : (right ? kCmdRight : '');
+
+    if (v.isEmpty && h.isEmpty) {
+      return kIdle;
+    } else if (v.isNotEmpty && h.isEmpty) {
+      return v;
+    } else if (v.isEmpty && h.isNotEmpty) {
+      return h;
+    } else {
+      return '$v$h';
+    }
   }
 
-  Future<void> _restoreOrientation() async {
-    _prev ??= const [
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ];
+  String _computeActionCmd() {
+    if (_triangle) return kCmdTriangle;
+    if (_cross) return kCmdCross;
+    if (_square) return kCmdSquare;
+    if (_circle) return kCmdCircle;
+    return '';
   }
 
-  void _onLeftPress(String id, bool isDown) {
+  void _updateCommand() {
+    _moveCmd = _computeMoveCmd();
+    _actionCmd = _computeActionCmd();
+
+    String combined;
+    if (_moveCmd == kIdle && _actionCmd.isEmpty) {
+      combined = kIdle;
+    } else if (_moveCmd != kIdle && _actionCmd.isEmpty) {
+      combined = _moveCmd;
+    } else if (_moveCmd == kIdle && _actionCmd.isNotEmpty) {
+      combined = _actionCmd;
+    } else {
+      combined = '$_moveCmd$_actionCmd';
+    }
+
     setState(() {
-      if (isDown) {
-        _up = id == kCmdUp;
-        _down = id == kCmdDown;
-        _left = id == kCmdLeft;
-        _right = id == kCmdRight;
-      } else {
-        if (id == kCmdUp) _up = false;
-        if (id == kCmdDown) _down = false;
-        if (id == kCmdLeft) _left = false;
-        if (id == kCmdRight) _right = false;
-      }
-    });
-  }
-
-  void _onRightPress(String id, bool isDown) {
-    setState(() {
-      if (isDown) {
-        _triangle = id == kCmdTriangle;
-        _cross = id == kCmdCross;
-        _square = id == kCmdSquare;
-        _circle = id == kCmdCircle;
-      } else {
-        if (id == kCmdTriangle) _triangle = false;
-        if (id == kCmdCross) _cross = false;
-        if (id == kCmdSquare) _square = false;
-        if (id == kCmdCircle) _circle = false;
-      }
+      _command = combined;
     });
   }
 
   void _sendLoop() {
-    String left = '';
-    if (_up) {
-      left = kCmdUp;
-    } else if (_down) {
-      left = kCmdDown;
-    } else if (_left) {
-      left = kCmdLeft;
-    } else if (_right) {
-      left = kCmdRight;
+    if (!BleManager.instance.isConnected) return;
+
+    final cmd = _command;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final changed = cmd != _lastCmdSent;
+    final active = cmd != kIdle;
+    final minInterval = active ? kMinActiveMs : kMinIdleMs;
+
+    if (!changed && (now - _lastSendMs) < minInterval) {
+      return;
     }
 
-    String right = '';
-    if (_triangle) {
-      right = kCmdTriangle;
-    } else if (_cross) {
-      right = kCmdCross;
-    } else if (_square) {
-      right = kCmdSquare;
-    } else if (_circle) {
-      right = kCmdCircle;
-    }
-
-    String cmd;
-    if (left.isEmpty && right.isEmpty) {
-      cmd = kIdle;
-    } else if (left.isNotEmpty && right.isEmpty) {
-      cmd = left;
-    } else if (left.isEmpty && right.isNotEmpty) {
-      cmd = right;
-    } else {
-      cmd = '$left+$right';
-    }
-
-    if (cmd != _lastSent) {
-      _lastSent = cmd;
-      _command = cmd;
-      BleManager.instance.send(cmd);
-      setState(() {});
-    }
+    _lastCmdSent = cmd;
+    _lastSendMs = now;
+    BleManager.instance.send(cmd);
   }
 
-  void _updateCommand(String cmd) {
-    setState(() => _command = cmd);
+  void _onLeftPress(String id, bool isDown) {
+    if (isDown) {
+      _up = id == kCmdUp;
+      _down = id == kCmdDown;
+      _left = id == kCmdLeft;
+      _right = id == kCmdRight;
+    } else {
+      if (id == kCmdUp) _up = false;
+      if (id == kCmdDown) _down = false;
+      if (id == kCmdLeft) _left = false;
+      if (id == kCmdRight) _right = false;
+    }
+
+    _updateCommand();
+  }
+
+  void _onRightPress(String id, bool isDown) {
+    if (isDown) {
+      _triangle = id == kCmdTriangle;
+      _cross = id == kCmdCross;
+      _square = id == kCmdSquare;
+      _circle = id == kCmdCircle;
+    } else {
+      if (id == kCmdTriangle) _triangle = false;
+      if (id == kCmdCross) _cross = false;
+      if (id == kCmdSquare) _square = false;
+      if (id == kCmdCircle) _circle = false;
+    }
+
+    _updateCommand();
   }
 
   @override
@@ -189,20 +201,20 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
                   ),
                   background: [lighten(base, .06), darken(base, .06)],
                   radius: 16,
-                  borderColor:
-                      theme.colorScheme.outlineVariant.withOpacity(.45),
+                  borderColor: theme.colorScheme.outlineVariant.withOpacity(
+                    .45,
+                  ),
                   borderWidth: 1.2,
                   shadowBlur: 10,
                   shadowOffset: const Offset(0, 4),
                   shadowColor: Colors.black.withOpacity(.12),
                   titleFont: 14,
                   valueFont: 18,
-                  textColor:
-                      theme.textTheme.bodyMedium?.color ?? Colors.white,
-                  valueColor:
-                      theme.textTheme.bodyLarge?.color ?? Colors.white,
-                  dividerColor:
-                      theme.colorScheme.outlineVariant.withOpacity(.6),
+                  textColor: theme.textTheme.bodyMedium?.color ?? Colors.white,
+                  valueColor: theme.textTheme.bodyLarge?.color ?? Colors.white,
+                  dividerColor: theme.colorScheme.outlineVariant.withOpacity(
+                    .6,
+                  ),
                 );
 
                 return Padding(
@@ -213,11 +225,20 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
                         child: _DpadPanel(
                           up: const _BtnSpec('Up', kCmdUp, kGamepad8AssetUp),
                           down: const _BtnSpec(
-                              'Down', kCmdDown, kGamepad8AssetDown),
+                            'Down',
+                            kCmdDown,
+                            kGamepad8AssetDown,
+                          ),
                           left: const _BtnSpec(
-                              'Left', kCmdLeft, kGamepad8AssetLeft),
+                            'Left',
+                            kCmdLeft,
+                            kGamepad8AssetLeft,
+                          ),
                           right: const _BtnSpec(
-                              'Right', kCmdRight, kGamepad8AssetRight),
+                            'Right',
+                            kCmdRight,
+                            kGamepad8AssetRight,
+                          ),
                           onPressChanged: _onLeftPress,
                         ),
                       ),
@@ -237,13 +258,25 @@ class _Gamepad_8_BottonState extends State<Gamepad_8_Botton> {
                       Expanded(
                         child: _DpadPanel(
                           up: const _BtnSpec(
-                              'Triangle', kCmdTriangle, kGamepad8AssetTriangle),
+                            'Triangle',
+                            kCmdTriangle,
+                            kGamepad8AssetTriangle,
+                          ),
                           down: const _BtnSpec(
-                              'Cross', kCmdCross, kGamepad8AssetCross),
+                            'Cross',
+                            kCmdCross,
+                            kGamepad8AssetCross,
+                          ),
                           left: const _BtnSpec(
-                              'Square', kCmdSquare, kGamepad8AssetSquare),
+                            'Square',
+                            kCmdSquare,
+                            kGamepad8AssetSquare,
+                          ),
                           right: const _BtnSpec(
-                              'Circle', kCmdCircle, kGamepad8AssetCircle),
+                            'Circle',
+                            kCmdCircle,
+                            kGamepad8AssetCircle,
+                          ),
                           onPressChanged: _onRightPress,
                         ),
                       ),
@@ -267,7 +300,6 @@ class _BtnSpec {
 
 class _DpadPanel extends StatelessWidget {
   final _BtnSpec up, down, left, right;
-
   final void Function(String id, bool isDown) onPressChanged;
 
   const _DpadPanel({
@@ -357,7 +389,6 @@ class _ImagePressHoldButton extends StatefulWidget {
   final String asset;
   final double diameter;
   final bool showLabel;
-
   final void Function(String id, bool isDown)? onPressChanged;
 
   const _ImagePressHoldButton({
@@ -401,28 +432,27 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
     final baseColor = theme.colorScheme.surface;
     final accent = const Color(0xFF5C6BFF);
 
-    final normalTop =
-        isDark ? const Color(0xFF2B2F3A) : lighten(baseColor, .08);
+    final normalTop = isDark
+        ? const Color(0xFF2B2F3A)
+        : lighten(baseColor, .08);
+    final normalBottom = isDark
+        ? const Color(0xFF0E1015)
+        : darken(baseColor, .12);
 
-    final normalBottom =
-        isDark ? const Color(0xFF0E1015) : darken(baseColor, .12);
+    final pressedTop = isDark ? lighten(accent, .18) : lighten(accent, .10);
+    final pressedBottom = isDark ? darken(accent, .28) : darken(accent, .18);
 
-    final pressedTop =
-        isDark ? lighten(accent, .18) : lighten(accent, .10);
-
-    final pressedBottom =
-        isDark ? darken(accent, .28) : darken(accent, .18);
-
-    final gradientColors =
-        _pressed ? [pressedTop, pressedBottom] : [normalTop, normalBottom];
+    final gradientColors = _pressed
+        ? [pressedTop, pressedBottom]
+        : [normalTop, normalBottom];
 
     final borderColor = _pressed
         ? (isDark
-            ? const Color(0xFF00F0FF).withOpacity(0.95)
-            : Colors.cyanAccent.withOpacity(0.95))
+              ? const Color(0xFF00F0FF).withOpacity(0.95)
+              : Colors.cyanAccent.withOpacity(0.95))
         : (isDark
-            ? const Color(0xFF6B7CFF).withOpacity(0.85)
-            : Colors.black.withOpacity(0.45));
+              ? const Color(0xFF6B7CFF).withOpacity(0.85)
+              : Colors.black.withOpacity(0.45));
 
     final borderWidth = _pressed ? 3.0 : (isDark ? 2.2 : 1.4);
 
@@ -431,11 +461,11 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
 
     final shadowColor = _pressed
         ? (isDark
-            ? const Color(0xFF00F0FF).withOpacity(0.55)
-            : const Color(0xFF00FFFF).withOpacity(0.55))
+              ? const Color(0xFF00F0FF).withOpacity(0.55)
+              : const Color(0xFF00FFFF).withOpacity(0.55))
         : (isDark
-            ? Colors.black.withOpacity(0.65)
-            : Colors.black.withOpacity(0.30));
+              ? Colors.black.withOpacity(0.65)
+              : Colors.black.withOpacity(0.30));
 
     return Listener(
       onPointerDown: (_) => _onDown(),
@@ -485,8 +515,7 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
                       Image.asset(
                         widget.asset,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const SizedBox.shrink(),
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                       ),
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 90),
@@ -506,10 +535,7 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
               height: 18,
               child: FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text(
-                  widget.label,
-                  style: theme.textTheme.bodyMedium,
-                ),
+                child: Text(widget.label, style: theme.textTheme.bodyMedium),
               ),
             ),
           ],

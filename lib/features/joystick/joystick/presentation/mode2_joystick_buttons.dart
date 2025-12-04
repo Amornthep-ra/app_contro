@@ -476,7 +476,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                               left: cx - btn - gap,
                               top: cy - btn / 2,
                               child: _buildRoundBtn(
-                                  btn, "SQ", kGamepad8AssetSquare),
+                                  btn, "S", kGamepad8AssetSquare),
                             ),
                             Positioned(
                               left: cx + gap,

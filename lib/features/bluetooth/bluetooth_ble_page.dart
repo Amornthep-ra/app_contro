@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/connection/app_connection.dart';
 import '../../core/ble/ble_manager.dart';
@@ -27,10 +28,12 @@ class _BleEntry {
 
 class _BluetoothBlePageState extends State<BluetoothBlePage> {
   bool _scanning = false;
+  bool _connecting = false;
   StreamSubscription<List<ScanResult>>? _scanSub;
 
   StreamSubscription<BluetoothAdapterState>? _adapterStateSub;
   StreamSubscription<bool>? _isScanningSub;
+  StreamSubscription<bool>? _connStateSub;
 
   final Map<String, _BleEntry> _deviceMap = {};
 
@@ -38,6 +41,19 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   static String? _lastDeviceName;
 
   Timer? _cleanupTimer;
+
+  static const int _scanTimeoutSeconds = 10;
+  int _scanSecondsLeft = 0;
+  Timer? _scanCountdownTimer;
+
+  static const _prefsLastDeviceIdKey = 'ble_last_device_id';
+  static const _prefsAutoReconnectKey = 'ble_auto_reconnect';
+
+  String? _lastDeviceId;
+  bool _autoReconnectEnabled = true;
+  bool _autoReconnecting = false;
+
+  bool _manualDisconnect = false;
 
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
@@ -49,11 +65,19 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   void initState() {
     super.initState();
     _bindBluetoothState();
-    _prepareAndScan();
+    _bindConnectionGuard();
+
+    _loadPrefs();
 
     _cleanupTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _pruneOldDevices();
     });
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    _autoReconnectEnabled = prefs.getBool(_prefsAutoReconnectKey) ?? true;
+    _lastDeviceId = prefs.getString(_prefsLastDeviceIdKey);
   }
 
   void _bindBluetoothState() {
@@ -64,18 +88,20 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         BleManager.instance.disconnect();
         AppConnection.instance.setBleConnected(false);
 
+        _scanCountdownTimer?.cancel();
+        _scanCountdownTimer = null;
+
         setState(() {
           _connectedDevice = null;
           _scanning = false;
+          _scanSecondsLeft = 0;
           _deviceMap.clear();
+          _autoReconnecting = false;
+          _connecting = false;
         });
 
         _showSnack('Bluetooth ถูกปิด กรุณาเปิดใหม่เพื่อเชื่อมต่ออีกครั้ง');
-      } else {
-        if (_connectedDevice == null && !_scanning) {
-          _startScan();
-        }
-      }
+      } else {}
     });
 
     _isScanningSub = FlutterBluePlus.isScanning.listen((isScanning) {
@@ -83,6 +109,26 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       if (_scanning != isScanning) {
         setState(() {
           _scanning = isScanning;
+          if (!isScanning) {
+            _scanCountdownTimer?.cancel();
+            _scanCountdownTimer = null;
+            _scanSecondsLeft = 0;
+          }
+        });
+      }
+    });
+  }
+
+  void _bindConnectionGuard() {
+    _connStateSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!mounted) return;
+
+      if (!connected) {
+        AppConnection.instance.setBleConnected(false);
+        setState(() {
+          _connectedDevice = null;
+          _autoReconnecting = false;
+          _connecting = false;
         });
       }
     });
@@ -94,24 +140,18 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     FlutterBluePlus.stopScan();
     _cleanupTimer?.cancel();
 
+    _scanCountdownTimer?.cancel();
+    _scanCountdownTimer = null;
+
     _adapterStateSub?.cancel();
     _isScanningSub?.cancel();
+    _connStateSub?.cancel();
 
     super.dispose();
   }
 
-  Future<void> _prepareAndScan() async {
-    final state = await FlutterBluePlus.adapterState.first;
-    if (state != BluetoothAdapterState.on) {
-      _showSnack('กรุณาเปิด Bluetooth แล้วลองใหม่');
-      AppConnection.instance.setBleConnected(false);
-      return;
-    }
-    await _startScan();
-  }
-
   Future<void> _startScan() async {
-    if (_scanning) return;
+    if (_scanning || _connecting) return;
 
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
@@ -144,8 +184,34 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     });
 
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+      setState(() {
+        _scanSecondsLeft = _scanTimeoutSeconds;
+      });
+
+      _scanCountdownTimer?.cancel();
+      _scanCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        setState(() {
+          if (!_scanning || _scanSecondsLeft <= 1) {
+            _scanSecondsLeft = 0;
+            timer.cancel();
+          } else {
+            _scanSecondsLeft--;
+          }
+        });
+      });
+
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: _scanTimeoutSeconds),
+      );
     } catch (e) {
+      _scanCountdownTimer?.cancel();
+      _scanCountdownTimer = null;
+      _scanSecondsLeft = 0;
+
       _showSnack('เริ่มสแกนไม่สำเร็จ: $e');
       if (mounted) {
         setState(() => _scanning = false);
@@ -167,6 +233,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   Future<void> _disconnect() async {
+    _manualDisconnect = true;
+
     await BleManager.instance.disconnect();
 
     try {
@@ -181,24 +249,61 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     setState(() {
       _connectedDevice = null;
       _scanning = false;
+      _autoReconnecting = false;
+      _connecting = false;
     });
 
     AppConnection.instance.setBleConnected(false);
     _showSnack('ตัดการเชื่อมต่อแล้ว');
-
-    await _startScan();
   }
 
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+    final theme = Theme.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            msg,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          duration: const Duration(milliseconds: 1600),
+          elevation: 6,
+        ),
+      );
   }
 
   Future<void> _connect(ScanResult r) async {
+    if (_connecting) return;
+
     final d = r.device;
+
+    if (mounted) {
+      setState(() {
+        _connecting = true;
+      });
+    } else {
+      _connecting = true;
+    }
 
     try {
       await FlutterBluePlus.stopScan();
+      await BleManager.instance.disconnect();
+      try {
+        await d.disconnect();
+      } catch (_) {}
 
       await d.connect(
         license: License.free,
@@ -206,28 +311,55 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         autoConnect: false,
       );
 
-      if (!mounted) return;
+      _manualDisconnect = false;
+      _autoReconnecting = false;
 
-      setState(() => _connectedDevice = d);
+      if (mounted) {
+        setState(() => _connectedDevice = d);
+      }
       AppConnection.instance.setBleConnected(true);
 
-      final showName = d.platformName.isEmpty ? d.remoteId.str : d.platformName;
+      final showName = d.platformName.isNotEmpty
+          ? d.platformName
+          : d.remoteId.str;
       _lastDeviceName = showName;
 
-      _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsLastDeviceIdKey, d.remoteId.str);
+      _lastDeviceId = d.remoteId.str;
+
+      if (mounted) {
+        _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
+      }
 
       BleManager.instance.setDevice(d);
 
       final ok = await BleManager.instance.discoverServices();
-      if (!ok) _showSnack("ไม่พบ UART RX/TX characteristic");
+      if (!ok) {
+        if (mounted) {
+          _showSnack("ไม่พบ UART RX/TX characteristic");
+        }
+      } else {
+        BleManager.instance.send("HELLO_APP");
+      }
     } catch (e) {
       AppConnection.instance.setBleConnected(false);
-      if (!mounted) return;
+      _autoReconnecting = false;
 
-      _showSnack('เชื่อมต่อไม่สำเร็จ: $e');
-      final state = await FlutterBluePlus.adapterState.first;
-      if (state == BluetoothAdapterState.on && !_scanning) {
-        _startScan();
+      if (mounted) {
+        _showSnack('เชื่อมต่อไม่สำเร็จ: $e');
+        final state = await FlutterBluePlus.adapterState.first;
+        if (state == BluetoothAdapterState.on && !_scanning) {
+          _startScan();
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _connecting = false;
+        });
+      } else {
+        _connecting = false;
       }
     }
   }
@@ -318,11 +450,22 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         final actions = <Widget>[];
 
         if (!connected) {
+          final icon = (_connecting || _scanning)
+              ? Icons.hourglass_top
+              : Icons.refresh;
+          final label = _connecting
+              ? "Connecting..."
+              : (_scanning
+                    ? (_scanSecondsLeft > 0
+                          ? "Scanning (${_scanSecondsLeft}s)"
+                          : "Scanning...")
+                    : "Scan");
+
           actions.add(
             _smallAction(
-              icon: _scanning ? Icons.hourglass_top : Icons.refresh,
-              label: _scanning ? "Scanning..." : "Scan",
-              onTap: _scanning ? null : _startScan,
+              icon: icon,
+              label: label,
+              onTap: (_scanning || _connecting) ? null : _startScan,
             ),
           );
         } else {
@@ -363,18 +506,23 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     color: Colors.white,
                     size: 18,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
+                  const SizedBox(width: 4),
+                  Flexible(
+                    fit: FlexFit.loose,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 220),
-                      child: Text(
-                        connected ? "Connected: $name" : "Not Connect",
-                        key: ValueKey(
-                          connected ? "connected_$name" : "disconnected",
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          connected ? "Connected: $name" : "Not Connect",
+                          key: ValueKey(
+                            connected ? "connected_$name" : "disconnected",
+                          ),
+                          style: titleStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.left,
                         ),
-                        style: titleStyle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),
@@ -443,6 +591,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+        centerTitle: true,
         title: const Text('Bluetooth (BLE)'),
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -453,7 +602,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color.fromARGB(255, 158, 184, 247),
+                    Color.fromARGB(255, 89, 139, 255),
                     Color.fromARGB(255, 192, 203, 250),
                   ],
                 ),
@@ -494,7 +643,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   title: Text(name),
                   subtitle: Text('RSSI: $rssi dBm • $signalText'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _connect(r),
+                  onTap: _connecting ? null : () => _connect(r),
                 );
               },
             ),
