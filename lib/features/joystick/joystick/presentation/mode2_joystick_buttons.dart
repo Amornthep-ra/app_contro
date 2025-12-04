@@ -103,7 +103,9 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
 
     Overlay.of(context, rootOverlay: true).insert(_menuEntry!);
     _menuAnim.forward();
-    setState(() => _showModeMenu = true);
+    if (mounted) {
+      setState(() => _showModeMenu = true);
+    }
 
     Future.delayed(const Duration(milliseconds: 120), () {
       _ignoreOutsideOnce = false;
@@ -124,7 +126,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _timer = null;
   }
 
-  void _sendZeroAndClear() {
+  void _sendZeroAndClear({bool updateUi = true}) {
     _smoothX = 0;
     _smoothY = 0;
     _lastX = 0;
@@ -141,7 +143,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       );
     });
 
-    if (mounted) {
+    if (updateUi && mounted) {
       setState(() => _setJoyDebug(0, 0));
     }
   }
@@ -167,9 +169,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       final lx = _smoothX;
       final ly = _smoothY;
 
-      final nearZero =
-          lx.abs() < zeroEps &&
-          ly.abs() < zeroEps;
+      final nearZero = lx.abs() < zeroEps && ly.abs() < zeroEps;
 
       if (nearZero && (_lastX != 0 || _lastY != 0)) {
         _lastX = 0;
@@ -191,8 +191,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       }
 
       final changed =
-          (lx - _lastX).abs() > _delta ||
-          (ly - _lastY).abs() > _delta;
+          (lx - _lastX).abs() > _delta || (ly - _lastY).abs() > _delta;
 
       if (!changed) return;
 
@@ -211,17 +210,13 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    OrientationUtils.setLandscape();
-  }
+ 
 
   @override
   void dispose() {
-    _menuAnim.dispose();
-    _sendZeroAndClear();
     _stopTimer();
+    _menuAnim.dispose();
+    _sendZeroAndClear(updateUi: false);
     OrientationUtils.setPortrait();
     _menuEntry?.remove();
     _menuEntry = null;
@@ -262,7 +257,9 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       );
     });
 
-    setState(() => _setJoyDebug(0, 0));
+    if (mounted) {
+      setState(() => _setJoyDebug(0, 0));
+    }
   }
 
   void _onButtonPress(String code, bool down) {
@@ -273,6 +270,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       _lastBtnSent = newCode;
     }
 
+    if (!mounted) return;
     setState(() {
       _currentButton = newCode;
       _setBtnDebug(_currentButton);
@@ -464,25 +462,37 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
                               left: cx - btn / 2,
                               top: cy - btn - gap,
                               child: _buildRoundBtn(
-                                  btn, "T", kGamepad8AssetTriangle),
+                                btn,
+                                "T",
+                                kGamepad8AssetTriangle,
+                              ),
                             ),
                             Positioned(
                               left: cx - btn / 2,
                               top: cy + gap,
                               child: _buildRoundBtn(
-                                  btn, "X", kGamepad8AssetCross),
+                                btn,
+                                "X",
+                                kGamepad8AssetCross,
+                              ),
                             ),
                             Positioned(
                               left: cx - btn - gap,
                               top: cy - btn / 2,
                               child: _buildRoundBtn(
-                                  btn, "S", kGamepad8AssetSquare),
+                                btn,
+                                "S",
+                                kGamepad8AssetSquare,
+                              ),
                             ),
                             Positioned(
                               left: cx + gap,
                               top: cy - btn / 2,
                               child: _buildRoundBtn(
-                                  btn, "C", kGamepad8AssetCircle),
+                                btn,
+                                "C",
+                                kGamepad8AssetCircle,
+                              ),
                             ),
                           ],
                         );
@@ -556,9 +566,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
             : const BoxDecoration(shape: BoxShape.circle),
         child: Padding(
           padding: EdgeInsets.all(isDark ? borderW : 0),
-          child: ClipOval(
-            child: Image.asset(asset, fit: BoxFit.cover),
-          ),
+          child: ClipOval(child: Image.asset(asset, fit: BoxFit.cover)),
         ),
       ),
     );

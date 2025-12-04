@@ -143,7 +143,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
     Overlay.of(context, rootOverlay: true).insert(_menuEntry!);
     _menuAnim.forward();
-    setState(() => _showModeMenu = true);
+    if (mounted) {
+      setState(() => _showModeMenu = true);
+    }
 
     Future.delayed(const Duration(milliseconds: 120), () {
       _ignoreOutsideOnce = false;
@@ -164,7 +166,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     _timer = null;
   }
 
-  void _sendZeroAndClear() {
+  void _sendZeroAndClear({bool updateUi = true}) {
     _smoothLX = 0;
     _smoothLY = 0;
     _smoothRX = 0;
@@ -187,7 +189,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       );
     });
 
-    if (mounted) {
+    if (updateUi && mounted) {
       setState(() {
         _setLeftDebug(0, 0);
         _setRightDebug(0, 0);
@@ -283,9 +285,9 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
 
   @override
   void dispose() {
-    _menuAnim.dispose();
-    _sendZeroAndClear();
     _stopTimer();
+    _menuAnim.dispose();
+    _sendZeroAndClear(updateUi: false);
     OrientationUtils.setPortrait();
     _menuEntry?.remove();
     _menuEntry = null;

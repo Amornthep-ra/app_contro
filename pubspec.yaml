@@ -1,7 +1,7 @@
 name: app_contro
 description: "A new Flutter project."
 publish_to: "none"
-version: 1.0.0+1
+version: 1.0.0+4
 
 environment:
   sdk: ^3.9.2
@@ -54,6 +54,6 @@ flutter_native_splash:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/Logo/PrinceBot_Logo.png"
-  adaptive_icon_foreground: "assets/Logo/PrinceBot_Logo.png"
+  image_path: "assets/Logo/Logo_App.png"
+  adaptive_icon_foreground: "assets/Logo/Logo_App.png"
 
