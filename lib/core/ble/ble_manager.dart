@@ -1,4 +1,4 @@
-// lib/ble/ble_manager.dart
+//lib/core/ble/ble_manager.dart
 import 'dart:async';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'joystick_packet.dart';
@@ -29,8 +29,24 @@ class BleManager {
   DateTime? _lastRxTime;
   StreamSubscription<List<int>>? _txSub;
 
-  static const Duration _heartbeatInterval = Duration(seconds: 2);
+  static const Duration _heartbeatInterval = Duration(seconds: 4);
   static const Duration _heartbeatTimeout = Duration(seconds: 15);
+
+  Future<void> _sendLock = Future.value();
+  DateTime _lastTxTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  bool _userRequestedDisconnect = false;
+  int _reconnectAttempt = 0;
+
+  Future<void> _enqueueWrite(Future<void> Function() task) {
+    _sendLock = _sendLock
+        .then((_) async {
+          await task();
+          await Future.delayed(const Duration(milliseconds: 12));
+        })
+        .catchError((_) {});
+    return _sendLock;
+  }
 
   void _startHeartbeat() {
     _lastRxTime = DateTime.now();
@@ -44,9 +60,14 @@ class BleManager {
       final now = DateTime.now();
       if (_lastRxTime != null &&
           now.difference(_lastRxTime!) > _heartbeatTimeout) {
-        print("Heartbeat timeout – no data from board for > $_heartbeatTimeout");
+        print(
+          "Heartbeat timeout – no data from board for > $_heartbeatTimeout",
+        );
       }
-      send("PING");
+
+      if (now.difference(_lastTxTime) > const Duration(seconds: 1)) {
+        await send("PING");
+      }
     });
   }
 
@@ -57,9 +78,11 @@ class BleManager {
 
   void setDevice(BluetoothDevice device) {
     _device = device;
+    _userRequestedDisconnect = false;
+    _reconnectAttempt = 0;
     _connectionController.add(true);
 
-    device.connectionState.listen((state) {
+    device.connectionState.listen((state) async {
       print("Device state changed: $state");
 
       if (state == BluetoothConnectionState.disconnected) {
@@ -70,12 +93,39 @@ class BleManager {
         _rx = null;
 
         _stopHeartbeat();
-        _txSub?.cancel();
+        await _txSub?.cancel();
         _txSub = null;
 
         _connectionController.add(false);
+
+        if (!_userRequestedDisconnect) {
+          await _autoReconnect(device);
+        }
       }
     });
+  }
+
+  Future<void> _autoReconnect(BluetoothDevice device) async {
+    _reconnectAttempt++;
+    final waitMs = (_reconnectAttempt <= 5) ? 600 * _reconnectAttempt : 3000;
+    await Future.delayed(Duration(milliseconds: waitMs));
+    if (_userRequestedDisconnect) return;
+
+    try {
+      await device.connect(license: License.free, autoConnect: false);
+
+      if (_userRequestedDisconnect) {
+        await device.disconnect();
+        return;
+      }
+      setDevice(device);
+      await discoverServices();
+    } catch (e) {
+      print("Auto reconnect failed: $e");
+      if (!_userRequestedDisconnect) {
+        await _autoReconnect(device);
+      }
+    }
   }
 
   Future<bool> discoverServices() async {
@@ -107,7 +157,6 @@ class BleManager {
 
       if (_tx!.properties.notify) {
         await _tx!.setNotifyValue(true);
-        print("TX notify subscribed");
 
         _txSub?.cancel();
         _txSub = _tx!.lastValueStream.listen(
@@ -123,8 +172,6 @@ class BleManager {
       }
 
       _startHeartbeat();
-
-      print("BLE ready");
       return true;
     } catch (e) {
       print("discoverServices error: $e");
@@ -138,13 +185,18 @@ class BleManager {
       return;
     }
 
-    try {
-      final msg = (data + "\n").codeUnits;
-      await _rx!.write(msg, withoutResponse: true);
-      print("Send: $data");
-    } catch (e) {
-      print("Send failed: $e");
-    }
+    final rx = _rx!;
+    final msg = (data + "\n").codeUnits;
+    final mustAck = data == '0';
+
+    await _enqueueWrite(() async {
+      try {
+        await rx.write(msg, withoutResponse: !mustAck);
+        _lastTxTime = DateTime.now();
+      } catch (e) {
+        print("Send failed: $e");
+      }
+    });
   }
 
   void sendJoystick(JoystickPacket packet) {
@@ -162,16 +214,22 @@ class BleManager {
     }
 
     final bytes = packet.toBinaryPacket(pressedButtons);
-    try {
-      await rx.write(bytes, withoutResponse: true);
-    } catch (e) {
-      print("Send binary failed: $e");
-    }
+
+    await _enqueueWrite(() async {
+      try {
+        await rx.write(bytes, withoutResponse: true);
+        _lastTxTime = DateTime.now();
+      } catch (e) {
+        print("Send binary failed: $e");
+      }
+    });
   }
 
   Stream<List<int>>? onData() => _tx?.lastValueStream;
 
   Future<void> disconnect() async {
+    _userRequestedDisconnect = true;
+
     try {
       await _device?.disconnect();
     } catch (_) {}
@@ -181,7 +239,7 @@ class BleManager {
     _rx = null;
 
     _stopHeartbeat();
-    _txSub?.cancel();
+    await _txSub?.cancel();
     _txSub = null;
 
     _connectionController.add(false);

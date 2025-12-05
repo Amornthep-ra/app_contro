@@ -1,4 +1,4 @@
-// lib/utils/orientation_utils.dart
+// lib/core/utils/orientation_utils.dart
 import 'package:flutter/services.dart';
 
 class OrientationUtils {
@@ -18,5 +18,17 @@ class OrientationUtils {
 
   static Future<void> reset() async {
     await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  }
+
+  static Future<void> setLandscapeOnly() async {
+    return setLandscape();
+  }
+
+  static Future<void> setPortraitOnly() async {
+    return setPortrait();
+  }
+
+  static Future<void> setAuto() async {
+    return reset();
   }
 }

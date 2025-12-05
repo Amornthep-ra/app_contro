@@ -24,6 +24,9 @@ const int kLoopMs = 1000 ~/ kLoopHz;
 const int kMinActiveMs = 150;
 const int kMinIdleMs = 600;
 
+const int kMaxSendHz = 25;
+const int kMaxSendMs = 1000 ~/ kMaxSendHz;
+
 class _S {
   final double _sx;
   final double _sy;
@@ -346,7 +349,7 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
   @override
   void initState() {
     super.initState();
-    OrientationUtils.setLandscape();
+    OrientationUtils.setLandscapeOnly();
     _sendSpeed('Medium');
 
     _tick = Timer.periodic(
@@ -362,7 +365,7 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     if (BleManager.instance.isConnected && _lastCmdSent != '0') {
       BleManager.instance.send('0');
     }
-    OrientationUtils.setPortrait();
+    OrientationUtils.reset();
     super.dispose();
   }
 
@@ -391,6 +394,11 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     setState(() {
       _command = cmd;
     });
+    if (cmd == '0' && BleManager.instance.isConnected && _lastCmdSent != '0') {
+      _lastCmdSent = '0';
+      _lastSendMs = DateTime.now().millisecondsSinceEpoch;
+      BleManager.instance.send('0');
+    }
   }
 
   void _sendLoop() {
@@ -398,6 +406,8 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
 
     final cmd = _command;
     final now = DateTime.now().millisecondsSinceEpoch;
+
+    if ((now - _lastSendMs) < kMaxSendMs) return;
 
     final bool changed = cmd != _lastCmdSent;
     final bool active = cmd != '0';

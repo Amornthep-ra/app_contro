@@ -200,7 +200,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
   @override
   void initState() {
     super.initState();
-    OrientationUtils.setLandscape();
+    OrientationUtils.setLandscapeOnly();
 
     _menuAnim = AnimationController(
       vsync: this,
@@ -288,7 +288,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
     _stopTimer();
     _menuAnim.dispose();
     _sendZeroAndClear(updateUi: false);
-    OrientationUtils.setPortrait();
+    OrientationUtils.reset();
     _menuEntry?.remove();
     _menuEntry = null;
     super.dispose();
@@ -401,7 +401,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
   }
 
   Future<bool> _onBack() async {
-    OrientationUtils.setPortrait();
+    OrientationUtils.reset();
     _sendZeroAndClear();
     _stopTimer();
     Navigator.pushAndRemoveUntil(
