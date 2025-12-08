@@ -1,7 +1,7 @@
 name: pb_controller
 description: "A new Flutter project."
 publish_to: "none"
-version: 1.0.0+8
+version: 1.0.0+9
 
 environment:
   sdk: ^3.9.2
@@ -42,20 +42,20 @@ flutter_native_splash:
   ios: true
   color: "#050910"
   color_dark: "#050910"
-  image: assets/Logo/Splash Screen.png
-  image_dark: assets/Logo/Splash Screen.png
+  image: assets/Logo/Splash_Screen.png
+  image_dark: assets/Logo/Splash_Screen.png
 
   android_12:
     color: "#050910"
     color_dark: "#050910"
-    image: assets/Logo/Splash Screen.png
-    image_dark: assets/Logo/Splash Screen.png
+    image: assets/Logo/Splash_Screen.png
+    image_dark: assets/Logo/Splash_Screen.png
 
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/Logo/App Icon.png"
-  adaptive_icon_foreground: "assets/Logo/App Icon.png"
+  image_path: "assets/Logo/App_Icon.png"
+  adaptive_icon_foreground: "assets/Logo/App_Icon.png"
   adaptive_icon_background: "#121212"
 
