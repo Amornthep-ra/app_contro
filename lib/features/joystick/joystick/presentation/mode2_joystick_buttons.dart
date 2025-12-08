@@ -217,7 +217,6 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
     _stopTimer();
     _menuAnim.dispose();
     _sendZeroAndClear(updateUi: false);
-    OrientationUtils.reset();
     _menuEntry?.remove();
     _menuEntry = null;
     super.dispose();
