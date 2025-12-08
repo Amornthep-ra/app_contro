@@ -1,4 +1,4 @@
-name: app_contro
+name: pb_controller
 description: "A new Flutter project."
 publish_to: "none"
 version: 1.0.0+8
@@ -40,20 +40,22 @@ flutter:
 flutter_native_splash:
   android: true
   ios: true
-  color: "#121212"
-  color_dark: "#000000"
-  image: assets/Logo/PrinceBot_Logo.png
-  image_dark: assets/Logo/PrinceBot_Logo_Dark.png
+  color: "#050910"
+  color_dark: "#050910"
+  image: assets/Logo/Splash Screen.png
+  image_dark: assets/Logo/Splash Screen.png
 
   android_12:
-    color: "#121212"
-    color_dark: "#000000"
-    image: assets/Logo/PrinceBot_Logo.png
-    image_dark: assets/Logo/PrinceBot_Logo_Dark.png
+    color: "#050910"
+    color_dark: "#050910"
+    image: assets/Logo/Splash Screen.png
+    image_dark: assets/Logo/Splash Screen.png
+
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/Logo/Logo_App.png"
-  adaptive_icon_foreground: "assets/Logo/Logo_App.png"
+  image_path: "assets/Logo/App Icon.png"
+  adaptive_icon_foreground: "assets/Logo/App Icon.png"
+  adaptive_icon_background: "#121212"
 

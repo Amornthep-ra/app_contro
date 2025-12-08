@@ -47,13 +47,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   Timer? _scanCountdownTimer;
 
   static const _prefsLastDeviceIdKey = 'ble_last_device_id';
-  static const _prefsAutoReconnectKey = 'ble_auto_reconnect';
 
   String? _lastDeviceId;
-  bool _autoReconnectEnabled = true;
-  bool _autoReconnecting = false;
-
-  bool _manualDisconnect = false;
+  bool _manualDisconnect = false; 
+  DateTime? _lastDisconnectTime;
 
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
@@ -76,7 +73,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    _autoReconnectEnabled = prefs.getBool(_prefsAutoReconnectKey) ?? true;
     _lastDeviceId = prefs.getString(_prefsLastDeviceIdKey);
   }
 
@@ -96,7 +92,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           _scanning = false;
           _scanSecondsLeft = 0;
           _deviceMap.clear();
-          _autoReconnecting = false;
           _connecting = false;
         });
 
@@ -127,7 +122,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         AppConnection.instance.setBleConnected(false);
         setState(() {
           _connectedDevice = null;
-          _autoReconnecting = false;
           _connecting = false;
         });
       }
@@ -220,13 +214,13 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   void _pruneOldDevices() {
-    if (!mounted) return;
+    if (!_scanning) return;
     final now = DateTime.now();
-    setState(() => _pruneOldDevicesLocked(now));
+    _pruneOldDevicesLocked(now);
   }
 
   void _pruneOldDevicesLocked(DateTime now) {
-    const timeout = Duration(seconds: 3);
+    const timeout = Duration(seconds: 20);
     _deviceMap.removeWhere(
       (_, entry) => now.difference(entry.lastSeen) > timeout,
     );
@@ -234,6 +228,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   Future<void> _disconnect() async {
     _manualDisconnect = true;
+
+    _lastDisconnectTime = DateTime.now();
 
     await BleManager.instance.disconnect();
 
@@ -249,7 +245,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     setState(() {
       _connectedDevice = null;
       _scanning = false;
-      _autoReconnecting = false;
       _connecting = false;
     });
 
@@ -288,6 +283,16 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   Future<void> _connect(ScanResult r) async {
     if (_connecting) return;
 
+    if (_lastDisconnectTime != null) {
+      final now = DateTime.now();
+      if (now.difference(_lastDisconnectTime!) <
+          const Duration(seconds: 3)) {
+        print("Cooldown: wait a moment before reconnect");
+        _showSnack('รอสักครู่ก่อนเชื่อมต่อใหม่');
+        return;
+      }
+    }
+
     final d = r.device;
 
     if (mounted) {
@@ -312,7 +317,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       );
 
       _manualDisconnect = false;
-      _autoReconnecting = false;
 
       if (mounted) {
         setState(() => _connectedDevice = d);
@@ -344,7 +348,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       }
     } catch (e) {
       AppConnection.instance.setBleConnected(false);
-      _autoReconnecting = false;
 
       if (mounted) {
         _showSnack('เชื่อมต่อไม่สำเร็จ: $e');

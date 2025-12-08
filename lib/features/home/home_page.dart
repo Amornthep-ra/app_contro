@@ -43,13 +43,12 @@ class HomePage extends StatelessWidget {
         'สแกน/เชื่อมต่ออุปกรณ์ BLE',
         asset: AppAssets.menuBluetooth,
       ),
-      _MenuItem('About', Icons.info, const AboutPage(), 'PrinceBot Controller'),
     ];
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'PrinceBot Controller',
+          'PB Controller',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -133,29 +132,3 @@ class _MenuItem {
   });
 }
 
-class AboutPage extends StatelessWidget {
-  const AboutPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('About'),
-        centerTitle: true,
-        elevation: 5,
-        shadowColor: Colors.black45,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF00A1FF), Color(0xFF0064C8)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-        ),
-      ),
-      body: const Center(child: Text('PrinceBot Controller v1.0 — BLE Mode')),
-    );
-  }
-}

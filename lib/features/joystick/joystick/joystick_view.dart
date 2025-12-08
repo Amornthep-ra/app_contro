@@ -26,7 +26,6 @@ class _JoystickViewState extends State<JoystickView>
   Offset _knob = Offset.zero;
   late AnimationController _resetCtrl;
 
-  // เก็บขนาดจริงของ widget (เอาไว้ใช้คำนวณ center / radius ให้ตรงกับที่แสดงจริง)
   Size _lastSize = Size.zero;
 
   @override
@@ -62,14 +61,12 @@ class _JoystickViewState extends State<JoystickView>
     final side = _lastSize.shortestSide;
     final radius = side / 2;
 
-    // ให้ knob มีสัดส่วนเทียบกับ size ตาม theme เดิม (เช่น 60/200)
     final knobSizePx = side * (joystickTheme.knobSize / joystickTheme.size);
     final knobRadius = knobSizePx / 2;
 
     final center = Offset(radius, radius);
     Offset delta = localPos - center;
 
-    // จำกัดไม่ให้เกินขอบวงกลม (ให้ขอบนอกของ knob ชนขอบวงกลมพอดี)
     final maxDist = radius - knobRadius;
     if (maxDist <= 0) return;
 
@@ -83,7 +80,6 @@ class _JoystickViewState extends State<JoystickView>
 
   void _onRelease() => _resetCtrl.forward(from: 0);
 
-  /// ส่งค่าจอยตามตำแหน่ง knob ปัจจุบัน โดยคำนวณ maxDist จาก _lastSize
   void _emitCurrent() {
     if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
 
@@ -131,7 +127,6 @@ class _JoystickViewState extends State<JoystickView>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // ใช้ด้านสั้นสุดของพื้นที่จริง → วงกลมพอดีกับทุกอัตราส่วน
         final side = constraints.biggest.shortestSide;
         final size = side > 0 ? side : joystickTheme.size;
 
@@ -152,7 +147,6 @@ class _JoystickViewState extends State<JoystickView>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // พื้นหลัง + วงกลม joy เนียน ๆ
                   Positioned.fill(
                     child: CustomPaint(
                       painter: _JoystickPainter(
@@ -169,7 +163,6 @@ class _JoystickViewState extends State<JoystickView>
                     ),
                   ),
 
-                  // ถ้ามีรูป knob → วางเป็นเลเยอร์บนสุด กลม + มีเงา
                   if (widget.knobImage != null)
                     Positioned(
                       left: radius + _knob.dx - knobRadius,

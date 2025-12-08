@@ -213,7 +213,7 @@ class _Mode1DualJoystickPageState extends State<Mode1DualJoystickPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       final packet = _controller.buildPacket();
 
       const zeroEps = 0.015;

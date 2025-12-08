@@ -1,9 +1,7 @@
   //lib/core/ui/gamepad_components.dart
   import 'package:flutter/material.dart';
 
-  /// =========================
   ///  Helper ปรับสีสว่าง/เข้ม
-  /// =========================
   Color lighten(Color c, [double amt = .12]) {
     final hsl = HSLColor.fromColor(c);
     return hsl.withLightness((hsl.lightness + amt).clamp(0.0, 1.0)).toColor();
@@ -14,9 +12,7 @@
     return hsl.withLightness((hsl.lightness - amt).clamp(0.0, 1.0)).toColor();
   }
 
-  /// =========================
   ///  Config ของปุ่มแบบ Hold
-  /// =========================
   class BtnCfg {
     final double width;
     final double height;
@@ -121,9 +117,7 @@
     }
   }
 
-  /// =========================
   ///  Config ปุ่ม Speed (Tap)
-  /// =========================
   class TapCfg {
     final double width, height;
     final EdgeInsets margin;
@@ -208,9 +202,7 @@
     }
   }
 
-  /// =========================
   ///  Config การ์ด Command
-  /// =========================
   class CommandCardCfg {
     final double width;
     final EdgeInsets margin;
@@ -287,9 +279,7 @@
     }
   }
 
-  /// =========================
   ///  ปุ่มกดค้าง (Hold)
-  /// =========================
   class GamepadHoldButton extends StatefulWidget {
     final BtnCfg cfg;
     final void Function(bool down) onChange;
@@ -416,9 +406,7 @@
     }
   }
 
-  /// =========================
   ///  ปุ่ม Tap สำหรับเลือก Speed
-  /// =========================
   class GamepadTapButton extends StatelessWidget {
     final TapCfg cfg;
     final bool selected;
@@ -510,7 +498,7 @@
 
     @override
     Widget build(BuildContext context) {
-      final hasSpeed = speed.trim().isNotEmpty; // <= เช็คว่ามี speed จริงไหม
+      final hasSpeed = speed.trim().isNotEmpty;
 
       return Container(
         width: cfg.width,

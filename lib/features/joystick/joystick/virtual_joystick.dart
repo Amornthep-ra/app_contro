@@ -92,7 +92,7 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                 ],
               ),
               child: Padding(
-                padding: EdgeInsets.all(t.borderWidth + 6), // ⭐ ขอบหนา + มิติ
+                padding: EdgeInsets.all(t.borderWidth + 6),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,

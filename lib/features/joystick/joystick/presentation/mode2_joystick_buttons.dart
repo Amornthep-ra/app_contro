@@ -163,7 +163,7 @@ class _Mode2JoystickButtonsPageState extends State<Mode2JoystickButtonsPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _menuAnim, curve: Curves.easeOut));
 
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       const zeroEps = 0.015;
 
       final lx = _smoothX;
