@@ -1,6 +1,6 @@
 // lib\core\ui\app_assets.dart
 class AppAssets {
-  static const String logoPrinceBot = 'assets/Logo/logo_corner.png';
+  static const String logoPB = 'assets/Logo/logo_corner.png';
 
   static const String cornerLogo = 'assets/Logo/logo_corner.png';
 
