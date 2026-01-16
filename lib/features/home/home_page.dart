@@ -4,10 +4,11 @@ import '../../core/ui/app_assets.dart';
 import '../../core/widgets/logo_corner.dart';
 import '../../core/ble/ble_manager.dart';
 
-import '../gamepad/gamepad_8_button_page.dart';
+import '../gamepad/gamepad_mode_edit.dart';
 import '../gamepad/gamepad_4_button_page.dart';
-import '../joystick/joystick/presentation/mode1_dual_joystick.dart';
+import '../joystick/joystick/presentation/joystick.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
+import '../info/info_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -16,9 +17,9 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <_MenuItem>[
       _MenuItem(
-        'Gamepad(8 Button)',
+        'Gamepad Mode Edit',
         null,
-        const Gamepad_8_Botton(),
+        const GamepadModeEdit(),
         'ควบคุมสองฝั่ง 8 ปุ่ม',
         asset: AppAssets.menuGamepad8,
       ),
@@ -32,7 +33,7 @@ class HomePage extends StatelessWidget {
       _MenuItem(
         'Joystick',
         Icons.gamepad,
-        const Mode1DualJoystickPage(),
+        const JoystickPage(),
         'ควบคุมแบบจอย',
         asset: AppAssets.menuJoystick,
       ),
@@ -42,6 +43,13 @@ class HomePage extends StatelessWidget {
         const BluetoothBlePage(),
         'สแกน/เชื่อมต่ออุปกรณ์ BLE',
         asset: AppAssets.menuBluetooth,
+      ),
+      _MenuItem(
+        'Guide',
+        null,
+        const InfoPage(),
+        'ตัวอย่างโค้ดและวิธีใช้งาน BLE',
+        asset: AppAssets.menuGuide,
       ),
     ];
 

@@ -527,7 +527,7 @@
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Command: '),
+                const Text('Cmd: '),
                 Text(
                   command,
                   style: TextStyle(
@@ -546,7 +546,7 @@
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    'Speed: $speed',
+                    'Spd: $speed',
                     style: TextStyle(
                       color: cfg.textColor,
                       fontSize: cfg.titleFont,

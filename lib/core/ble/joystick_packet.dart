@@ -1,6 +1,18 @@
 // lib/joystick/joystick_packet.dart
 import 'dart:typed_data';
 
+const int kBleBtnUp = 1;
+const int kBleBtnDown = 2;
+const int kBleBtnLeft = 3;
+const int kBleBtnRight = 4;
+const int kBleBtnTriangle = 5;
+const int kBleBtnCross = 6;
+const int kBleBtnSquare = 7;
+const int kBleBtnCircle = 8;
+const int kBleBtnSpeedLow = 9;
+const int kBleBtnSpeedMid = 10;
+const int kBleBtnSpeedHigh = 11;
+
 class JoystickPacket {
   final double lx;
   final double ly;

@@ -19,6 +19,7 @@ dependencies:
   device_info_plus: ^12.2.0
   cupertino_icons: ^1.0.8
   flutter_launcher_icons: ^0.14.4
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

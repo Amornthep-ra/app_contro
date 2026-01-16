@@ -14,10 +14,10 @@ class LogoCorner extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Opacity(
-            opacity: 0.95,
+            opacity: 0.6,
             child: SizedBox(
-              width: 56,
-              height: 56,
+              width: 40,
+              height: 40,
               child: ClipOval(
                 child: Image.asset(
                   AppAssets.cornerLogo,
