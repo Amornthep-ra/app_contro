@@ -28,6 +28,9 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
   double get radius => widget.theme.size / 2;
   double get knobRadius => widget.theme.knobSize / 2;
 
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
+
   void _update(Offset localPos) {
     final center = Offset(radius, radius);
     Offset delta = localPos - center;
@@ -80,12 +83,12 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blueAccent.withOpacity(0.3),
+                    color: _opacity(Colors.blueAccent, 0.3),
                     blurRadius: 25,
                     spreadRadius: 4,
                   ),
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.45),
+                    color: _opacity(Colors.black, 0.45),
                     blurRadius: 14,
                     offset: const Offset(0, 4),
                   ),
@@ -96,7 +99,7 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: t.bgColor.withOpacity(t.bgOpacity),
+                    color: _opacity(t.bgColor, t.bgOpacity),
                   ),
                 ),
               ),
@@ -115,8 +118,8 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
                             colors: [
-                              t.knobColorStart.withOpacity(t.knobOpacity),
-                              t.knobColorEnd.withOpacity(t.knobOpacity),
+                              _opacity(t.knobColorStart, t.knobOpacity),
+                              _opacity(t.knobColorEnd, t.knobOpacity),
                             ],
                           ),
                           border: Border.all(
@@ -125,7 +128,7 @@ class _VirtualJoystickState extends State<VirtualJoystick> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.4),
+                              color: _opacity(Colors.black, 0.4),
                               blurRadius: 10,
                               offset: const Offset(0, 3),
                             )

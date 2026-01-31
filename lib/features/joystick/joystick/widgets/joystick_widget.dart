@@ -7,6 +7,7 @@ class JoystickWidget extends StatelessWidget {
   final bool isLeft;
   final void Function(double x, double y)? onChanged;
   final String? knobImage;
+  final JoystickAxisLock axisLock;
 
   const JoystickWidget({
     super.key,
@@ -14,6 +15,7 @@ class JoystickWidget extends StatelessWidget {
     this.isLeft = true,
     this.onChanged,
     this.knobImage,
+    this.axisLock = JoystickAxisLock.none,
   });
 
   @override
@@ -23,6 +25,7 @@ class JoystickWidget extends StatelessWidget {
       isLeft: isLeft,
       onChanged: onChanged,
       knobImage: knobImage,
+      axisLock: axisLock,
     );
   }
 }

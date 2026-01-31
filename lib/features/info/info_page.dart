@@ -2,89 +2,73 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/ui/custom_appbars.dart';
+import '../../core/ui/language_controller.dart';
 
-class InfoPage extends StatefulWidget {
+class InfoPage extends StatelessWidget {
   const InfoPage({super.key});
 
   @override
-  State<InfoPage> createState() => _InfoPageState();
-}
-
-enum _InfoLang { en, th }
-
-class _InfoPageState extends State<InfoPage> {
-  _InfoLang _lang = _InfoLang.en;
-
-  @override
   Widget build(BuildContext context) {
-    final isThai = _lang == _InfoLang.th;
-    return Scaffold(
-      appBar: SimpleAppBar(
-        title: isThai ? 'คู่มือ' : 'Guide',
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ToggleButtons(
-              isSelected: [_lang == _InfoLang.en, _lang == _InfoLang.th],
-              onPressed: (index) {
-                setState(() {
-                  _lang = index == 0 ? _InfoLang.en : _InfoLang.th;
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white70,
-              selectedColor: Colors.white,
-              fillColor: Colors.white24,
-              constraints: const BoxConstraints(minHeight: 28, minWidth: 40),
-              children: const [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('ENG', style: TextStyle(fontWeight: FontWeight.w600)),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('TH', style: TextStyle(fontWeight: FontWeight.w600)),
-                ),
-              ],
-            ),
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageController.isThai,
+      builder: (context, isThai, _) {
+        return Scaffold(
+          appBar: SimpleAppBar(
+            title: isThai ? 'คู่มือ' : 'Guide',
+            gradientColors: const [
+              Color(0xFF37474F),
+              Color(0xFF546E7A),
+            ],
+            leading: Navigator.of(context).canPop()
+                ? const BackButton(color: Colors.white)
+                : null,
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        children: isThai ? _buildThai() : _buildEnglish(),
-      ),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: isThai ? _buildThai() : _buildEnglish(),
+          ),
+        );
+      },
     );
   }
 }
 
 List<Widget> _buildEnglish() {
-  return const [
+  return [
     _SectionTitle('Overview'),
-    _BodyText(
+    const _BodyText(
       'This app talks to an ESP32 BLE board using the KB-BLE library. '
       'Other boards can follow through Serial if they do not support BLE.',
     ),
     _SectionTitle('Requirements'),
-    _BulletText('ESP32/ESP32-C3/S3 (BLE supported)'),
-    _BulletText('KB-BLE library installed on Arduino/KBIDE'),
-    _BulletText('BLE name in code must match the app'),
+    const _BulletText('ESP32/ESP32-C3/S3 (BLE supported)'),
+    const _BulletText('KB-BLE library installed on Arduino/KBIDE'),
+    const _BulletText('BLE name in code must match the app'),
     _SectionTitle('Install PB-BLE (Arduino IDE)'),
-    _BulletText('Go to'),
-    _LinkBullet('https://github.com/Amornthep-ra/PB-BLE'),
-    _BulletText('Code -> Download ZIP'),
-    _BulletText('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
-    _BulletText('Restart Arduino IDE if the library does not appear'),
+    const _BulletText('Go to'),
+    const _LinkBullet('https://github.com/Amornthep-ra/PB-BLE'),
+    const _BulletText('Code -> Download ZIP'),
+    const _BulletText('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
+    const _BulletText('Restart Arduino IDE if the library does not appear'),
     _SectionTitle('KB-IDE'),
-    _BodyText(
+    const _BodyText(
       'KB-IDE is a beginner-friendly block-based IDE for programming our boards, '
       'similar to Scratch/Blockly but for Arduino-compatible devices.',
     ),
-    _BulletText('Tutorials and device guides:'),
-    _LinkBullet('https://www.princebotshop.com/blog'),
+    const _BulletText('Download KB-IDE:'),
+    const _LinkBullet('https://www.princebot.co.th'),
+    const _BulletText('Tutorials and device guides:'),
+    const _LinkBullet('https://www.princebotshop.com/blog'),
+    const _BulletText('PrinceBot Facebook Fanpage:'),
+    const _LinkBullet('https://www.facebook.com/PrinceBotAndElectronics'),
+    _SectionTitle('Contact / Support'),
+    const _EmailBullet('amornthep064@gmail.com'),
+    _SectionTitle('App Version'),
+    const _AppVersionLine(),
     _SectionTitle('Gamepad Mode Edit (8 Button)'),
-    _CodeBlock(
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '\n'
       'void setup() {\n'
@@ -121,7 +105,7 @@ List<Widget> _buildEnglish() {
       '}\n',
     ),
     _SectionTitle('Gamepad 4 Button'),
-    _CodeBlock(
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '\n'
       'void setup() {\n'
@@ -155,7 +139,13 @@ List<Widget> _buildEnglish() {
       '}\n',
     ),
     _SectionTitle('Joystick'),
-    _CodeBlock(
+    _SectionTitle('Joystick Usage'),
+    const _BulletText('Go to Customize → Items to add/remove joysticks or buttons.'),
+    const _BulletText('JL/JR show joystick X,Y values (range -1.00 to 1.00).'),
+    const _BulletText('Cmd is a bitmask; pressing multiple buttons adds values together.'),
+    const _BulletText('Joystick (Y only): locks X at 0, moves only up/down.'),
+    const _BulletText('Joystick (X only): locks Y at 0, moves only left/right.'),
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '#include "PBJoystick.h"\n'
       '\n'
@@ -186,7 +176,7 @@ List<Widget> _buildEnglish() {
       '}\n',
     ),
     _SectionTitle('Buttons Bit Map'),
-    _CodeBlock(
+    const _CodeBlock(
       'Buttons (low byte)\n'
       'Up=1  Down=2  Left=4  Right=8\n'
       'Triangle=16  Cross=32  Square=64  Circle=128\n'
@@ -195,37 +185,45 @@ List<Widget> _buildEnglish() {
       'Lo=1  Med=2  Hi=4\n',
     ),
     _SectionTitle('Notes'),
-    _BulletText('Use bitwise AND to check button combos.'),
-    _BulletText('Keep BLE loop fast; update display less often.'),
+    const _BulletText('Use bitwise AND to check button combos.'),
+    const _BulletText('Keep BLE loop fast; update display less often.'),
   ];
 }
 
 List<Widget> _buildThai() {
-  return const [
+  return [
     _SectionTitle('ภาพรวม'),
-    _BodyText(
+    const _BodyText(
       'แอปนี้สื่อสารกับบอร์ด ESP32 ผ่าน BLE โดยใช้ไลบรารี KB-BLE '
       'หากบอร์ดไม่รองรับ BLE สามารถส่งต่อผ่าน Serial ได้',
     ),
     _SectionTitle('สิ่งที่ต้องมี'),
-    _BulletText('ESP32/ESP32-C3/S3 (รองรับ BLE)'),
-    _BulletText('ติดตั้งไลบรารี KB-BLE ใน Arduino/KBIDE'),
-    _BulletText('ชื่อ BLE ในโค้ดต้องตรงกับในแอป'),
+    const _BulletText('ESP32/ESP32-C3/S3 (รองรับ BLE)'),
+    const _BulletText('ติดตั้งไลบรารี KB-BLE ใน Arduino/KBIDE'),
+    const _BulletText('ชื่อ BLE ในโค้ดต้องตรงกับในแอป'),
     _SectionTitle('ติดตั้ง PB-BLE (Arduino IDE)'),
-    _BulletText('เข้าไปที่'),
-    _LinkBullet('https://github.com/Amornthep-ra/PB-BLE'),
-    _BulletText('กด Code -> Download ZIP'),
-    _BulletText('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
-    _BulletText('ถ้าไม่ขึ้นให้ปิดแล้วเปิด Arduino IDE ใหม่'),
+    const _BulletText('เข้าไปที่'),
+    const _LinkBullet('https://github.com/Amornthep-ra/PB-BLE'),
+    const _BulletText('กด Code -> Download ZIP'),
+    const _BulletText('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
+    const _BulletText('ถ้าไม่ขึ้นให้ปิดแล้วเปิด Arduino IDE ใหม่'),
     _SectionTitle('KB-IDE'),
-    _BodyText(
+    const _BodyText(
       'KB-IDE คือโปรแกรมเขียนโค้ดแบบบล็อก ใช้งานง่าย '
       'คล้าย Scratch/Blockly แต่ใช้กับบอร์ด Arduino ได้',
     ),
-    _BulletText('บทความและคู่มืออุปกรณ์:'),
-    _LinkBullet('https://www.princebotshop.com/blog'),
+    const _BulletText('ดาวน์โหลด KB-IDE:'),
+    const _LinkBullet('https://www.princebot.co.th'),
+    const _BulletText('บทความและคู่มืออุปกรณ์:'),
+    const _LinkBullet('https://www.princebotshop.com/blog'),
+    const _BulletText('แฟนเพจ PrinceBot:'),
+    const _LinkBullet('https://www.facebook.com/PrinceBotAndElectronics'),
+    _SectionTitle('ติดต่อ / Support'),
+    const _EmailBullet('amornthep064@gmail.com'),
+    _SectionTitle('เวอร์ชันแอป'),
+    const _AppVersionLine(),
     _SectionTitle('Gamepad Mode Edit (8 ปุ่ม)'),
-    _CodeBlock(
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '\n'
       'void setup() {\n'
@@ -262,7 +260,7 @@ List<Widget> _buildThai() {
       '}\n',
     ),
     _SectionTitle('Gamepad 4 ปุ่ม'),
-    _CodeBlock(
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '\n'
       'void setup() {\n'
@@ -296,7 +294,13 @@ List<Widget> _buildThai() {
       '}\n',
     ),
     _SectionTitle('Joystick'),
-    _CodeBlock(
+    _SectionTitle('การใช้งาน Joystick'),
+    const _BulletText('เข้า Customize → Items เพื่อเพิ่ม/ลบจอยหรือปุ่ม'),
+    const _BulletText('ค่า JL/JR คือค่าแกน X,Y (ช่วง -1.00 ถึง 1.00)'),
+    const _BulletText('Cmd เป็นค่าแบบ bitmask กดหลายปุ่มค่าจะรวมกัน'),
+    const _BulletText('Joystick (Y only): ล็อกแกน X = 0 เลื่อนขึ้น/ลงเท่านั้น'),
+    const _BulletText('Joystick (X only): ล็อกแกน Y = 0 เลื่อนซ้าย/ขวาเท่านั้น'),
+    const _CodeBlock(
       '#include "PBGamepad.h"\n'
       '#include "PBJoystick.h"\n'
       '\n'
@@ -327,7 +331,7 @@ List<Widget> _buildThai() {
       '}\n',
     ),
     _SectionTitle('ปุ่มที่ใช้ (Bit Map)'),
-    _CodeBlock(
+    const _CodeBlock(
       'ปุ่ม (low byte)\n'
       'Up=1  Down=2  Left=4  Right=8\n'
       'Triangle=16  Cross=32  Square=64  Circle=128\n'
@@ -336,8 +340,8 @@ List<Widget> _buildThai() {
       'Lo=1  Med=2  Hi=4\n',
     ),
     _SectionTitle('หมายเหตุ'),
-    _BulletText('ใช้ bit AND เพื่อตรวจสอบการกดปุ่มพร้อมกัน'),
-    _BulletText('ควรอัปเดต BLE ให้ถี่ และอัปเดตหน้าจอให้น้อยลง'),
+    const _BulletText('ใช้ bit AND เพื่อตรวจสอบการกดปุ่มพร้อมกัน'),
+    const _BulletText('ควรอัปเดต BLE ให้ถี่ และอัปเดตหน้าจอให้น้อยลง'),
   ];
 }
 
@@ -451,6 +455,74 @@ class _LinkBullet extends StatelessWidget {
   }
 }
 
+class _EmailBullet extends StatelessWidget {
+  final String email;
+  const _EmailBullet(this.email);
+
+  Future<void> _openEmail() async {
+    final uri = Uri.parse('mailto:$email');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _copyEmail(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: email));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Email copied')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('•  '),
+          Expanded(
+            child: InkWell(
+              onTap: _openEmail,
+              onLongPress: () => _copyEmail(context),
+              child: Text(
+                email,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.4,
+                      color: color,
+                      decoration: TextDecoration.underline,
+                    ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppVersionLine extends StatelessWidget {
+  const _AppVersionLine();
+
+  Future<PackageInfo> _loadInfo() => PackageInfo.fromPlatform();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PackageInfo>(
+      future: _loadInfo(),
+      builder: (context, snapshot) {
+        final info = snapshot.data;
+        final text = info == null
+            ? '-'
+            : '${info.version} (${info.buildNumber})';
+        return _BulletText('Version: $text');
+      },
+    );
+  }
+}
+
 class _CodeBlock extends StatelessWidget {
   final String code;
   const _CodeBlock(this.code);
@@ -477,4 +549,3 @@ class _CodeBlock extends StatelessWidget {
     );
   }
 }
-

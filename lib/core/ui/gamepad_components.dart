@@ -12,6 +12,9 @@
     return hsl.withLightness((hsl.lightness - amt).clamp(0.0, 1.0)).toColor();
   }
 
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
+
   ///  Config ของปุ่มแบบ Hold
   class BtnCfg {
     final double width;
@@ -311,7 +314,6 @@
       final on = _activePointers > 0;
       final cfg = widget.cfg;
       final top = lighten(cfg.baseColor, 0.14);
-      final Color bottom = darken(cfg.baseColor, 0.12);
 
       final Widget content = (cfg.iconAsset != null)
           ? Padding(
@@ -322,7 +324,7 @@
                 errorBuilder: (ctx, err, st) {
                   debugPrint('❌ Image load failed: ${cfg.iconAsset} -> $err');
                   return Container(
-                    color: Colors.red.withOpacity(.2),
+                    color: _opacity(Colors.red, .2),
                     alignment: Alignment.center,
                     child: const Icon(Icons.broken_image, size: 48),
                   );
@@ -339,7 +341,7 @@
                   color: cfg.labelColor,
                   shadows: [
                     Shadow(
-                      color: Colors.black.withOpacity(.25),
+                      color: _opacity(Colors.black, .25),
                       offset: const Offset(0, 1),
                       blurRadius: 2,
                     ),
@@ -370,7 +372,10 @@
                 ),
                 borderRadius: BorderRadius.circular(cfg.radius),
                 border: Border.all(
-                  color: lighten(cfg.borderColor, .08).withOpacity(on ? .95 : .6),
+                  color: _opacity(
+                    lighten(cfg.borderColor, .08),
+                    on ? .95 : .6,
+                  ),
                   width: on ? cfg.borderWidthOn : cfg.borderWidthOff,
                 ),
                 boxShadow: [
@@ -378,7 +383,7 @@
                     blurRadius: on ? cfg.glowBlurOn : cfg.glowBlurOff,
                     spreadRadius: on ? cfg.glowSpreadOn : cfg.glowSpreadOff,
                     offset: on ? cfg.shadowOffsetOn : cfg.shadowOffsetOff,
-                    color: on ? cfg.glowColor : Colors.black.withOpacity(.22),
+                    color: on ? cfg.glowColor : _opacity(Colors.black, .22),
                   ),
                 ],
               ),
@@ -391,7 +396,8 @@
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 90),
                       color: on
-                          ? cfg.pressOverlayColor.withOpacity(
+                          ? _opacity(
+                              cfg.pressOverlayColor,
                               cfg.pressOverlayOpacity,
                             )
                           : Colors.transparent,
@@ -439,7 +445,7 @@
                   ),
                   borderRadius: BorderRadius.circular(cfg.radius),
                   border: Border.all(
-                    color: cfg.border.withOpacity(selected ? 1 : .6),
+                    color: _opacity(cfg.border, selected ? 1 : .6),
                     width: selected
                         ? cfg.borderWidthSelected
                         : cfg.borderWidthUnselected,
@@ -468,7 +474,7 @@
                         letterSpacing: .2,
                         shadows: [
                           Shadow(
-                            color: Colors.black.withOpacity(.2),
+                            color: _opacity(Colors.black, .2),
                             offset: const Offset(0, 1),
                             blurRadius: 1.5,
                           ),

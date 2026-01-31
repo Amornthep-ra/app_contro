@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +15,7 @@ import '../../core/widgets/logo_corner.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/custom_appbars.dart';
+import '../../core/ui/language_controller.dart';
 
 const String kIdle = '0';
 
@@ -37,10 +40,12 @@ const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.60;
 
-const double DESIGN_W = 1280;
-const double DESIGN_H = 720;
+const double speedRowGap = 6.0;
+const double _gamepadAppBarHeight = 48.0;
+const double _speedPanelTopGap = 6.0;
 
-const double SPEED_ROW_GAP = 6.0;
+Color _opacity(Color color, double opacity) =>
+    color.withAlpha((opacity * 255).round());
 
 TapCfg cfgSpeedLow(BuildContext ctx) {
   final theme = Theme.of(ctx);
@@ -56,18 +61,18 @@ TapCfg cfgSpeedLow(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFF00FFB2).withOpacity(.55)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFF00FFB2), .55)
+      : _opacity(Colors.black, .22);
 
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
-      ? Colors.white.withOpacity(.85)
-      : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+      ? _opacity(Colors.white, .85)
+      : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -99,16 +104,16 @@ TapCfg cfgSpeedMid(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFFFFD54F).withOpacity(.55)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFFFFD54F), .55)
+      : _opacity(Colors.black, .22);
 
   final textOn = Colors.black;
-  final textOff = Colors.black.withOpacity(.85);
+  final textOff = _opacity(Colors.black, .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -140,18 +145,18 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFFFF5A5A).withOpacity(.60)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFFFF5A5A), .60)
+      : _opacity(Colors.black, .22);
 
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
-      ? Colors.white.withOpacity(.85)
-      : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+      ? _opacity(Colors.white, .85)
+      : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -169,35 +174,6 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
   );
 }
 
-TapCfg _scaleTap(TapCfg c, double sw, double sh, double sp) {
-  final r = (sw + sh) / 2.0;
-  final m = c.margin;
-  return c.copyWith(
-    width: c.width * sw,
-    height: c.height * sh,
-    margin: EdgeInsets.fromLTRB(
-      m.left * sw,
-      m.top * sh,
-      m.right * sw,
-      m.bottom * sh,
-    ),
-    radius: c.radius * r,
-    borderWidthSelected: c.borderWidthSelected * r,
-    borderWidthUnselected: c.borderWidthUnselected * r,
-    glowBlurSelected: c.glowBlurSelected * r,
-    glowBlurUnselected: c.glowBlurUnselected * r,
-    shadowOffsetSelected: Offset(
-      c.shadowOffsetSelected.dx * sw,
-      c.shadowOffsetSelected.dy * sh,
-    ),
-    shadowOffsetUnselected: Offset(
-      c.shadowOffsetUnselected.dx * sw,
-      c.shadowOffsetUnselected.dy * sh,
-    ),
-    fontSize: c.fontSize * sp,
-  );
-}
-
 class GamepadModeEdit extends StatefulWidget {
   const GamepadModeEdit({super.key});
 
@@ -211,6 +187,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   static const _prefsLayoutAll = 'gp8_layout_all';
   static const _prefsActiveLeft = 'gp8_active_left';
   static const _prefsActiveRight = 'gp8_active_right';
+  static const _prefsDriveSpeed = 'gp8_drive_speed';
+  static const _prefsTurnSpeed = 'gp8_turn_speed';
+  static const _prefsTutorialSeen = 'gp8_tutorial_seen';
+  static const _prefsPreset1 = 'gp8_preset_1';
+  static const _prefsPreset2 = 'gp8_preset_2';
+  static const _prefsPreset3 = 'gp8_preset_3';
 
   bool _up = false;
   bool _down = false;
@@ -230,8 +212,24 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   int _driveSpeed = 50;
   int _turnSpeed = 50;
   bool _speedPanelOpen = false;
+  bool _showTutorial = false;
+  int _tutorialStep = 0;
+  bool _tutorialThai = true;
+  late final VoidCallback _langListener;
+  Rect? _tutorialTargetRect;
+  final GlobalKey _tutorialStackKey = GlobalKey();
+  final GlobalKey _tutorialCustomizeKey = GlobalKey();
+  final GlobalKey _tutorialButtonsKey = GlobalKey();
+  final GlobalKey _tutorialSpeedKey = GlobalKey();
+  final GlobalKey _tutorialBtKey = GlobalKey();
+  final GlobalKey _tutorialPresetKey = GlobalKey();
+  final GlobalKey _tutorialCmdKey = GlobalKey();
+  final GlobalKey _tutorialDrvKey = GlobalKey();
+  final GlobalKey _tutorialTrnKey = GlobalKey();
 
   bool _editMode = false;
+  bool _menuOpen = false;
+  Offset? _menuAnchor;
   Map<String, _ButtonLayout> _layoutAll = {};
   Set<String> _leftActive = {};
   Set<String> _rightActive = {};
@@ -312,7 +310,17 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   void initState() {
     super.initState();
     OrientationUtils.setLandscapeOnly();
+    _tutorialThai = LanguageController.isThai.value;
+    _langListener = () {
+      final next = LanguageController.isThai.value;
+      if (next != _tutorialThai) {
+        setState(() => _tutorialThai = next);
+      }
+    };
+    LanguageController.isThai.addListener(_langListener);
     _loadLayouts();
+    _loadSpeedPrefs();
+    _maybeStartTutorial();
 
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
@@ -323,6 +331,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   @override
   void dispose() {
     _tick?.cancel();
+    LanguageController.isThai.removeListener(_langListener);
 
     if (BleManager.instance.isConnected && _command != kIdle) {
       _sendBinary(force: true);
@@ -330,6 +339,356 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
     OrientationUtils.reset();
     super.dispose();
+  }
+
+  Future<void> _loadSpeedPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final int? drive = prefs.getInt(_prefsDriveSpeed);
+    final int? turn = prefs.getInt(_prefsTurnSpeed);
+    if (!mounted) return;
+    setState(() {
+      if (drive != null) _driveSpeed = drive.clamp(0, 100);
+      if (turn != null) _turnSpeed = turn.clamp(0, 100);
+    });
+  }
+
+  Future<void> _saveSpeedPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_prefsDriveSpeed, _driveSpeed);
+    await prefs.setInt(_prefsTurnSpeed, _turnSpeed);
+  }
+
+  void _setDriveSpeed(int value) {
+    if (_driveSpeed == value) return;
+    setState(() => _driveSpeed = value);
+    _saveSpeedPrefs();
+  }
+
+  void _setTurnSpeed(int value) {
+    if (_turnSpeed == value) return;
+    setState(() => _turnSpeed = value);
+    _saveSpeedPrefs();
+  }
+
+  Future<void> _resetSpeedPrefs() async {
+    setState(() {
+      _driveSpeed = 50;
+      _turnSpeed = 50;
+    });
+    await _saveSpeedPrefs();
+    _sendBinary(force: true);
+  }
+
+  Future<void> _maybeStartTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool(_prefsTutorialSeen) ?? false;
+    if (seen || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _showTutorial = true;
+        _tutorialStep = 0;
+        _tutorialThai = LanguageController.isThai.value;
+      });
+      _scheduleTutorialRectUpdate();
+    });
+  }
+
+  void _scheduleTutorialRectUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_showTutorial) return;
+      _updateTutorialRect();
+    });
+  }
+
+  List<_TutorialStep> _tutorialSteps() {
+    return [
+      const _TutorialStep(
+        titleTh: 'ยินดีต้อนรับ',
+        bodyTh: 'นี่คือวิธีใช้งาน Gamepad Mode Edit แบบสั้นๆ',
+        titleEn: 'Welcome',
+        bodyEn: 'This is a quick guide to Gamepad Mode Edit.',
+      ),
+      _TutorialStep(
+        titleTh: 'Customize',
+        bodyTh: 'กด Customize เพื่อเข้าโหมดแก้ไขปุ่ม',
+        titleEn: 'Customize',
+        bodyEn: 'Tap Customize to enter edit mode.',
+        targetKey: _tutorialCustomizeKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Preset',
+        bodyTh: 'บันทึก/เรียกใช้รูปแบบปุ่มและความเร็วได้ 3 แบบ',
+        titleEn: 'Preset',
+        bodyEn: 'Save/load 3 preset layouts and speeds.',
+        targetKey: _tutorialPresetKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Buttons',
+        bodyTh: 'กด Buttons เพื่อเลือกปุ่มซ้าย/ขวาที่ต้องการใช้',
+        titleEn: 'Buttons',
+        bodyEn: 'Tap Buttons to choose left/right buttons.',
+        targetKey: _tutorialButtonsKey,
+        requiresEditMode: true,
+      ),
+      _TutorialStep(
+        titleTh: 'SPD',
+        bodyTh: 'กด SPD เพื่อปรับ DRV (เดินหน้า) และ TRN (เลี้ยว)',
+        titleEn: 'SPD',
+        bodyEn: 'Tap SPD to adjust DRV (drive) and TRN (turn).',
+        targetKey: _tutorialSpeedKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Cmd',
+        bodyTh: 'Cmd คือค่ารหัสปุ่มที่กดอยู่แบบเรียลไทม์',
+        titleEn: 'Cmd',
+        bodyEn: 'Cmd shows the real-time button byte.',
+        targetKey: _tutorialCmdKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Drv',
+        bodyTh: 'Drv คือความเร็วเดินหน้า (ดูค่าล่าสุดที่ตั้งไว้)',
+        titleEn: 'Drv',
+        bodyEn: 'Drv is the current drive speed.',
+        targetKey: _tutorialDrvKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Trn',
+        bodyTh: 'Trn คือความเร็วเลี้ยว (ดูค่าล่าสุดที่ตั้งไว้)',
+        titleEn: 'Trn',
+        bodyEn: 'Trn is the current turn speed.',
+        targetKey: _tutorialTrnKey,
+      ),
+      _TutorialStep(
+        titleTh: 'สถานะ BLE',
+        bodyTh: 'ดูสถานะการเชื่อมต่อที่นี่ (BLE Off / BLE On)',
+        titleEn: 'BLE Status',
+        bodyEn: 'Check connection status here (BLE Off / BLE On).',
+        targetKey: _tutorialBtKey,
+      ),
+    ];
+  }
+
+  void _goTutorialStep(int nextStep) {
+    final steps = _tutorialSteps();
+    if (nextStep < 0 || nextStep >= steps.length) return;
+    final step = steps[nextStep];
+    if (step.requiresEditMode && !_editMode) {
+      setState(() => _editMode = true);
+    }
+    setState(() => _tutorialStep = nextStep);
+    _scheduleTutorialRectUpdate();
+  }
+
+  Future<void> _finishTutorial() async {
+    setState(() {
+      _showTutorial = false;
+      _tutorialStep = 0;
+      _editMode = false;
+      _speedPanelOpen = false;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsTutorialSeen, true);
+  }
+
+  Future<void> _restartTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsTutorialSeen, false);
+    if (!mounted) return;
+    setState(() {
+      _showTutorial = true;
+      _tutorialStep = 0;
+      _tutorialThai = LanguageController.isThai.value;
+      _speedPanelOpen = false;
+    });
+    _scheduleTutorialRectUpdate();
+  }
+
+  void _updateTutorialRect() {
+    final steps = _tutorialSteps();
+    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
+      setState(() => _tutorialTargetRect = null);
+      return;
+    }
+    final key = steps[_tutorialStep].targetKey;
+    final stackBox =
+        _tutorialStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final targetBox = key?.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null || targetBox == null) {
+      setState(() => _tutorialTargetRect = null);
+      return;
+    }
+    final targetGlobal = targetBox.localToGlobal(Offset.zero);
+    final offset = stackBox.globalToLocal(targetGlobal);
+    final rect = offset & targetBox.size;
+    setState(() => _tutorialTargetRect = rect);
+  }
+
+  String _presetKey(int slot) {
+    switch (slot) {
+      case 1:
+        return _prefsPreset1;
+      case 2:
+        return _prefsPreset2;
+      case 3:
+        return _prefsPreset3;
+      default:
+        return _prefsPreset1;
+    }
+  }
+
+  Future<void> _savePreset(int slot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = {
+      'layout': _encodeLayout(_layoutAll),
+      'leftActive': _leftActive.toList(),
+      'rightActive': _rightActive.toList(),
+      'drive': _driveSpeed,
+      'turn': _turnSpeed,
+    };
+    await prefs.setString(_presetKey(slot), jsonEncode(data));
+  }
+
+  Future<void> _loadPreset(int slot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_presetKey(slot));
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final obj = jsonDecode(raw);
+      if (obj is! Map) return;
+      final layoutRaw = obj['layout'];
+      final leftRaw = obj['leftActive'];
+      final rightRaw = obj['rightActive'];
+      final drive = obj['drive'];
+      final turn = obj['turn'];
+      if (layoutRaw is Map) {
+        _layoutAll = _decodeLayout(jsonEncode(layoutRaw));
+      }
+      if (leftRaw is List) {
+        _leftActive = leftRaw.map((e) => e.toString()).toSet();
+      }
+      if (rightRaw is List) {
+        _rightActive = rightRaw.map((e) => e.toString()).toSet();
+      }
+      if (drive is num) _driveSpeed = drive.round().clamp(0, 100);
+      if (turn is num) _turnSpeed = turn.round().clamp(0, 100);
+      setState(() {});
+
+      _saveLayout(_prefsLayoutAll, _layoutAll);
+      _saveActive(_prefsActiveLeft, _leftActive);
+      _saveActive(_prefsActiveRight, _rightActive);
+      _saveSpeedPrefs();
+      _sendBinary(force: true);
+    } catch (_) {}
+  }
+
+  Future<void> _showPresetSheet() async {
+    final prefs = await SharedPreferences.getInstance();
+    final exists = <int, bool>{
+      1: (prefs.getString(_prefsPreset1) ?? '').isNotEmpty,
+      2: (prefs.getString(_prefsPreset2) ?? '').isNotEmpty,
+      3: (prefs.getString(_prefsPreset3) ?? '').isNotEmpty,
+    };
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      barrierColor: Colors.black87,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Widget row(int slot) {
+              final hasData = exists[slot] ?? false;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Preset $slot',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (hasData)
+                      TextButton(
+                        onPressed: () async {
+                          await _loadPreset(slot);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: const Text('Load'),
+                      ),
+                    if (hasData)
+                      TextButton(
+                        onPressed: () async {
+                          await prefs.remove(_presetKey(slot));
+                          exists[slot] = false;
+                          if (context.mounted) {
+                            setSheetState(() {});
+                          }
+                        },
+                        child: const Text('Delete'),
+                      ),
+                    TextButton(
+                      onPressed: () async {
+                        await _savePreset(slot);
+                        exists[slot] = true;
+                        if (context.mounted) {
+                          setSheetState(() {});
+                        }
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: _opacity(Colors.black, 0.9),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF7DD3FC)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Presets',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  row(1),
+                  row(2),
+                  row(3),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   String _computeMoveCmd() {
@@ -564,7 +923,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.35),
+            color: _opacity(Colors.black, 0.35),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(color: Colors.white24),
           ),
@@ -653,7 +1012,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     _toggleActive(id, id.startsWith('L:'));
   }
 
-  PopupMenuButton<String> _buildEditMenu() {
+  Widget _buildEditMenu() {
     PopupMenuItem<String> header(String text) {
       return PopupMenuItem<String>(
         enabled: false,
@@ -680,12 +1039,45 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       );
     }
 
+    if (Platform.isIOS) {
+      return Material(
+        color: Colors.transparent,
+        child: GestureDetector(
+          key: _tutorialButtonsKey,
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _menuAnchor = d.globalPosition,
+          onTap: _showEditMenuIOS,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: _opacity(Colors.black, 0.18),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: const Text(
+              'Buttons',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return PopupMenuButton<String>(
       tooltip: 'Add/Remove buttons',
+      offset: const Offset(0, 40),
+      position: PopupMenuPosition.under,
+      onOpened: () => _menuOpen = true,
+      onCanceled: () => _menuOpen = false,
       child: Container(
+        key: _tutorialButtonsKey,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.18),
+          color: _opacity(Colors.black, 0.18),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: Colors.white24),
         ),
@@ -699,6 +1091,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ),
       ),
       onSelected: (value) {
+        _menuOpen = false;
         if (value.startsWith('L:')) {
           _toggleActive(value, true);
         } else if (value.startsWith('R:')) {
@@ -722,11 +1115,156 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
+  Future<void> _showEditMenuIOS() async {
+    if (_menuOpen) return;
+    _menuOpen = true;
+    if (!mounted) {
+      _menuOpen = false;
+      return;
+    }
+    final allowDismiss = ValueNotifier<bool>(false);
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (allowDismiss.value) return;
+      allowDismiss.value = true;
+    });
+    await showCupertinoModalPopup<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      anchorPoint: _menuAnchor,
+      builder: (context) {
+        CupertinoActionSheetAction action(
+          String id,
+          String label,
+          bool active,
+          void Function(VoidCallback fn) setSheetState,
+        ) {
+          return CupertinoActionSheetAction(
+            onPressed: () {
+              if (id.startsWith('L:')) {
+                _toggleActive(id, true);
+              } else if (id.startsWith('R:')) {
+                _toggleActive(id, false);
+              }
+              setSheetState(() {});
+            },
+            child: Row(
+              children: [
+                Icon(
+                  active
+                      ? CupertinoIcons.check_mark
+                      : CupertinoIcons.square,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(label),
+              ],
+            ),
+          );
+        }
+
+        return SizedBox.expand(
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: allowDismiss,
+                builder: (context, armed, child) {
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: armed ? () => Navigator.pop(context) : null,
+                    child: const SizedBox.expand(),
+                  );
+                },
+              ),
+              SafeArea(
+                top: false,
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF7DD3FC)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: StatefulBuilder(
+                      builder: (context, setSheetState) {
+                        return CupertinoActionSheet(
+                          title: const Text('Buttons'),
+                          actions: [
+                            action(
+                              'L:up',
+                              'Left: Up',
+                              _leftActive.contains('L:up'),
+                              setSheetState,
+                            ),
+                            action(
+                              'L:down',
+                              'Left: Down',
+                              _leftActive.contains('L:down'),
+                              setSheetState,
+                            ),
+                            action(
+                              'L:left',
+                              'Left: Left',
+                              _leftActive.contains('L:left'),
+                              setSheetState,
+                            ),
+                            action(
+                              'L:right',
+                              'Left: Right',
+                              _leftActive.contains('L:right'),
+                              setSheetState,
+                            ),
+                            action(
+                              'R:triangle',
+                              'Right: Triangle',
+                              _rightActive.contains('R:triangle'),
+                              setSheetState,
+                            ),
+                            action(
+                              'R:cross',
+                              'Right: Cross',
+                              _rightActive.contains('R:cross'),
+                              setSheetState,
+                            ),
+                            action(
+                              'R:square',
+                              'Right: Square',
+                              _rightActive.contains('R:square'),
+                              setSheetState,
+                            ),
+                            action(
+                              'R:circle',
+                              'Right: Circle',
+                              _rightActive.contains('R:circle'),
+                              setSheetState,
+                            ),
+                          ],
+                          cancelButton: CupertinoActionSheetAction(
+                            onPressed: () => Navigator.pop(context),
+                            isDefaultAction: true,
+                            child: const Text('Cancel'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    _menuOpen = false;
+  }
+
   Widget _appBarBadge(String label, String value) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.18),
+        color: _opacity(Colors.black, 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white24),
       ),
@@ -735,12 +1273,20 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         children: [
           Text(
             '$label:',
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(width: 4),
           Text(
             value,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
           ),
         ],
       ),
@@ -751,6 +1297,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: InkWell(
+        key: _tutorialSpeedKey,
         borderRadius: BorderRadius.circular(999),
         onTap: () {
           setState(() => _speedPanelOpen = !_speedPanelOpen);
@@ -759,8 +1306,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: _speedPanelOpen
-                ? Colors.white.withOpacity(0.25)
-                : Colors.white.withOpacity(0.10),
+                ? _opacity(Colors.white, 0.25)
+                : _opacity(Colors.white, 0.10),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: _speedPanelOpen ? Colors.white : Colors.white24,
@@ -794,7 +1341,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return Row(
       children: [
         SizedBox(
-          width: 34,
+          width: 38,
           child: Text(
             label,
             style: const TextStyle(
@@ -805,14 +1352,20 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           ),
         ),
         Expanded(
-          child: Slider(
-            value: value.toDouble(),
-            min: 0,
-            max: 100,
-            divisions: 100,
-            label: value.toString(),
-            onChanged: (v) => onChanged(v.round()),
-            onChangeEnd: (_) => _sendBinary(force: true),
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 6,
+              trackShape: const _GradientTrackShape(),
+            ),
+            child: Slider(
+              value: value.toDouble(),
+              min: 0,
+              max: 100,
+              divisions: 100,
+              label: value.toString(),
+              onChanged: (v) => onChanged(_snapSpeed(v)),
+              onChangeEnd: (_) => _sendBinary(force: true),
+            ),
           ),
         ),
         SizedBox(
@@ -831,42 +1384,236 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
+  int _snapSpeed(double v) {
+    final int raw = v.round();
+    const int step = 10;
+    const int snapRadius = 2; // snap when within ±2 of a 10s step
+    final int mod = raw % step;
+    if (mod <= snapRadius || mod >= (step - snapRadius)) {
+      return ((raw + step ~/ 2) ~/ step) * step;
+    }
+    return raw;
+  }
+
+
   Widget _buildSpeedPanel() {
     if (!_speedPanelOpen) return const SizedBox.shrink();
 
+    final topInset = MediaQuery.of(context).padding.top;
+    final panelTop = topInset + _gamepadAppBarHeight + _speedPanelTopGap;
+
     return Positioned(
-      top: 44,
+      top: panelTop,
       left: 12,
       right: 12,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.55),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _speedSlider(
-                label: 'DRV',
-                value: _driveSpeed,
-                onChanged: (v) {
-                  setState(() => _driveSpeed = v);
-                },
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+              decoration: BoxDecoration(
+                color: _opacity(Colors.black, 0.55),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF7DD3FC)),
               ),
-              _speedSlider(
-                label: 'TRN',
-                value: _turnSpeed,
-                onChanged: (v) {
-                  setState(() => _turnSpeed = v);
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'SPD',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: _resetSpeedPrefs,
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF7DD3FC),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 2,
+                          ),
+                          minimumSize: const Size(0, 28),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text(
+                          'Reset',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _speedSlider(
+                    label: 'DRV',
+                    value: _driveSpeed,
+                    onChanged: _setDriveSpeed,
+                  ),
+                  _speedSlider(
+                    label: 'TRN',
+                    value: _turnSpeed,
+                    onChanged: _setTurnSpeed,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTutorialOverlay() {
+    if (!_showTutorial) return const SizedBox.shrink();
+    final steps = _tutorialSteps();
+    final step = steps[_tutorialStep];
+    final isLast = _tutorialStep == steps.length - 1;
+    final rect = _tutorialTargetRect;
+    final highlightRect = rect?.inflate(6);
+    final screenSize = MediaQuery.of(context).size;
+    const double arrowSize = 72;
+    const double arrowGap = 4;
+    final bool arrowAbove =
+        highlightRect != null && highlightRect.top > (arrowSize + 24);
+    final double arrowLeft = highlightRect == null
+        ? 0
+        : (highlightRect.center.dx - (arrowSize / 2))
+            .clamp(8.0, screenSize.width - arrowSize - 8);
+    final double arrowTop = highlightRect == null
+        ? 0
+        : arrowAbove
+            ? (highlightRect.top - arrowSize - arrowGap)
+                .clamp(8.0, screenSize.height - arrowSize - 8)
+            : (highlightRect.bottom + arrowGap)
+                .clamp(8.0, screenSize.height - arrowSize - 8);
+
+    return Positioned.fill(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          GestureDetector(
+            onTap: () {},
+            behavior: HitTestBehavior.opaque,
+            child: Container(color: Colors.black87),
+          ),
+          if (highlightRect != null)
+            Positioned.fromRect(
+              rect: highlightRect,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF7DD3FC),
+                      width: 2,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x807DD3FC),
+                        blurRadius: 16,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (highlightRect != null)
+            Positioned(
+              left: arrowLeft,
+              top: arrowTop,
+              child: IgnorePointer(
+                child: Icon(
+                  arrowAbove ? Icons.south : Icons.north,
+                  size: arrowSize,
+                  color: const Color(0xFF7DD3FC),
+                ),
+              ),
+            ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: BoxDecoration(
+                  color: _opacity(Colors.black, 0.9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF7DD3FC)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _tutorialThai ? step.titleTh : step.titleEn,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _tutorialThai ? step.bodyTh : step.bodyEn,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: _finishTutorial,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                          ),
+                          child: Text(_tutorialThai ? 'ข้าม' : 'Skip'),
+                        ),
+                        const Spacer(),
+                        if (_tutorialStep > 0)
+                          TextButton(
+                            onPressed: () =>
+                                _goTutorialStep(_tutorialStep - 1),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                            ),
+                            child: Text(_tutorialThai ? 'ย้อนกลับ' : 'Back'),
+                          ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: isLast
+                              ? _finishTutorial
+                              : () => _goTutorialStep(_tutorialStep + 1),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF7DD3FC),
+                            foregroundColor: Colors.black,
+                          ),
+                          child: Text(
+                            isLast
+                                ? (_tutorialThai ? 'เสร็จสิ้น' : 'Finish')
+                                : (_tutorialThai ? 'ถัดไป' : 'Next'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -878,7 +1625,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         behavior: HitTestBehavior.opaque,
         onTap: () => setState(() => _speedPanelOpen = false),
         child: Container(
-          color: Colors.black.withOpacity(0.35),
+          color: Colors.black87,
         ),
       ),
     );
@@ -947,9 +1694,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: GamepadAppBar(
         title: '',
         centerTitle: true,
+        gradientColors: const [
+          Color(0xFF1565C0),
+          Color(0xFF26A69A),
+        ],
         titleWidget: Center(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -958,13 +1710,22 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               children: [
                 _speedToggle(),
                 const SizedBox(width: 6),
-                _appBarBadge('Cmd', _commandByteLabel()),
+                SizedBox(
+                  key: _tutorialCmdKey,
+                  child: _appBarBadge('Cmd', _commandByteLabel()),
+                ),
                 const SizedBox(width: 6),
-                _appBarBadge('Drv', _driveSpeedLabel()),
+                SizedBox(
+                  key: _tutorialDrvKey,
+                  child: _appBarBadge('Drv', _driveSpeedLabel()),
+                ),
                 const SizedBox(width: 6),
-                _appBarBadge('Trn', _turnSpeedLabel()),
+                SizedBox(
+                  key: _tutorialTrnKey,
+                  child: _appBarBadge('Trn', _turnSpeedLabel()),
+                ),
                 const SizedBox(width: 6),
-                const ConnectionStatusBadge(),
+                ConnectionStatusBadge(key: _tutorialBtKey),
               ],
             ),
           ),
@@ -977,9 +1738,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               borderRadius: BorderRadius.circular(999),
               onTap: _toggleEdit,
               child: Container(
+                key: _tutorialCustomizeKey,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.18),
+                  color: _opacity(Colors.black, 0.18),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: Colors.white24),
                 ),
@@ -1009,11 +1771,70 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               onPressed: _resetLayouts,
               tooltip: 'Reset layout',
             ),
+          if (!_editMode)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                children: [
+                  InkWell(
+                    key: _tutorialPresetKey,
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: _showPresetSheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _opacity(Colors.black, 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Text(
+                        'Preset',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: _restartTutorial,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _opacity(Colors.black, 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Text(
+                        'Tutorial',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
-      body: SafeArea(
-        child: Stack(
-          children: [
+      body: Stack(
+        key: _tutorialStackKey,
+        children: [
+          SafeArea(
+            child: Stack(
+              children: [
             IgnorePointer(
               ignoring: _speedPanelOpen,
               child: Opacity(
@@ -1142,13 +1963,90 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             ),
             _buildResizeBar(),
             const LogoCorner(),
-            _buildDimOverlay(),
-            _buildSpeedPanel(),
-          ],
-        ),
+              ],
+            ),
+          ),
+          _buildDimOverlay(),
+          _buildSpeedPanel(),
+          _buildTutorialOverlay(),
+        ],
       ),
     );
   }
+}
+
+class _GradientTrackShape extends SliderTrackShape {
+  const _GradientTrackShape();
+
+  @override
+  Rect getPreferredRect({
+    required RenderBox parentBox,
+    Offset offset = Offset.zero,
+    required SliderThemeData sliderTheme,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    final double trackHeight = sliderTheme.trackHeight ?? 2;
+    final double trackLeft = offset.dx;
+    final double trackTop =
+        offset.dy + (parentBox.size.height - trackHeight) / 2;
+    final double trackWidth = parentBox.size.width;
+    return Rect.fromLTWH(trackLeft, trackTop, trackWidth, trackHeight);
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required Offset thumbCenter,
+    required TextDirection textDirection,
+    Offset? secondaryOffset,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    final Rect trackRect = getPreferredRect(
+      parentBox: parentBox,
+      offset: offset,
+      sliderTheme: sliderTheme,
+      isEnabled: isEnabled,
+      isDiscrete: isDiscrete,
+    );
+
+    final radius = Radius.circular(trackRect.height / 2);
+    final rrect = RRect.fromRectAndRadius(trackRect, radius);
+
+    const gradient = LinearGradient(
+      colors: [
+        Color(0xFF22C55E), // green
+        Color(0xFFFACC15), // yellow
+        Color(0xFFEF4444), // red
+      ],
+      stops: [0.0, 0.55, 1.0],
+    );
+
+    final paint = Paint()..shader = gradient.createShader(trackRect);
+    context.canvas.drawRRect(rrect, paint);
+  }
+}
+
+class _TutorialStep {
+  final String titleTh;
+  final String bodyTh;
+  final String titleEn;
+  final String bodyEn;
+  final GlobalKey? targetKey;
+  final bool requiresEditMode;
+  const _TutorialStep({
+    required this.titleTh,
+    required this.bodyTh,
+    required this.titleEn,
+    required this.bodyEn,
+    this.targetKey,
+    this.requiresEditMode = false,
+  });
 }
 
 class _BtnSpec {
@@ -1470,10 +2368,10 @@ class _EditableButtonState extends State<_EditableButton> {
     final cy = widget.layout.cy * h;
     final borderColor = widget.selected
         ? const Color(0xFF00F0FF)
-        : Colors.white.withOpacity(0.7);
+        : _opacity(Colors.white, 0.7);
     final borderWidth = widget.selected ? 3.0 : 2.0;
     final glowColor = widget.selected
-        ? const Color(0xFF00F0FF).withOpacity(0.45)
+        ? _opacity(const Color(0xFF00F0FF), 0.45)
         : Colors.transparent;
     final dimOpacity = widget.dimmed ? 0.35 : 1.0;
 
@@ -1493,7 +2391,7 @@ class _EditableButtonState extends State<_EditableButton> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: borderColor, width: borderWidth),
-              color: Colors.white.withOpacity(0.08),
+              color: _opacity(Colors.white, 0.08),
               boxShadow: [
                 BoxShadow(
                   color: glowColor,
@@ -1519,91 +2417,6 @@ class _EditableButtonState extends State<_EditableButton> {
   }
 }
 
-class _DpadPanel extends StatelessWidget {
-  final _BtnSpec up, down, left, right;
-  final void Function(String id, bool isDown) onPressChanged;
-
-  const _DpadPanel({
-    super.key,
-    required this.up,
-    required this.down,
-    required this.left,
-    required this.right,
-    required this.onPressChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (ctx, c) {
-        final s = math.min(c.maxWidth, c.maxHeight);
-        final btn = s * 0.30;
-        final gap = s * 0.08;
-        final cx = s / 2, cy = s / 2;
-
-        return Center(
-          child: SizedBox(
-            width: s,
-            height: s,
-            child: Stack(
-              children: [
-                Positioned(
-                  left: cx - btn / 2,
-                  top: cy - gap - btn,
-                  child: _ImagePressHoldButton(
-                    label: up.label,
-                    sendValue: up.sendValue,
-                    asset: up.asset,
-                    diameter: btn,
-                    showLabel: false,
-                    onPressChanged: onPressChanged,
-                  ),
-                ),
-                Positioned(
-                  left: cx - btn / 2,
-                  top: cy + gap,
-                  child: _ImagePressHoldButton(
-                    label: down.label,
-                    sendValue: down.sendValue,
-                    asset: down.asset,
-                    diameter: btn,
-                    showLabel: false,
-                    onPressChanged: onPressChanged,
-                  ),
-                ),
-                Positioned(
-                  left: cx - gap - btn,
-                  top: cy - btn / 2,
-                  child: _ImagePressHoldButton(
-                    label: left.label,
-                    sendValue: left.sendValue,
-                    asset: left.asset,
-                    diameter: btn,
-                    showLabel: false,
-                    onPressChanged: onPressChanged,
-                  ),
-                ),
-                Positioned(
-                  left: cx + gap,
-                  top: cy - btn / 2,
-                  child: _ImagePressHoldButton(
-                    label: right.label,
-                    sendValue: right.sendValue,
-                    asset: right.asset,
-                    diameter: btn,
-                    showLabel: false,
-                    onPressChanged: onPressChanged,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _ImagePressHoldButton extends StatefulWidget {
   final String label;
   final String sendValue;
@@ -1613,7 +2426,6 @@ class _ImagePressHoldButton extends StatefulWidget {
   final void Function(String id, bool isDown)? onPressChanged;
 
   const _ImagePressHoldButton({
-    super.key,
     required this.label,
     required this.sendValue,
     required this.asset,
@@ -1669,11 +2481,11 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
 
     final borderColor = _pressed
         ? (isDark
-              ? const Color(0xFF00F0FF).withOpacity(0.95)
-              : Colors.cyanAccent.withOpacity(0.95))
+              ? _opacity(const Color(0xFF00F0FF), 0.95)
+              : _opacity(Colors.cyanAccent, 0.95))
         : (isDark
-              ? const Color(0xFF6B7CFF).withOpacity(0.85)
-              : Colors.black.withOpacity(0.45));
+              ? _opacity(const Color(0xFF6B7CFF), 0.85)
+              : _opacity(Colors.black, 0.45));
 
     final borderWidth = _pressed ? 3.0 : (isDark ? 2.2 : 1.4);
 
@@ -1682,11 +2494,11 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
 
     final shadowColor = _pressed
         ? (isDark
-              ? const Color(0xFF00F0FF).withOpacity(0.55)
-              : const Color(0xFF00FFFF).withOpacity(0.55))
+              ? _opacity(const Color(0xFF00F0FF), 0.55)
+              : _opacity(const Color(0xFF00FFFF), 0.55))
         : (isDark
-              ? Colors.black.withOpacity(0.65)
-              : Colors.black.withOpacity(0.30));
+              ? _opacity(Colors.black, 0.65)
+              : _opacity(Colors.black, 0.30));
 
     return Listener(
       onPointerDown: (_) => _onDown(),
@@ -1724,7 +2536,7 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
                       BoxShadow(
                         blurRadius: btnSize * 0.22,
                         spreadRadius: btnSize * 0.02,
-                        color: const Color(0xFF6B7CFF).withOpacity(0.25),
+                        color: _opacity(const Color(0xFF6B7CFF), 0.25),
                         offset: const Offset(0, 0),
                       ),
                   ],
@@ -1741,7 +2553,7 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 90),
                         color: _pressed
-                            ? Colors.white.withOpacity(0.14)
+                            ? _opacity(Colors.white, 0.14)
                             : Colors.transparent,
                       ),
                     ],

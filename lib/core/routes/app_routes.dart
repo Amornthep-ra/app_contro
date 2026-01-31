@@ -24,7 +24,7 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const BluetoothBlePage());
 
       case gamepad4Button:
-        return MaterialPageRoute(builder: (_) => const Gamepad_4_Botton());
+        return MaterialPageRoute(builder: (_) => const Gamepad4ButtonPage());
 
       case gamepad8Button:
         return MaterialPageRoute(builder: (_) => const GamepadModeEdit());

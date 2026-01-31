@@ -8,6 +8,7 @@ class JoystickView extends StatefulWidget {
   final bool isLeft;
   final void Function(double x, double y)? onChanged;
   final String? knobImage;
+  final JoystickAxisLock axisLock;
 
   const JoystickView({
     super.key,
@@ -15,6 +16,7 @@ class JoystickView extends StatefulWidget {
     this.isLeft = true,
     this.onChanged,
     this.knobImage,
+    this.axisLock = JoystickAxisLock.none,
   });
 
   @override
@@ -27,6 +29,9 @@ class _JoystickViewState extends State<JoystickView>
   late AnimationController _resetCtrl;
 
   Size _lastSize = Size.zero;
+
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
 
   @override
   void initState() {
@@ -67,6 +72,12 @@ class _JoystickViewState extends State<JoystickView>
     final center = Offset(radius, radius);
     Offset delta = localPos - center;
 
+    if (widget.axisLock == JoystickAxisLock.yOnly) {
+      delta = Offset(0, delta.dy);
+    } else if (widget.axisLock == JoystickAxisLock.xOnly) {
+      delta = Offset(delta.dx, 0);
+    }
+
     final maxDist = radius - knobRadius;
     if (maxDist <= 0) return;
 
@@ -94,8 +105,14 @@ class _JoystickViewState extends State<JoystickView>
   }
 
   void _emitWith(double maxDist) {
-    final nx = (_knob.dx / maxDist).clamp(-1.0, 1.0);
-    final ny = (_knob.dy / maxDist).clamp(-1.0, 1.0);
+    var nx = (_knob.dx / maxDist).clamp(-1.0, 1.0);
+    var ny = (_knob.dy / maxDist).clamp(-1.0, 1.0);
+
+    if (widget.axisLock == JoystickAxisLock.yOnly) {
+      nx = 0.0;
+    } else if (widget.axisLock == JoystickAxisLock.xOnly) {
+      ny = 0.0;
+    }
 
     if (widget.isLeft) {
       widget.controller.setLeftJoystick(nx, ny);
@@ -117,13 +134,13 @@ class _JoystickViewState extends State<JoystickView>
     final effectiveOpacity =
         joystickTheme.bgOpacity < minOpacity ? minOpacity : joystickTheme.bgOpacity;
 
-    final bgColor = joystickTheme.bgColor.withOpacity(effectiveOpacity);
+    final bgColor = _opacity(joystickTheme.bgColor, effectiveOpacity);
 
     final borderOpacity = isDark ? 0.95 : 0.60;
-    final borderColor = joystickTheme.borderColor.withOpacity(borderOpacity);
+    final borderColor = _opacity(joystickTheme.borderColor, borderOpacity);
 
     final knobFallbackColor =
-        joystickTheme.knobColorStart.withOpacity(joystickTheme.knobOpacity);
+        _opacity(joystickTheme.knobColorStart, joystickTheme.knobOpacity);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -159,6 +176,7 @@ class _JoystickViewState extends State<JoystickView>
                         borderWidth: joystickTheme.borderWidth,
                         knobColor: knobFallbackColor,
                         isDark: isDark,
+                        axisLock: widget.axisLock,
                       ),
                     ),
                   ),
@@ -204,6 +222,12 @@ class _JoystickViewState extends State<JoystickView>
   }
 }
 
+enum JoystickAxisLock {
+  none,
+  xOnly,
+  yOnly,
+}
+
 class _JoystickPainter extends CustomPainter {
   final JoystickController controller;
   final Offset knob;
@@ -215,6 +239,7 @@ class _JoystickPainter extends CustomPainter {
   final double borderWidth;
   final Color knobColor;
   final bool isDark;
+  final JoystickAxisLock axisLock;
 
   _JoystickPainter(
     this.controller, {
@@ -226,6 +251,7 @@ class _JoystickPainter extends CustomPainter {
     required this.borderWidth,
     required this.knobColor,
     required this.isDark,
+    required this.axisLock,
   });
 
   static const double _darkBorderMul = 5.0;
@@ -236,9 +262,13 @@ class _JoystickPainter extends CustomPainter {
   static const double _shadowSigma = 20.0;
   static const double _glowSigma = 18.0;
 
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
+
   @override
   void paint(Canvas canvas, Size size) {
     _drawBackground(canvas, size);
+    _drawAxisGuide(canvas, size);
     if (!hideKnob) _drawKnob(canvas, size);
   }
 
@@ -276,7 +306,7 @@ class _JoystickPainter extends CustomPainter {
       ..isAntiAlias = true;
 
     final paintShadow = Paint()
-      ..color = Colors.black.withOpacity(isDark ? 0.55 : 0.12)
+      ..color = _opacity(Colors.black, isDark ? 0.55 : 0.12)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _shadowSigma)
       ..isAntiAlias = true;
 
@@ -287,7 +317,7 @@ class _JoystickPainter extends CustomPainter {
     final blurBorderPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = mainBorderW + _blurExtraW
-      ..color = borderColor.withOpacity(isDark ? 0.42 : 0.22)
+      ..color = _opacity(borderColor, isDark ? 0.42 : 0.22)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _blurSigma)
       ..isAntiAlias = true;
 
@@ -297,11 +327,40 @@ class _JoystickPainter extends CustomPainter {
       final glowPaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = mainBorderW * 0.55
-        ..color = const Color(0xFF6B7CFF).withOpacity(0.25)
+        ..color = _opacity(const Color(0xFF6B7CFF), 0.25)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _glowSigma)
         ..isAntiAlias = true;
 
       canvas.drawCircle(center, rBig * 0.98, glowPaint);
+    }
+  }
+
+  void _drawAxisGuide(Canvas canvas, Size size) {
+    if (axisLock == JoystickAxisLock.none) return;
+    final center = size.center(Offset.zero);
+    final rBig = size.width / 2;
+    final guideLen = rBig * 1.5;
+    final guideColor = _opacity(borderColor, isDark ? 0.65 : 0.45);
+
+    final paintGuide = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isDark ? 2.6 : 2.2
+      ..strokeCap = StrokeCap.round
+      ..color = guideColor
+      ..isAntiAlias = true;
+
+    if (axisLock == JoystickAxisLock.yOnly) {
+      canvas.drawLine(
+        Offset(center.dx, center.dy - guideLen / 2),
+        Offset(center.dx, center.dy + guideLen / 2),
+        paintGuide,
+      );
+    } else if (axisLock == JoystickAxisLock.xOnly) {
+      canvas.drawLine(
+        Offset(center.dx - guideLen / 2, center.dy),
+        Offset(center.dx + guideLen / 2, center.dy),
+        paintGuide,
+      );
     }
   }
 
@@ -318,7 +377,10 @@ class _JoystickPainter extends CustomPainter {
     final paintKnobBorder = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = joystickTheme.knobBorderWidth
-      ..color = joystickTheme.knobBorderColor.withOpacity(isDark ? 0.9 : 0.6)
+      ..color = _opacity(
+        joystickTheme.knobBorderColor,
+        isDark ? 0.9 : 0.6,
+      )
       ..isAntiAlias = true;
 
     canvas.drawCircle(center + knob, knobSize / 2, paintKnobBorder);
@@ -333,6 +395,7 @@ class _JoystickPainter extends CustomPainter {
         oldDelegate.borderWidth != borderWidth ||
         oldDelegate.knobColor != knobColor ||
         oldDelegate.isDark != isDark ||
-        oldDelegate.knobSize != knobSize;
+        oldDelegate.knobSize != knobSize ||
+        oldDelegate.axisLock != axisLock;
   }
 }

@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,15 +15,13 @@ import '../../core/widgets/connection_status_badge.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/custom_appbars.dart';
 import '../../core/ble/joystick_packet.dart';
+import '../../core/ui/language_controller.dart';
 
-const double PAGE_PAD_H = 0;
-const double PAGE_PAD_V = 8;
-const double COLUMN_GAP = 6;
-const int FLEX_LEFT = 4;
-const int FLEX_RIGHT = 6;
-
-const double DESIGN_W = 1280;
-const double DESIGN_H = 720;
+const double designW = 1280;
+const double designH = 720;
+const double _panelEdgeInset = 28.0;
+const double _panelRowGap = 28.0;
+const double _panelColGap = 32.0;
 
 const int kLoopHz = 60;
 const int kLoopMs = 1000 ~/ kLoopHz;
@@ -32,7 +32,10 @@ const int kMaxSendHz = 40;
 const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 
 const double _minBtnSize = 0.6;
-const double _maxBtnSize = 1.6;
+const double _maxBtnSize = 1.3;
+
+Color _opacity(Color color, double opacity) =>
+    color.withAlpha((opacity * 255).round());
 
 class _S {
   final double _sx;
@@ -40,13 +43,6 @@ class _S {
   final double _sp;
 
   _S(this._sx, this._sy, this._sp);
-
-  static _S from(BoxConstraints cons) {
-    final sw = cons.maxWidth / DESIGN_W;
-    final sh = cons.maxHeight / DESIGN_H;
-    final sp = (sw + sh) / 2.0;
-    return _S(sw, sh, sp.clamp(0.75, 1.35));
-  }
 
   double w(double v) => v * _sx;
   double h(double v) => v * _sy;
@@ -73,17 +69,17 @@ BtnCfg _baseHoldCfg(BuildContext ctx) {
   final baseColor = isDark ? darkBase : Colors.white;
 
   final borderColor = isDark
-      ? darkBorder.withOpacity(.85)
-      : Colors.black.withOpacity(.20);
+      ? _opacity(darkBorder, .85)
+      : _opacity(Colors.black, .20);
 
   final glowColor = isDark
-      ? darkNeon.withOpacity(.92)
-      : const Color(0xFF5C6BFF).withOpacity(.70);
+      ? _opacity(darkNeon, .92)
+      : _opacity(const Color(0xFF5C6BFF), .70);
 
   final pressOverlayColor = isDark ? Colors.white : Colors.black;
 
   final labelColor = isDark
-      ? Colors.white.withOpacity(.92)
+      ? _opacity(Colors.white, .92)
       : s.onPrimaryContainer;
 
   return BtnCfg(
@@ -115,37 +111,37 @@ BtnCfg _baseHoldCfg(BuildContext ctx) {
 
 BtnCfg cfgForward(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Forward',
-  width: 240,
-  height: 320,
-  margin: const EdgeInsets.fromLTRB(100, 0, 0, 10),
+  width: 210,
+  height: 280,
+  margin: const EdgeInsets.fromLTRB(80, 0, 0, 8),
   iconAsset: kGamepad4AssetUp,
 );
 
 BtnCfg cfgBackward(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Backward',
-  width: 240,
-  height: 320,
-  margin: const EdgeInsets.fromLTRB(100, 20, 0, 0),
+  width: 210,
+  height: 280,
+  margin: const EdgeInsets.fromLTRB(80, 16, 0, 0),
   iconAsset: kGamepad4AssetDown,
 );
 
 BtnCfg cfgLeft(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Left',
-  width: 240,
-  height: 320,
-  margin: const EdgeInsets.fromLTRB(0, 80, 0, 0),
+  width: 210,
+  height: 280,
+  margin: const EdgeInsets.fromLTRB(0, 64, 0, 0),
   iconAsset: kGamepad4AssetLeft,
 );
 
 BtnCfg cfgRight(BuildContext ctx) => _baseHoldCfg(ctx).copyWith(
   label: 'Right',
-  width: 240,
-  height: 320,
-  margin: const EdgeInsets.fromLTRB(0, 80, 0, 0),
+  width: 210,
+  height: 280,
+  margin: const EdgeInsets.fromLTRB(0, 64, 0, 0),
   iconAsset: kGamepad4AssetRight,
 );
 
-const double SPEED_ROW_GAP = 6.0;
+const double speedRowGap = 6.0;
 
 TapCfg cfgSpeedLow(BuildContext ctx) {
   final theme = Theme.of(ctx);
@@ -161,18 +157,18 @@ TapCfg cfgSpeedLow(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFF00FFB2).withOpacity(.55)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFF00FFB2), .55)
+      : _opacity(Colors.black, .22);
 
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
-      ? Colors.white.withOpacity(.85)
-      : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+      ? _opacity(Colors.white, .85)
+      : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -204,16 +200,16 @@ TapCfg cfgSpeedMid(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFFFFD54F).withOpacity(.55)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFFFFD54F), .55)
+      : _opacity(Colors.black, .22);
 
   final textOn = Colors.black;
-  final textOff = Colors.black.withOpacity(.85);
+  final textOff = _opacity(Colors.black, .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -245,18 +241,18 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
       : lighten(c, .24);
 
   final glow = isDark
-      ? const Color(0xFFFF5A5A).withOpacity(.60)
-      : Colors.black.withOpacity(.22);
+      ? _opacity(const Color(0xFFFF5A5A), .60)
+      : _opacity(Colors.black, .22);
 
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
-      ? Colors.white.withOpacity(.85)
-      : const Color.fromARGB(255, 0, 0, 0).withOpacity(.85);
+      ? _opacity(Colors.white, .85)
+      : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
 
   return TapCfg(
     width: 100,
     height: 80,
-    margin: const EdgeInsets.symmetric(horizontal: SPEED_ROW_GAP),
+    margin: const EdgeInsets.symmetric(horizontal: speedRowGap),
     radius: 18,
     gradient: grad,
     border: border,
@@ -276,27 +272,27 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
 
 CommandCardCfg cfgCommandCard(BuildContext ctx) {
   final t = Theme.of(ctx);
-  final base = t.colorScheme.surfaceVariant.withOpacity(.70);
+  final base = _opacity(t.colorScheme.surfaceContainerHighest, .70);
   return CommandCardCfg(
     width: 480,
     margin: const EdgeInsets.only(top: 60),
     padding: const EdgeInsets.all(12),
     background: [lighten(base, .06), darken(base, .06)],
     radius: 16,
-    borderColor: t.colorScheme.outlineVariant.withOpacity(.45),
+    borderColor: _opacity(t.colorScheme.outlineVariant, .45),
     borderWidth: 1.2,
     shadowBlur: 12,
     shadowOffset: const Offset(0, 6),
-    shadowColor: Colors.black.withOpacity(.14),
+    shadowColor: _opacity(Colors.black, .14),
     titleFont: 18,
     valueFont: 24,
     textColor: t.textTheme.bodyMedium?.color ?? Colors.white,
     valueColor: t.textTheme.bodyLarge?.color ?? Colors.white,
-    dividerColor: t.colorScheme.outlineVariant.withOpacity(.6),
+    dividerColor: _opacity(t.colorScheme.outlineVariant, .6),
   );
 }
 
-BtnCfg scaleBtn(BtnCfg c, _S s) => c.copyWith(
+BtnCfg _scaleBtn(BtnCfg c, _S s) => c.copyWith(
   width: s.w(c.width),
   height: s.h(c.height),
   margin: s.m(c.margin),
@@ -313,49 +309,43 @@ BtnCfg scaleBtn(BtnCfg c, _S s) => c.copyWith(
   labelFontSize: s.sp(c.labelFontSize),
 );
 
-TapCfg scaleTap(TapCfg c, _S s) => c.copyWith(
-  width: s.w(c.width),
-  height: s.h(c.height),
-  margin: s.m(c.margin),
-  radius: s.r(c.radius),
-  borderWidthSelected: s.r(c.borderWidthSelected),
-  borderWidthUnselected: s.r(c.borderWidthUnselected),
-  glowBlurSelected: s.r(c.glowBlurSelected),
-  glowBlurUnselected: s.r(c.glowBlurUnselected),
-  shadowOffsetSelected: s.o(c.shadowOffsetSelected),
-  shadowOffsetUnselected: s.o(c.shadowOffsetUnselected),
-  fontSize: s.sp(c.fontSize),
-);
-
-CommandCardCfg scaleCard(CommandCardCfg c, _S s) => c.copyWith(
-  width: s.w(c.width),
-  margin: s.m(c.margin),
-  padding: s.m(c.padding),
-  radius: s.r(c.radius),
-  borderWidth: s.r(c.borderWidth),
-  shadowBlur: s.r(c.shadowBlur),
-  shadowOffset: s.o(c.shadowOffset),
-  titleFont: s.sp(c.titleFont),
-  valueFont: s.sp(c.valueFont),
-);
-
-class Gamepad_4_Botton extends StatefulWidget {
-  const Gamepad_4_Botton({super.key});
+class Gamepad4ButtonPage extends StatefulWidget {
+  const Gamepad4ButtonPage({super.key});
 
   @override
-  State<Gamepad_4_Botton> createState() => _Gamepad_4_BottonState();
+  State<Gamepad4ButtonPage> createState() => _Gamepad4ButtonPageState();
 }
 
-class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
+class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   static const _prefsLayoutAll = 'gp4_layout_all';
   static const _prefsActiveAll = 'gp4_active_all';
+  static const _prefsTutorialSeen = 'gp4_tutorial_seen';
+  static const _prefsPreset1 = 'gp4_preset_1';
+  static const _prefsPreset2 = 'gp4_preset_2';
+  static const _prefsPreset3 = 'gp4_preset_3';
 
   bool _f = false, _b = false, _l = false, _r = false;
   String _command = '0';
   String _speedLabel = 'Lo';
   String _lastPacketKey = '';
 
+  bool _showTutorial = false;
+  int _tutorialStep = 0;
+  bool _tutorialThai = true;
+  late final VoidCallback _langListener;
+  Rect? _tutorialTargetRect;
+  final GlobalKey _tutorialStackKey = GlobalKey();
+  final GlobalKey _tutorialCustomizeKey = GlobalKey();
+  final GlobalKey _tutorialButtonsKey = GlobalKey();
+  final GlobalKey _tutorialSpeedKey = GlobalKey();
+  final GlobalKey _tutorialBtKey = GlobalKey();
+  final GlobalKey _tutorialPresetKey = GlobalKey();
+  final GlobalKey _tutorialCmdKey = GlobalKey();
+  final GlobalKey _tutorialSpdKey = GlobalKey();
+
   bool _editMode = false;
+  bool _menuOpen = false;
+  Offset? _menuAnchor;
   Map<String, _ButtonLayout> _layoutAll = {};
   Set<String> _activeIds = {
     'F:forward',
@@ -603,7 +593,7 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.35),
+            color: _opacity(Colors.black, 0.35),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(color: Colors.white24),
           ),
@@ -653,7 +643,300 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     });
   }
 
-  PopupMenuButton<String> _buildEditMenu() {
+  Future<void> _maybeStartTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool(_prefsTutorialSeen) ?? false;
+    if (seen || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _showTutorial = true;
+        _tutorialStep = 0;
+        _tutorialThai = LanguageController.isThai.value;
+      });
+      _scheduleTutorialRectUpdate();
+    });
+  }
+
+  void _scheduleTutorialRectUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_showTutorial) return;
+      _updateTutorialRect();
+    });
+  }
+
+  List<_TutorialStep> _tutorialSteps() {
+    return [
+      const _TutorialStep(
+        titleTh: 'ยินดีต้อนรับ',
+        bodyTh: 'นี่คือวิธีใช้งาน Gamepad (4 Button) แบบสั้นๆ',
+        titleEn: 'Welcome',
+        bodyEn: 'This is a quick guide to Gamepad (4 Button).',
+      ),
+      _TutorialStep(
+        titleTh: 'Customize',
+        bodyTh: 'กด Customize เพื่อเข้าโหมดแก้ไขปุ่ม',
+        titleEn: 'Customize',
+        bodyEn: 'Tap Customize to enter edit mode.',
+        targetKey: _tutorialCustomizeKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Preset',
+        bodyTh: 'บันทึก/เรียกใช้รูปแบบปุ่มและความเร็วได้ 3 แบบ',
+        titleEn: 'Preset',
+        bodyEn: 'Save/load 3 preset layouts and speed.',
+        targetKey: _tutorialPresetKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Buttons',
+        bodyTh: 'กด Buttons เพื่อเลือกปุ่มที่ต้องการใช้',
+        titleEn: 'Buttons',
+        bodyEn: 'Tap Buttons to choose which buttons are active.',
+        targetKey: _tutorialButtonsKey,
+        requiresEditMode: true,
+      ),
+      _TutorialStep(
+        titleTh: 'Speed',
+        bodyTh: 'เลือกความเร็ว Lo / Med / Hi',
+        titleEn: 'Speed',
+        bodyEn: 'Choose speed: Lo / Med / Hi.',
+        targetKey: _tutorialSpeedKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Cmd',
+        bodyTh: 'Cmd คือค่ารหัสปุ่มที่กดอยู่แบบเรียลไทม์',
+        titleEn: 'Cmd',
+        bodyEn: 'Cmd shows the real-time button byte.',
+        targetKey: _tutorialCmdKey,
+      ),
+      _TutorialStep(
+        titleTh: 'Spd',
+        bodyTh: 'Spd คือค่าระดับความเร็วที่เลือกอยู่',
+        titleEn: 'Spd',
+        bodyEn: 'Spd shows the current speed level.',
+        targetKey: _tutorialSpdKey,
+      ),
+      _TutorialStep(
+        titleTh: 'สถานะ BLE',
+        bodyTh: 'ดูสถานะการเชื่อมต่อที่นี่ (BLE Off / BLE On)',
+        titleEn: 'BLE Status',
+        bodyEn: 'Check connection status here (BLE Off / BLE On).',
+        targetKey: _tutorialBtKey,
+      ),
+    ];
+  }
+
+  void _goTutorialStep(int nextStep) {
+    final steps = _tutorialSteps();
+    if (nextStep < 0 || nextStep >= steps.length) return;
+    final step = steps[nextStep];
+    if (step.requiresEditMode && !_editMode) {
+      setState(() => _editMode = true);
+    }
+    setState(() => _tutorialStep = nextStep);
+    _scheduleTutorialRectUpdate();
+  }
+
+  Future<void> _finishTutorial() async {
+    setState(() {
+      _showTutorial = false;
+      _tutorialStep = 0;
+      _editMode = false;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsTutorialSeen, true);
+  }
+
+  Future<void> _restartTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsTutorialSeen, false);
+    if (!mounted) return;
+    setState(() {
+      _showTutorial = true;
+      _tutorialStep = 0;
+      _tutorialThai = LanguageController.isThai.value;
+      _editMode = false;
+    });
+    _scheduleTutorialRectUpdate();
+  }
+
+  void _updateTutorialRect() {
+    final steps = _tutorialSteps();
+    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
+      setState(() => _tutorialTargetRect = null);
+      return;
+    }
+    final key = steps[_tutorialStep].targetKey;
+    final stackBox =
+        _tutorialStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final targetBox = key?.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null || targetBox == null) {
+      setState(() => _tutorialTargetRect = null);
+      return;
+    }
+    final targetGlobal = targetBox.localToGlobal(Offset.zero);
+    final offset = stackBox.globalToLocal(targetGlobal);
+    final rect = offset & targetBox.size;
+    setState(() => _tutorialTargetRect = rect);
+  }
+
+  String _presetKey(int slot) {
+    switch (slot) {
+      case 1:
+        return _prefsPreset1;
+      case 2:
+        return _prefsPreset2;
+      case 3:
+        return _prefsPreset3;
+      default:
+        return _prefsPreset1;
+    }
+  }
+
+  Future<void> _savePreset(int slot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = {
+      'layout': _encodeLayout(_layoutAll),
+      'active': _activeIds.toList(),
+      'speed': _speedLabel,
+    };
+    await prefs.setString(_presetKey(slot), jsonEncode(data));
+  }
+
+  Future<void> _loadPreset(int slot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_presetKey(slot));
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final obj = jsonDecode(raw);
+      if (obj is! Map) return;
+      final layoutRaw = obj['layout'];
+      final activeRaw = obj['active'];
+      final speed = obj['speed'];
+      if (layoutRaw is Map) {
+        _layoutAll = _decodeLayout(jsonEncode(layoutRaw));
+      }
+      if (activeRaw is List) {
+        _activeIds = activeRaw.map((e) => e.toString()).toSet();
+      }
+      if (speed is String) _speedLabel = speed;
+      setState(() {});
+      _saveLayout(_prefsLayoutAll, _layoutAll);
+      _saveActive(_prefsActiveAll, _activeIds);
+      _sendBinary(force: true);
+    } catch (_) {}
+  }
+
+  Future<void> _showPresetSheet() async {
+    final prefs = await SharedPreferences.getInstance();
+    final exists = <int, bool>{
+      1: (prefs.getString(_prefsPreset1) ?? '').isNotEmpty,
+      2: (prefs.getString(_prefsPreset2) ?? '').isNotEmpty,
+      3: (prefs.getString(_prefsPreset3) ?? '').isNotEmpty,
+    };
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      barrierColor: Colors.black87,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Widget row(int slot) {
+              final hasData = exists[slot] ?? false;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Preset $slot',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (hasData)
+                      TextButton(
+                        onPressed: () async {
+                          await _loadPreset(slot);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: const Text('Load'),
+                      ),
+                    if (hasData)
+                      TextButton(
+                        onPressed: () async {
+                          await prefs.remove(_presetKey(slot));
+                          exists[slot] = false;
+                          if (context.mounted) {
+                            setSheetState(() {});
+                          }
+                        },
+                        child: const Text('Delete'),
+                      ),
+                    TextButton(
+                      onPressed: () async {
+                        await _savePreset(slot);
+                        exists[slot] = true;
+                        if (context.mounted) {
+                          setSheetState(() {});
+                        }
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: _opacity(Colors.black, 0.9),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF7DD3FC)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Presets',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  row(1),
+                  row(2),
+                  row(3),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEditMenu() {
     PopupMenuItem<String> item(String id, String label, bool active) {
       return PopupMenuItem<String>(
         value: id,
@@ -670,12 +953,45 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
       );
     }
 
+    if (Platform.isIOS) {
+      return Material(
+        color: Colors.transparent,
+        child: GestureDetector(
+          key: _tutorialButtonsKey,
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _menuAnchor = d.globalPosition,
+          onTap: _showEditMenuIOS,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: _opacity(Colors.black, 0.18),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: const Text(
+              'Buttons',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return PopupMenuButton<String>(
       tooltip: 'Add/Remove buttons',
+      offset: const Offset(0, 40),
+      position: PopupMenuPosition.under,
+      onOpened: () => _menuOpen = true,
+      onCanceled: () => _menuOpen = false,
       child: Container(
+        key: _tutorialButtonsKey,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.18),
+          color: _opacity(Colors.black, 0.18),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: Colors.white24),
         ),
@@ -688,7 +1004,10 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
           ),
         ),
       ),
-      onSelected: _toggleActive,
+      onSelected: (value) {
+        _menuOpen = false;
+        _toggleActive(value);
+      },
       itemBuilder: (context) {
         return <PopupMenuEntry<String>>[
           item('F:forward', 'Forward', _activeIds.contains('F:forward')),
@@ -698,6 +1017,123 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
         ];
       },
     );
+  }
+
+  Future<void> _showEditMenuIOS() async {
+    if (_menuOpen) return;
+    _menuOpen = true;
+    if (!mounted) {
+      _menuOpen = false;
+      return;
+    }
+    final allowDismiss = ValueNotifier<bool>(false);
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (allowDismiss.value) return;
+      allowDismiss.value = true;
+    });
+    await showCupertinoModalPopup<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      anchorPoint: _menuAnchor,
+      builder: (context) {
+        CupertinoActionSheetAction action(
+          String id,
+          String label,
+          bool active,
+          void Function(VoidCallback fn) setSheetState,
+        ) {
+          return CupertinoActionSheetAction(
+            onPressed: () {
+              _toggleActive(id);
+              setSheetState(() {});
+            },
+            child: Row(
+              children: [
+                Icon(
+                  active
+                      ? CupertinoIcons.check_mark
+                      : CupertinoIcons.square,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(label),
+              ],
+            ),
+          );
+        }
+
+        return SizedBox.expand(
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: allowDismiss,
+                builder: (context, armed, child) {
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: armed ? () => Navigator.pop(context) : null,
+                    child: const SizedBox.expand(),
+                  );
+                },
+              ),
+              SafeArea(
+                top: false,
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF7DD3FC)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: StatefulBuilder(
+                      builder: (context, setSheetState) {
+                        return CupertinoActionSheet(
+                          title: const Text('Buttons'),
+                          actions: [
+                            action(
+                              'F:forward',
+                              'Forward',
+                              _activeIds.contains('F:forward'),
+                              setSheetState,
+                            ),
+                            action(
+                              'F:backward',
+                              'Backward',
+                              _activeIds.contains('F:backward'),
+                              setSheetState,
+                            ),
+                            action(
+                              'F:left',
+                              'Left',
+                              _activeIds.contains('F:left'),
+                              setSheetState,
+                            ),
+                            action(
+                              'F:right',
+                              'Right',
+                              _activeIds.contains('F:right'),
+                              setSheetState,
+                            ),
+                          ],
+                          cancelButton: CupertinoActionSheetAction(
+                            onPressed: () => Navigator.pop(context),
+                            isDefaultAction: true,
+                            child: const Text('Cancel'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    _menuOpen = false;
   }
 
   void _sendBinary({bool force = false}) {
@@ -731,8 +1167,17 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
   void initState() {
     super.initState();
     OrientationUtils.setLandscapeOnly();
+    _tutorialThai = LanguageController.isThai.value;
+    _langListener = () {
+      final next = LanguageController.isThai.value;
+      if (next != _tutorialThai) {
+        setState(() => _tutorialThai = next);
+      }
+    };
+    LanguageController.isThai.addListener(_langListener);
     _sendSpeed('Med');
     _loadLayouts();
+    _maybeStartTutorial();
 
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
@@ -743,6 +1188,7 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
   @override
   void dispose() {
     _tick?.cancel();
+    LanguageController.isThai.removeListener(_langListener);
 
     if (BleManager.instance.isConnected && _command != '0') {
       _sendBinary(force: true);
@@ -807,7 +1253,7 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.18),
+        color: _opacity(Colors.black, 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white24),
       ),
@@ -816,12 +1262,20 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
         children: [
           Text(
             '$label:',
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(width: 4),
           Text(
             value,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
           ),
         ],
       ),
@@ -830,6 +1284,13 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
 
   Widget _speedChip(String label) {
     final selected = _speedLabel == label;
+    final color = switch (label) {
+      'Lo' => const Color(0xFF2ECC71),
+      'Med' => const Color(0xFFFFD54F),
+      'Hi' => const Color(0xFFE74C3C),
+      _ => Colors.white,
+    };
+    final textColor = label == 'Med' ? Colors.black : Colors.white;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: InkWell(
@@ -839,19 +1300,19 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: selected
-                ? Colors.white.withOpacity(0.25)
-                : Colors.white.withOpacity(0.10),
+                ? _opacity(color, 0.95)
+                : _opacity(color, 0.35),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: selected ? Colors.white : Colors.white24,
+              color: selected ? color : _opacity(color, 0.55),
             ),
           ),
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: Colors.white,
+              color: textColor,
             ),
           ),
         ),
@@ -859,78 +1320,191 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
     );
   }
 
-  Widget _leftColumn(BuildContext context, _S s) {
-    final cfgF = scaleBtn(cfgForward(context), s);
-    final cfgB = scaleBtn(cfgBackward(context), s);
+  Widget _buildTutorialOverlay() {
+    if (!_showTutorial) return const SizedBox.shrink();
+    final steps = _tutorialSteps();
+    final step = steps[_tutorialStep];
+    final isLast = _tutorialStep == steps.length - 1;
+    final rect = _tutorialTargetRect;
+    final highlightRect = rect?.inflate(6);
+    final screenSize = MediaQuery.of(context).size;
+    const double arrowSize = 72;
+    const double arrowGap = 4;
+    final bool arrowAbove =
+        highlightRect != null && highlightRect.top > (arrowSize + 24);
+    final double arrowLeft = highlightRect == null
+        ? 0
+        : (highlightRect.center.dx - (arrowSize / 2))
+            .clamp(8.0, screenSize.width - arrowSize - 8);
+    final double arrowTop = highlightRect == null
+        ? 0
+        : arrowAbove
+            ? (highlightRect.top - arrowSize - arrowGap)
+                .clamp(8.0, screenSize.height - arrowSize - 8)
+            : (highlightRect.bottom + arrowGap)
+                .clamp(8.0, screenSize.height - arrowSize - 8);
 
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Positioned.fill(
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          GamepadHoldButton(
-            cfg: cfgF,
-            onChange: (down) {
-              _f = down;
-              if (down) _b = false;
-              _updateCommandOnly();
-            },
+          GestureDetector(
+            onTap: () {},
+            behavior: HitTestBehavior.opaque,
+            child: Container(color: Colors.black87),
           ),
-          GamepadHoldButton(
-            cfg: cfgB,
-            onChange: (down) {
-              _b = down;
-              if (down) _f = false;
-              _updateCommandOnly();
-            },
+          if (highlightRect != null)
+            Positioned.fromRect(
+              rect: highlightRect,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF7DD3FC),
+                      width: 2,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x807DD3FC),
+                        blurRadius: 16,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (highlightRect != null)
+            Positioned(
+              left: arrowLeft,
+              top: arrowTop,
+              child: IgnorePointer(
+                child: Icon(
+                  arrowAbove ? Icons.south : Icons.north,
+                  size: arrowSize,
+                  color: const Color(0xFF7DD3FC),
+                ),
+              ),
+            ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: BoxDecoration(
+                  color: _opacity(Colors.black, 0.9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF7DD3FC)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _tutorialThai ? step.titleTh : step.titleEn,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _tutorialThai ? step.bodyTh : step.bodyEn,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: _finishTutorial,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                          ),
+                          child: Text(_tutorialThai ? 'ข้าม' : 'Skip'),
+                        ),
+                        const Spacer(),
+                        if (_tutorialStep > 0)
+                          TextButton(
+                            onPressed: () =>
+                                _goTutorialStep(_tutorialStep - 1),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                            ),
+                            child: Text(_tutorialThai ? 'ย้อนกลับ' : 'Back'),
+                          ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: isLast
+                              ? _finishTutorial
+                              : () => _goTutorialStep(_tutorialStep + 1),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF7DD3FC),
+                            foregroundColor: Colors.black,
+                          ),
+                          child: Text(
+                            isLast
+                                ? (_tutorialThai ? 'เสร็จสิ้น' : 'Finish')
+                                : (_tutorialThai ? 'ถัดไป' : 'Next'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _rightColumn(BuildContext context, _S s) {
-    final lrRow = Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const SizedBox.shrink(),
-      ],
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(height: s.h(10)),
-        lrRow,
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: GamepadAppBar(
         title: '',
         centerTitle: true,
+        gradientColors: const [
+          Color(0xFFF57C00),
+          Color(0xFFFFB74D),
+        ],
         titleWidget: Center(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _speedChip('Lo'),
-                _speedChip('Med'),
-                _speedChip('Hi'),
-                const SizedBox(width: 6),
-                _appBarBadge('Cmd', _commandByteLabel()),
-                const SizedBox(width: 6),
-                _appBarBadge('Spd', _speedByteLabel()),
-                const SizedBox(width: 6),
-                const ConnectionStatusBadge(),
-              ],
-            ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    key: _tutorialSpeedKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _speedChip('Lo'),
+                      _speedChip('Med'),
+                      _speedChip('Hi'),
+                    ],
+                  ),
+                  const SizedBox(width: 6),
+                  SizedBox(
+                    key: _tutorialCmdKey,
+                    child: _appBarBadge('Cmd', _commandByteLabel()),
+                  ),
+                  const SizedBox(width: 6),
+                  SizedBox(
+                    key: _tutorialSpdKey,
+                    child: _appBarBadge('Spd', _speedByteLabel()),
+                  ),
+                  const SizedBox(width: 6),
+                  ConnectionStatusBadge(key: _tutorialBtKey),
+                ],
+              ),
           ),
         ),
         actions: [
@@ -941,9 +1515,10 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
               borderRadius: BorderRadius.circular(999),
               onTap: _toggleEdit,
               child: Container(
+                key: _tutorialCustomizeKey,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.18),
+                  color: _opacity(Colors.black, 0.18),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: Colors.white24),
                 ),
@@ -973,11 +1548,70 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
               onPressed: _resetLayouts,
               tooltip: 'Reset layout',
             ),
+          if (!_editMode)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                children: [
+                  InkWell(
+                    key: _tutorialPresetKey,
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: _showPresetSheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _opacity(Colors.black, 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Text(
+                        'Preset',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: _restartTutorial,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _opacity(Colors.black, 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Text(
+                        'Tutorial',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
-      body: SafeArea(
-        child: Stack(
-          children: [
+      body: Stack(
+        key: _tutorialStackKey,
+        children: [
+          SafeArea(
+            child: Stack(
+              children: [
             LayoutBuilder(
               builder: (context, cons) {
                 return Padding(
@@ -1057,11 +1691,31 @@ class _Gamepad_4_BottonState extends State<Gamepad_4_Botton> {
             ),
             _buildResizeBar(),
             const LogoCorner(),
-          ],
-        ),
+              ],
+            ),
+          ),
+          _buildTutorialOverlay(),
+        ],
       ),
     );
   }
+}
+
+class _TutorialStep {
+  final String titleTh;
+  final String bodyTh;
+  final String titleEn;
+  final String bodyEn;
+  final GlobalKey? targetKey;
+  final bool requiresEditMode;
+  const _TutorialStep({
+    required this.titleTh,
+    required this.bodyTh,
+    required this.titleEn,
+    required this.bodyEn,
+    this.targetKey,
+    this.requiresEditMode = false,
+  });
 }
 
 class _BtnSpec {
@@ -1078,15 +1732,15 @@ class _ScaledHoldCfg {
 }
 
 _S _scaleForPanel(Size panel) {
-  final sw = panel.width / DESIGN_W;
-  final sh = panel.height / DESIGN_H;
+    final sw = panel.width / designW;
+    final sh = panel.height / designH;
   final sp = ((sw + sh) / 2.0).clamp(0.75, 1.35);
   return _S(sw, sh, sp);
 }
 
 BtnCfg _scaledBaseCfg(BtnCfg base, Size panel) {
   final s = _scaleForPanel(panel);
-  return scaleBtn(base, s).copyWith(margin: EdgeInsets.zero);
+  return _scaleBtn(base, s).copyWith(margin: EdgeInsets.zero);
 }
 
 BtnCfg _scaleHoldCfg(BtnCfg c, double scale) {
@@ -1127,8 +1781,10 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   final halfW = cfg.width / 2;
   final halfH = cfg.height / 2;
 
-  final cx = (layout.cx * w).clamp(halfW, w - halfW);
-  final cy = (layout.cy * h).clamp(halfH, h - halfH);
+  final cx = (layout.cx * w)
+      .clamp(halfW + _panelEdgeInset, w - halfW - _panelEdgeInset);
+  final cy = (layout.cy * h)
+      .clamp(halfH + _panelEdgeInset, h - halfH - _panelEdgeInset);
 
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
@@ -1154,18 +1810,16 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   final out = <String, _ButtonLayout>{};
 
   if (hasForward || hasBackward) {
-    final cfgF = hasForward ? scaleBtn(specs['F:forward']!.cfg, s) : null;
-    final cfgB = hasBackward ? scaleBtn(specs['F:backward']!.cfg, s) : null;
-    final colWidth = [
-      if (cfgF != null) cfgF.width + cfgF.margin.horizontal,
-      if (cfgB != null) cfgB.width + cfgB.margin.horizontal,
-    ].fold(0.0, math.max);
+    final cfgF = hasForward ? _scaleBtn(specs['F:forward']!.cfg, s) : null;
+    final cfgB = hasBackward ? _scaleBtn(specs['F:backward']!.cfg, s) : null;
     final totalHeight = [
       if (cfgF != null) cfgF.height + cfgF.margin.vertical,
       if (cfgB != null) cfgB.height + cfgB.margin.vertical,
     ].fold(0.0, (a, b) => a + b);
-    final colLeft = 0.0;
-    double y = (h - totalHeight) / 2.0;
+    final gapY =
+        (cfgF != null && cfgB != null) ? s.h(_panelColGap) : 0.0;
+    final colLeft = _panelEdgeInset;
+    double y = (h - (totalHeight + gapY)) / 2.0;
 
     if (cfgF != null) {
       y += cfgF.margin.top;
@@ -1174,6 +1828,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
         y + cfgF.height / 2,
       );
       y += cfgF.height + cfgF.margin.bottom;
+      y += gapY;
     }
     if (cfgB != null) {
       y += cfgB.margin.top;
@@ -1186,9 +1841,9 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   }
 
   if (hasLeft || hasRight) {
-    final cfgL = hasLeft ? scaleBtn(specs['F:left']!.cfg, s) : null;
-    final cfgR = hasRight ? scaleBtn(specs['F:right']!.cfg, s) : null;
-    final gap = s.w(24);
+    final cfgL = hasLeft ? _scaleBtn(specs['F:left']!.cfg, s) : null;
+    final cfgR = hasRight ? _scaleBtn(specs['F:right']!.cfg, s) : null;
+    final gap = s.w(_panelRowGap);
     final rowWidth = [
       if (cfgL != null) cfgL.width + cfgL.margin.horizontal,
       if (cfgR != null) cfgR.width + cfgR.margin.horizontal,
@@ -1199,7 +1854,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
       if (cfgR != null) cfgR.height + cfgR.margin.vertical,
     ].fold(0.0, math.max);
 
-    double x = w - rowWidth;
+    double x = w - rowWidth - _panelEdgeInset;
     final y = (h - maxHeight) / 2.0;
 
     if (cfgL != null) {
@@ -1459,10 +2114,10 @@ class _EditableButtonState extends State<_EditableButton> {
     final cy = scaled.center.dy;
     final borderColor = widget.selected
         ? const Color(0xFF00F0FF)
-        : Colors.white.withOpacity(0.7);
+        : _opacity(Colors.white, 0.7);
     final borderWidth = widget.selected ? 3.0 : 2.0;
     final glowColor = widget.selected
-        ? const Color(0xFF00F0FF).withOpacity(0.45)
+        ? _opacity(const Color(0xFF00F0FF), 0.45)
         : Colors.transparent;
     final dimOpacity = widget.dimmed ? 0.35 : 1.0;
 

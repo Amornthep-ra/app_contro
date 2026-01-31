@@ -1,5 +1,7 @@
 // lib/core/widgets/connection_status_badge.dart
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../ble/ble_manager.dart';
@@ -13,14 +15,66 @@ class ConnectionStatusBadge extends StatefulWidget {
 }
 
 class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
+  bool _sheetOpen = false;
+  Offset? _sheetAnchor;
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
   void _openSheet() {
+    if (Platform.isIOS) {
+      _openSheetIOS();
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      barrierColor: Colors.black87,
       builder: (context) => const _ConnectionSheet(),
     );
+  }
+
+  Future<void> _openSheetIOS() async {
+    if (_sheetOpen) return;
+    _sheetOpen = true;
+    final allowDismiss = ValueNotifier<bool>(false);
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (allowDismiss.value) return;
+      allowDismiss.value = true;
+    });
+    await showCupertinoModalPopup<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      anchorPoint: _sheetAnchor,
+      builder: (context) {
+        return SizedBox.expand(
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: allowDismiss,
+                builder: (context, armed, child) {
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: armed ? () => Navigator.pop(context) : null,
+                    child: const SizedBox.expand(),
+                  );
+                },
+              ),
+              SafeArea(
+                top: false,
+                child: Material(
+                  color: Colors.transparent,
+                  child: const _ConnectionSheet(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    _sheetOpen = false;
   }
 
   @override
@@ -34,8 +88,8 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
         final connected = snapshot.data ?? false;
 
         final bgColor = connected
-            ? Colors.green.withOpacity(0.16)
-            : theme.colorScheme.surfaceVariant.withOpacity(0.8);
+            ? _opacity(Colors.green, 0.16)
+            : _opacity(theme.colorScheme.surfaceContainerHighest, 0.8);
 
         final borderColor =
             connected ? Colors.green : theme.colorScheme.outlineVariant;
@@ -43,13 +97,14 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
         final icon =
             connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled;
 
-        final text = connected ? 'BT On' : 'BT Off';
+        final text = connected ? 'BLE On' : 'BLE Off';
         final dotColor = connected ? Colors.green : Colors.redAccent;
 
         return Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
+            onTapDown: (d) => _sheetAnchor = d.globalPosition,
             onTap: _openSheet,
             child: Container(
               margin: const EdgeInsets.only(right: 6, top: 4, bottom: 4),
@@ -111,6 +166,8 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   StreamSubscription<List<ScanResult>>? _scanSub;
   Timer? _cleanupTimer;
   final Map<String, _BleEntry> _deviceMap = {};
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
 
   @override
   void initState() {
@@ -242,11 +299,11 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.88),
+          color: _opacity(Colors.black, 0.88),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white24),
+          border: Border.all(color: const Color(0xFF7DD3FC)),
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: maxH),
@@ -338,6 +395,17 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
                           },
                         ),
                 ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

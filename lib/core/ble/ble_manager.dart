@@ -1,5 +1,6 @@
 //lib/core/ble/ble_manager.dart
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'joystick_packet.dart';
 
@@ -59,7 +60,7 @@ class BleManager {
       final now = DateTime.now();
       if (_lastRxTime != null &&
           now.difference(_lastRxTime!) > _heartbeatTimeout) {
-        print(
+        debugPrint(
           "Heartbeat timeout – no data from board for > $_heartbeatTimeout",
         );
       }
@@ -81,10 +82,10 @@ class BleManager {
 
     _connSub?.cancel();
     _connSub = device.connectionState.listen((state) async {
-      print("Device state changed: $state");
+      debugPrint("Device state changed: $state");
 
       if (state == BluetoothConnectionState.disconnected) {
-        print("BLE device disconnected");
+        debugPrint("BLE device disconnected");
 
         _stopHeartbeat();
         await _txSub?.cancel();
@@ -122,7 +123,7 @@ class BleManager {
       }
 
       if (_tx == null || _rx == null) {
-        print("TX/RX characteristic not found");
+        debugPrint("TX/RX characteristic not found");
         return false;
       }
 
@@ -137,7 +138,7 @@ class BleManager {
             }
           },
           onError: (e) {
-            print("TX notify error: $e");
+            debugPrint("TX notify error: $e");
           },
         );
       }
@@ -145,19 +146,19 @@ class BleManager {
       _startHeartbeat();
       return true;
     } catch (e) {
-      print("discoverServices error: $e");
+      debugPrint("discoverServices error: $e");
       return false;
     }
   }
 
   Future<void> send(String data) async {
     if (!isConnected) {
-      print("send() called but BLE not ready");
+      debugPrint("send() called but BLE not ready");
       return;
     }
 
     final rx = _rx!;
-    final msg = (data + "\n").codeUnits;
+    final msg = "$data\n".codeUnits;
     final mustAck = data == '0';
 
     await _enqueueWrite(() async {
@@ -165,7 +166,7 @@ class BleManager {
         await rx.write(msg, withoutResponse: !mustAck);
         _lastTxTime = DateTime.now();
       } catch (e) {
-        print("Send failed: $e");
+        debugPrint("Send failed: $e");
       }
     });
   }
@@ -179,7 +180,7 @@ class BleManager {
     required Set<int> pressedButtons,
   }) async {
     if (!isConnected) {
-      print("sendJoystickBinary() called but BLE not ready");
+      debugPrint("sendJoystickBinary() called but BLE not ready");
       return;
     }
 
@@ -197,7 +198,7 @@ class BleManager {
         await rx.write(bytes, withoutResponse: true);
         _lastTxTime = DateTime.now();
       } catch (e) {
-        print("Send binary failed: $e");
+        debugPrint("Send binary failed: $e");
       }
     });
   }
@@ -222,6 +223,6 @@ class BleManager {
 
     _connectionController.add(false);
 
-    print("Disconnected");
+    debugPrint("Disconnected");
   }
 }

@@ -42,15 +42,15 @@ class JoystickPacket {
   }
 
   Uint8List toBinaryPacket(Set<int> pressedButtons) {
-    int _axisToInt8(double v) {
+    int axisToInt8(double v) {
       final clamped = _clamp(v);
       return (clamped * 100).round();
     }
 
-    final int lxInt = _axisToInt8(lx);
-    final int lyInt = _axisToInt8(ly);
-    final int rxInt = _axisToInt8(rx);
-    final int ryInt = _axisToInt8(ry);
+    final int lxInt = axisToInt8(lx);
+    final int lyInt = axisToInt8(ly);
+    final int rxInt = axisToInt8(rx);
+    final int ryInt = axisToInt8(ry);
 
     int btnLow = 0;
     int btnHigh = 0;

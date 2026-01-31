@@ -13,9 +13,16 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
       elevation: 4,
       backgroundColor: Colors.deepPurple.shade600,
       shadowColor: Colors.black38,
+      foregroundColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       title: const Text(
         'PrinceBot Controller',
-        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
       ),
       centerTitle: true,
     );
@@ -46,10 +53,17 @@ class BleAppBar extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: _barHeight,
       elevation: 0,
       backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       actions: actions,
       title: Text(
         title,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
       ),
       centerTitle: true,
       bottom: bottom,
@@ -72,8 +86,9 @@ class JoystickAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? titleWidget;
   final List<Widget>? actions;
   final Widget? leading;
+  final List<Color>? gradientColors;
 
-  static const double _barHeight = 40;
+  static const double _barHeight = 48;
 
   const JoystickAppBar({
     super.key,
@@ -81,6 +96,7 @@ class JoystickAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.titleWidget,
     this.actions,
     this.leading,
+    this.gradientColors,
   });
 
   @override
@@ -92,18 +108,26 @@ class JoystickAppBar extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: _barHeight,
       elevation: 3,
       backgroundColor: Colors.blueGrey.shade800,
+      foregroundColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       leading: leading,
       actions: actions,
       centerTitle: true,
       title: titleWidget ??
           Text(
             title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
           ),
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.blue.shade700, Colors.blue.shade400],
+            colors: gradientColors ??
+                [Colors.blue.shade700, Colors.blue.shade400],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -120,8 +144,9 @@ class GamepadAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? leading;
   final bool centerTitle;
   final PreferredSizeWidget? bottom;
+  final List<Color>? gradientColors;
 
-  static const double _barHeight = 32;
+  static const double _barHeight = 48;
 
   const GamepadAppBar({
     super.key,
@@ -131,6 +156,7 @@ class GamepadAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.leading,
     this.centerTitle = true,
     this.bottom,
+    this.gradientColors,
   });
 
   @override
@@ -144,18 +170,29 @@ class GamepadAppBar extends StatelessWidget implements PreferredSizeWidget {
       elevation: 4,
       centerTitle: centerTitle,
       backgroundColor: Colors.teal.shade700,
+      foregroundColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       leading: leading,
       actions: actions,
       bottom: bottom,
       title: titleWidget ??
           Text(
             title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
           ),
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [const Color.fromARGB(255, 177, 97, 252), const Color.fromARGB(255, 232, 157, 255)],
+            colors: gradientColors ??
+                [
+                  const Color.fromARGB(255, 177, 97, 252),
+                  const Color.fromARGB(255, 232, 157, 255),
+                ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -168,7 +205,10 @@ class GamepadAppBar extends StatelessWidget implements PreferredSizeWidget {
 class SimpleAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final Widget? titleWidget;
+  final Widget? leading;
+  final double? leadingWidth;
   final List<Widget>? actions;
+  final List<Color>? gradientColors;
 
   static const double _barHeight = 48;
 
@@ -176,7 +216,10 @@ class SimpleAppBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.title,
     this.titleWidget,
+    this.leading,
+    this.leadingWidth,
     this.actions,
+    this.gradientColors,
   });
 
   @override
@@ -187,9 +230,13 @@ class SimpleAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       toolbarHeight: _barHeight,
       elevation: 0,
-      backgroundColor: Colors.grey.shade900,
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
       centerTitle: true,
       iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
+      leading: leading,
+      leadingWidth: leadingWidth,
       actions: actions,
       title: titleWidget ??
           Text(
@@ -200,6 +247,16 @@ class SimpleAppBar extends StatelessWidget implements PreferredSizeWidget {
               color: Colors.white,
             ),
           ),
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradientColors ??
+                [Colors.grey.shade900, Colors.grey.shade800],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
     );
   }
 }

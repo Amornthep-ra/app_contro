@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/connection/app_connection.dart';
 import '../../core/ble/ble_manager.dart';
+import '../../core/ui/language_controller.dart';
 
 class BluetoothBlePage extends StatefulWidget {
   const BluetoothBlePage({super.key});
@@ -47,10 +48,18 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   Timer? _scanCountdownTimer;
 
   static const _prefsLastDeviceIdKey = 'ble_last_device_id';
+  static const _prefsLastDeviceNameKey = 'ble_last_device_name';
 
   String? _lastDeviceId;
-  bool _manualDisconnect = false; 
+  String? _lastDeviceNamePersisted;
+  bool _pendingConnectLast = false;
   DateTime? _lastDisconnectTime;
+
+  Color _opacity(Color color, double opacity) =>
+      color.withAlpha((opacity * 255).round());
+
+  String _t(String th, String en) =>
+      LanguageController.isThai.value ? th : en;
 
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
@@ -74,6 +83,11 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     _lastDeviceId = prefs.getString(_prefsLastDeviceIdKey);
+    _lastDeviceNamePersisted = prefs.getString(_prefsLastDeviceNameKey);
+    if (_lastDeviceName == null || _lastDeviceName!.isEmpty) {
+      _lastDeviceName = _lastDeviceNamePersisted;
+    }
+    if (mounted) setState(() {});
   }
 
   void _bindBluetoothState() {
@@ -93,9 +107,15 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           _scanSecondsLeft = 0;
           _deviceMap.clear();
           _connecting = false;
+          _pendingConnectLast = false;
         });
 
-        _showSnack('Bluetooth ถูกปิด กรุณาเปิดใหม่เพื่อเชื่อมต่ออีกครั้ง');
+        _showSnack(
+          _t(
+            'Bluetooth ถูกปิด กรุณาเปิดใหม่เพื่อเชื่อมต่ออีกครั้ง',
+            'Bluetooth is off. Please turn it on to reconnect.',
+          ),
+        );
       } else {}
     });
 
@@ -108,6 +128,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
             _scanCountdownTimer?.cancel();
             _scanCountdownTimer = null;
             _scanSecondsLeft = 0;
+            _pendingConnectLast = false;
           }
         });
       }
@@ -149,7 +170,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
-      _showSnack('กรุณาเปิด Bluetooth แล้วลองใหม่');
+      _showSnack(
+        _t('กรุณาเปิด Bluetooth แล้วลองใหม่', 'Please turn on Bluetooth and try again.'),
+      );
       AppConnection.instance.setBleConnected(false);
       return;
     }
@@ -175,6 +198,14 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
         _pruneOldDevicesLocked(now);
       });
+
+      if (_pendingConnectLast && _lastDeviceId != null) {
+        final entry = _deviceMap[_lastDeviceId!];
+        if (entry != null && !_connecting) {
+          _pendingConnectLast = false;
+          _connect(entry.result);
+        }
+      }
     });
 
     try {
@@ -206,10 +237,28 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _scanCountdownTimer = null;
       _scanSecondsLeft = 0;
 
-      _showSnack('เริ่มสแกนไม่สำเร็จ: $e');
+      _showSnack(_t('เริ่มสแกนไม่สำเร็จ: $e', 'Start scan failed: $e'));
       if (mounted) {
         setState(() => _scanning = false);
       }
+    }
+  }
+
+  Future<void> _stopScan() async {
+    if (!_scanning) return;
+    await FlutterBluePlus.stopScan();
+    await _scanSub?.cancel();
+    _scanSub = null;
+    _scanCountdownTimer?.cancel();
+    _scanCountdownTimer = null;
+    if (mounted) {
+      setState(() {
+        _scanning = false;
+        _scanSecondsLeft = 0;
+      });
+    } else {
+      _scanning = false;
+      _scanSecondsLeft = 0;
     }
   }
 
@@ -227,7 +276,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   Future<void> _disconnect() async {
-    _manualDisconnect = true;
 
     _lastDisconnectTime = DateTime.now();
 
@@ -246,10 +294,11 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _connectedDevice = null;
       _scanning = false;
       _connecting = false;
+      _pendingConnectLast = false;
     });
 
     AppConnection.instance.setBleConnected(false);
-    _showSnack('ตัดการเชื่อมต่อแล้ว');
+    _showSnack(_t('ตัดการเชื่อมต่อแล้ว', 'Disconnected'));
   }
 
   void _showSnack(String msg) {
@@ -269,6 +318,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          backgroundColor: _opacity(Colors.black, 0.85),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(12),
           shape: RoundedRectangleBorder(
@@ -287,8 +337,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       final now = DateTime.now();
       if (now.difference(_lastDisconnectTime!) <
           const Duration(seconds: 3)) {
-        print("Cooldown: wait a moment before reconnect");
-        _showSnack('รอสักครู่ก่อนเชื่อมต่อใหม่');
+        debugPrint("Cooldown: wait a moment before reconnect");
+        _showSnack(
+          _t('รอสักครู่ก่อนเชื่อมต่อใหม่', 'Please wait before reconnecting.'),
+        );
         return;
       }
     }
@@ -316,7 +368,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         autoConnect: false,
       );
 
-      _manualDisconnect = false;
 
       if (mounted) {
         setState(() => _connectedDevice = d);
@@ -330,10 +381,12 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsLastDeviceIdKey, d.remoteId.str);
+      await prefs.setString(_prefsLastDeviceNameKey, showName);
       _lastDeviceId = d.remoteId.str;
+      _lastDeviceNamePersisted = showName;
 
       if (mounted) {
-        _showSnack('เชื่อมต่อกับ $showName สำเร็จ');
+        _showSnack(_t('เชื่อมต่อกับ $showName สำเร็จ', 'Connected to $showName'));
       }
 
       BleManager.instance.setDevice(d);
@@ -341,7 +394,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       final ok = await BleManager.instance.discoverServices();
       if (!ok) {
         if (mounted) {
-          _showSnack("ไม่พบ UART RX/TX characteristic");
+          _showSnack(
+            _t('ไม่พบ UART RX/TX characteristic', 'UART RX/TX characteristic not found'),
+          );
         }
       } else {
         BleManager.instance.send("HELLO_APP");
@@ -350,7 +405,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       AppConnection.instance.setBleConnected(false);
 
       if (mounted) {
-        _showSnack('เชื่อมต่อไม่สำเร็จ: $e');
+        _showSnack(_t('เชื่อมต่อไม่สำเร็จ: $e', 'Connect failed: $e'));
         final state = await FlutterBluePlus.adapterState.first;
         if (state == BluetoothAdapterState.on && !_scanning) {
           _startScan();
@@ -368,11 +423,11 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   String _signalLabel(int rssi) {
-    if (rssi >= -55) return 'Very strong';
-    if (rssi >= -65) return 'Strong';
-    if (rssi >= -75) return 'Medium';
-    if (rssi >= -85) return 'Weak';
-    return 'Very weak';
+    if (rssi >= -55) return _t('แรงมาก', 'Very strong');
+    if (rssi >= -65) return _t('แรง', 'Strong');
+    if (rssi >= -75) return _t('ปานกลาง', 'Medium');
+    if (rssi >= -85) return _t('อ่อน', 'Weak');
+    return _t('อ่อนมาก', 'Very weak');
   }
 
   IconData _signalIcon(int rssi) {
@@ -407,10 +462,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           } else if (_lastDeviceName != null && _lastDeviceName!.isNotEmpty) {
             name = _lastDeviceName!;
           } else {
-            name = "Unknown";
+            name = _t('ไม่ทราบชื่อ', 'Unknown');
           }
         } else {
-          name = "Not Connect";
+          name = _t('ยังไม่เชื่อมต่อ', 'Not connected');
         }
 
         final t = Theme.of(context).textTheme;
@@ -433,22 +488,22 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF0EA5E9).withOpacity(0.30),
-                  const Color(0xFF22D3EE).withOpacity(0.18),
+                  _opacity(const Color(0xFF0EA5E9), 0.30),
+                  _opacity(const Color(0xFF22D3EE), 0.18),
                 ],
               )
             : LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white.withOpacity(0.10),
-                  Colors.white.withOpacity(0.04),
+                  _opacity(Colors.white, 0.10),
+                  _opacity(Colors.white, 0.04),
                 ],
               );
 
         final border = connected
-            ? const Color(0xFF38BDF8).withOpacity(0.55)
-            : const Color(0xFF60A5FA).withOpacity(0.35);
+            ? _opacity(const Color(0xFF38BDF8), 0.55)
+            : _opacity(const Color(0xFF60A5FA), 0.35);
 
         final actions = <Widget>[];
 
@@ -457,12 +512,12 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               ? Icons.hourglass_top
               : Icons.refresh;
           final label = _connecting
-              ? "Connecting..."
+              ? _t('กำลังเชื่อมต่อ...', 'Connecting...')
               : (_scanning
                     ? (_scanSecondsLeft > 0
-                          ? "Scanning (${_scanSecondsLeft}s)"
-                          : "Scanning...")
-                    : "Scan");
+                          ? _t('กำลังสแกน (${_scanSecondsLeft}s)', 'Scanning (${_scanSecondsLeft}s)')
+                          : _t('กำลังสแกน...', 'Scanning...'))
+                    : _t('สแกน', 'Scan'));
 
           actions.add(
             _smallAction(
@@ -471,11 +526,21 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               onTap: (_scanning || _connecting) ? null : _startScan,
             ),
           );
+          if (_scanning) {
+            actions.add(
+              _smallAction(
+                icon: Icons.stop_circle,
+                label: _t('หยุด', 'Stop'),
+                onTap: _stopScan,
+                danger: true,
+              ),
+            );
+          }
         } else {
           actions.add(
             _smallAction(
               icon: Icons.link_off,
-              label: "Disconnect",
+              label: _t('ยกเลิกการเชื่อมต่อ', 'Disconnect'),
               onTap: _disconnect,
               danger: true,
             ),
@@ -494,7 +559,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                 border: Border.all(color: border, width: 1.2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.22),
+                    color: _opacity(Colors.black, 0.22),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -517,7 +582,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          connected ? "Connected: $name" : "Not Connect",
+                          connected
+                              ? _t('เชื่อมต่อ: $name', 'Connected: $name')
+                              : _t('ยังไม่เชื่อมต่อ', 'Not connected'),
                           key: ValueKey(
                             connected ? "connected_$name" : "disconnected",
                           ),
@@ -556,10 +623,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.08),
+          color: _opacity(Colors.white, 0.08),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: base.withOpacity(0.75), width: 1),
-          boxShadow: [BoxShadow(blurRadius: 8, color: base.withOpacity(0.25))],
+          border: Border.all(color: _opacity(base, 0.75), width: 1),
+          boxShadow: [BoxShadow(blurRadius: 8, color: _opacity(base, 0.25))],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -589,67 +656,257 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       return r.device.remoteId != _connectedDevice!.remoteId;
     }).toList();
 
-    return Scaffold(
+    final lastId = _lastDeviceId;
+    final lastName = _resolveLastDeviceName(lastId);
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageController.isThai,
+      builder: (context, isThai, _) {
+        return Scaffold(
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         centerTitle: true,
-        title: const Text('Bluetooth (BLE)'),
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.fromARGB(255, 89, 139, 255),
-                    Color.fromARGB(255, 192, 203, 250),
-                  ],
+        title: Text(_t('Bluetooth Low Energy (BLE)', 'Bluetooth Low Energy (BLE)')),
+        flexibleSpace: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color.fromARGB(255, 89, 139, 255),
+                        Color.fromARGB(255, 192, 203, 250),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),
-          child: _buildBleStatusBar(),
+          child: Builder(
+            builder: (context) {
+              final pad = MediaQuery.of(context).padding;
+              final size = MediaQuery.of(context).size;
+              return Transform.translate(
+                offset: Offset(-pad.left, 0),
+                child: SizedBox(
+                  width: size.width + pad.left + pad.right,
+                  child: _buildBleStatusBar(),
+                ),
+              );
+            },
+          ),
         ),
       ),
-      body: results.isEmpty
-          ? const Center(
-              child: Text(
-                'No PrinceBot device found.\nTap Scan to try again.',
-                textAlign: TextAlign.center,
+      body: Column(
+        children: [
+          if (lastId != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+              child: _lastDeviceCard(
+                name: lastName ?? lastId,
+                id: lastId,
+                onConnect: (_connecting || _scanning)
+                    ? null
+                    : () {
+                        final entry = _deviceMap[lastId];
+                        if (entry != null) {
+                          _connect(entry.result);
+                        } else {
+                          _pendingConnectLast = true;
+                          _startScan();
+                        }
+                      },
+                onScan: (_scanning || _connecting) ? null : _startScan,
               ),
-            )
-          : ListView.builder(
-              itemCount: results.length,
-              itemBuilder: (context, index) {
-                final r = results[index];
-
-                final name = r.device.platformName.isNotEmpty
-                    ? r.device.platformName
-                    : (r.advertisementData.advName.isNotEmpty
-                          ? r.advertisementData.advName
-                          : r.device.remoteId.str);
-
-                final rssi = r.rssi;
-                final signalText = _signalLabel(rssi);
-                final signalColor = _signalColor(context, rssi);
-                final signalIcon = _signalIcon(rssi);
-
-                return ListTile(
-                  leading: Icon(signalIcon, color: signalColor),
-                  title: Text(name),
-                  subtitle: Text('RSSI: $rssi dBm • $signalText'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _connecting ? null : () => _connect(r),
-                );
-              },
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+            child: _scanStatusBar(),
+          ),
+          Expanded(
+            child: results.isEmpty
+                  ? Center(
+                      child: Text(
+                        _scanning
+                            ? _t(
+                                'กำลังสแกนอุปกรณ์ PrinceBot...',
+                                'Scanning for PrinceBot devices...',
+                              )
+                            : _t(
+                                'ไม่พบอุปกรณ์ PrinceBot\nกด Scan เพื่อลองอีกครั้ง',
+                                'No PrinceBot device found.\nTap Scan to try again.',
+                              ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                : ListView.builder(
+                    itemCount: results.length,
+                    itemBuilder: (context, index) {
+                      final r = results[index];
+
+                      final name = r.device.platformName.isNotEmpty
+                          ? r.device.platformName
+                          : (r.advertisementData.advName.isNotEmpty
+                              ? r.advertisementData.advName
+                              : r.device.remoteId.str);
+
+                      final rssi = r.rssi;
+                      final signalText = _signalLabel(rssi);
+                      final signalColor = _signalColor(context, rssi);
+                      final signalIcon = _signalIcon(rssi);
+
+                      return ListTile(
+                        leading: Icon(signalIcon, color: signalColor),
+                        title: Text(name),
+                        subtitle: Text('RSSI: $rssi dBm • $signalText'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _connecting ? null : () => _connect(r),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+        );
+      },
+    );
+  }
+
+  String? _resolveLastDeviceName(String? deviceId) {
+    if (deviceId == null) return _lastDeviceName ?? _lastDeviceNamePersisted;
+    final entry = _deviceMap[deviceId];
+    if (entry != null) {
+      final r = entry.result;
+      final name = r.device.platformName.isNotEmpty
+          ? r.device.platformName
+          : (r.advertisementData.advName.isNotEmpty
+              ? r.advertisementData.advName
+              : r.device.remoteId.str);
+      return name.isNotEmpty ? name : deviceId;
+    }
+    return _lastDeviceName ?? _lastDeviceNamePersisted ?? deviceId;
+  }
+
+  Widget _scanStatusBar() {
+    final String status = _connecting
+        ? _t('กำลังเชื่อมต่อ...', 'Connecting...')
+        : (_scanning
+            ? (_scanSecondsLeft > 0
+                ? _t(
+                    'กำลังสแกน... ${_scanSecondsLeft}s',
+                    'Scanning... ${_scanSecondsLeft}s',
+                  )
+                : _t('กำลังสแกน...', 'Scanning...'))
+            : _t('พร้อมสแกน', 'Ready to scan'));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _opacity(Colors.black, 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _opacity(Colors.black, 0.08)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _scanning ? Icons.bluetooth_searching : Icons.bluetooth,
+            size: 16,
+            color: Colors.black54,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              status,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (_scanning)
+            TextButton(
+              onPressed: _stopScan,
+              child: Text(_t('หยุด', 'Stop')),
+            )
+          else
+            TextButton(
+              onPressed: _connecting ? null : _startScan,
+              child: Text(_t('สแกน', 'Scan')),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _lastDeviceCard({
+    required String name,
+    required String id,
+    required VoidCallback? onConnect,
+    required VoidCallback? onScan,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _opacity(Colors.white, 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _opacity(Colors.white, 0.12)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.history, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _t('อุปกรณ์ล่าสุด', 'Last device'),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  id,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onConnect,
+            child: Text(_t('เชื่อมต่อ', 'Connect')),
+          ),
+          TextButton(
+            onPressed: onScan,
+            child: Text(_t('สแกน', 'Scan')),
+          ),
+        ],
+      ),
     );
   }
 }
