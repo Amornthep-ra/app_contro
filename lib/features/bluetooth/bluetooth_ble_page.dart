@@ -57,6 +57,20 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
+  bool _isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+  Color _textPrimary(BuildContext context) =>
+      _isDark(context) ? Colors.white : Colors.black87;
+  Color _textSecondary(BuildContext context) =>
+      _isDark(context) ? Colors.white70 : Colors.black54;
+  Color _textTertiary(BuildContext context) =>
+      _isDark(context) ? Colors.white54 : Colors.black45;
+  Color _panelBg(BuildContext context) =>
+      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.06);
+  Color _panelBorder(BuildContext context) =>
+      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.12);
+  Color _pillBg(BuildContext context) =>
+      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.08);
 
   String _t(String th, String en) =>
       LanguageController.isThai.value ? th : en;
@@ -449,6 +463,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       stream: BleManager.instance.connectionStream,
       initialData: BleManager.instance.isConnected,
       builder: (context, snap) {
+        final isDark = _isDark(context);
         final connected = snap.data ?? false;
 
         String name;
@@ -468,18 +483,19 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           name = _t('ยังไม่เชื่อมต่อ', 'Not connected');
         }
 
+        final titleColor = _textPrimary(context);
         final t = Theme.of(context).textTheme;
         final titleStyle =
             t.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
-              color: Colors.white,
+              color: titleColor,
               fontSize: 15,
               shadows: const [Shadow(blurRadius: 6, color: Colors.black54)],
             ) ??
-            const TextStyle(
+            TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: Colors.white,
+              color: titleColor,
               shadows: [Shadow(blurRadius: 6, color: Colors.black54)],
             );
 
@@ -496,14 +512,14 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  _opacity(Colors.white, 0.10),
-                  _opacity(Colors.white, 0.04),
+                  _opacity(isDark ? Colors.white : Colors.black, 0.10),
+                  _opacity(isDark ? Colors.white : Colors.black, 0.04),
                 ],
               );
 
         final border = connected
             ? _opacity(const Color(0xFF38BDF8), 0.55)
-            : _opacity(const Color(0xFF60A5FA), 0.35);
+            : _opacity(isDark ? const Color(0xFF60A5FA) : Colors.black, 0.25);
 
         final actions = <Widget>[];
 
@@ -571,7 +587,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     connected
                         ? Icons.bluetooth_connected
                         : Icons.bluetooth_disabled,
-                    color: Colors.white,
+                    color: _textPrimary(context),
                     size: 18,
                   ),
                   const SizedBox(width: 4),
@@ -623,7 +639,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: _opacity(Colors.white, 0.08),
+          color: _pillBg(context),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: _opacity(base, 0.75), width: 1),
           boxShadow: [BoxShadow(blurRadius: 8, color: _opacity(base, 0.25))],
@@ -631,12 +647,12 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: Colors.white),
+            Icon(icon, size: 15, color: _textPrimary(context)),
             const SizedBox(width: 6),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: _textPrimary(context),
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,
               ),
@@ -812,22 +828,26 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _opacity(Colors.black, 0.06),
+        color: _panelBg(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _opacity(Colors.black, 0.08)),
+        border: Border.all(color: _panelBorder(context)),
       ),
       child: Row(
         children: [
           Icon(
             _scanning ? Icons.bluetooth_searching : Icons.bluetooth,
             size: 16,
-            color: Colors.black54,
+            color: _textSecondary(context),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               status,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _textPrimary(context),
+              ),
             ),
           ),
           if (_scanning)
@@ -854,13 +874,13 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _opacity(Colors.white, 0.06),
+        color: _panelBg(context),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _opacity(Colors.white, 0.12)),
+        border: Border.all(color: _panelBorder(context)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.history, color: Colors.white),
+          Icon(Icons.history, color: _textPrimary(context)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -868,8 +888,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               children: [
                 Text(
                   _t('อุปกรณ์ล่าสุด', 'Last device'),
-                  style: const TextStyle(
-                    color: Colors.white70,
+                  style: TextStyle(
+                    color: _textSecondary(context),
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -879,8 +899,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: _textPrimary(context),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -888,8 +908,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   id,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white54,
+                  style: TextStyle(
+                    color: _textTertiary(context),
                     fontSize: 11,
                   ),
                 ),

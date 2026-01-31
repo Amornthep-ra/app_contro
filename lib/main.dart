@@ -17,6 +17,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const seed = Color(0xFF6750A4);
+    final lightScheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: Brightness.light,
+    );
+    final darkScheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: Brightness.dark,
+    );
 
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeController.mode,
@@ -27,11 +35,21 @@ class MyApp extends StatelessWidget {
           navigatorObservers: [LoggingNavigatorObserver()],
           themeMode: mode,
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: seed,
-              brightness: Brightness.light,
-            ),
+            colorScheme: lightScheme,
             useMaterial3: true,
+            textTheme: ThemeData.light().textTheme.apply(
+                  bodyColor: lightScheme.onSurface,
+                  displayColor: lightScheme.onSurface,
+                ),
+            iconTheme: IconThemeData(color: lightScheme.onSurface),
+            appBarTheme: AppBarTheme(
+              foregroundColor: lightScheme.onSurface,
+              iconTheme: IconThemeData(color: lightScheme.onSurface),
+              titleTextStyle: ThemeData.light()
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(color: lightScheme.onSurface),
+            ),
             pageTransitionsTheme: const PageTransitionsTheme(
               builders: {
                 TargetPlatform.android: CupertinoPageTransitionsBuilder(),
@@ -43,11 +61,21 @@ class MyApp extends StatelessWidget {
             ),
           ),
           darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: seed,
-              brightness: Brightness.dark,
-            ),
+            colorScheme: darkScheme,
             useMaterial3: true,
+            textTheme: ThemeData.dark().textTheme.apply(
+                  bodyColor: darkScheme.onSurface,
+                  displayColor: darkScheme.onSurface,
+                ),
+            iconTheme: IconThemeData(color: darkScheme.onSurface),
+            appBarTheme: AppBarTheme(
+              foregroundColor: darkScheme.onSurface,
+              iconTheme: IconThemeData(color: darkScheme.onSurface),
+              titleTextStyle: ThemeData.dark()
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(color: darkScheme.onSurface),
+            ),
             pageTransitionsTheme: const PageTransitionsTheme(
               builders: {
                 TargetPlatform.android: CupertinoPageTransitionsBuilder(),
