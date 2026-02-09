@@ -171,6 +171,16 @@ class BleManager {
     });
   }
 
+  Future<List<int>> readTx() async {
+    if (_tx == null) return [];
+    try {
+      return await _tx!.read();
+    } catch (e) {
+      debugPrint("Read TX failed: $e");
+      return [];
+    }
+  }
+
   void sendJoystick(JoystickPacket packet) {
     send(packet.toBleString());
   }

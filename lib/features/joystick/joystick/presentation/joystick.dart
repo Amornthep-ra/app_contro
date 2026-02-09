@@ -14,7 +14,7 @@ import '../joystick_view.dart';
 import '../../../../core/widgets/connection_status_badge.dart';
 import '../../../../core/utils/orientation_utils.dart';
 import '../joystick_theme.dart';
-import '../../../home/home_page.dart';
+import '../../../controller/controller_home_page.dart';
 import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/ui/custom_appbars.dart';
 import '../../../../core/ui/gamepad_assets.dart';
@@ -1400,7 +1400,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _stopTimer();
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => const HomePage()),
+      MaterialPageRoute(builder: (_) => const ControllerHomePage()),
       (route) => false,
     );
     return false;

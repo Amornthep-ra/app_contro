@@ -4,17 +4,11 @@ import 'package:flutter/cupertino.dart';
 import '../../core/widgets/logo_corner.dart';
 import '../../core/ui/theme_controller.dart';
 import '../../core/ui/language_controller.dart';
-
-import '../gamepad/gamepad_mode_edit.dart';
-import '../gamepad/gamepad_4_button_page.dart';
-import '../joystick/joystick/presentation/joystick.dart';
-import '../bluetooth/bluetooth_ble_page.dart';
-import '../info/info_page.dart';
+import '../controller/controller_home_page.dart';
+import '../linesonic/linesonic_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
-  Color _opacity(Color color, double opacity) =>
-      color.withAlpha((opacity * 255).round());
 
   @override
   Widget build(BuildContext context) {
@@ -47,20 +41,17 @@ class HomePage extends StatelessWidget {
                 color: Colors.white70,
                 selectedColor: Colors.white,
                 fillColor: Colors.white24,
-                constraints:
-                    const BoxConstraints(minHeight: 24, minWidth: 32),
+                constraints: const BoxConstraints(minHeight: 24, minWidth: 32),
                 children: const [
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: Text('EN',
-                        style:
-                            TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                   ),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: Text('TH',
-                        style:
-                            TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                   ),
                 ],
               ),
@@ -89,102 +80,28 @@ class HomePage extends StatelessWidget {
           ValueListenableBuilder<bool>(
             valueListenable: LanguageController.isThai,
             builder: (context, isThai, _) {
-              final items = <_MenuItem>[
-                _MenuItem(
-                  isThai ? 'Gamepad Mode Edit' : 'Gamepad Mode Edit',
-                  Icons.tune,
-                  const GamepadModeEdit(),
-                  isThai ? 'ควบคุมสองฝั่ง 8 ปุ่ม' : 'Dual-side 8-button control',
+              final items = <_HomeItem>[
+                _HomeItem(
+                  'Controller',
+                  isThai ? 'รวมฟังก์ชันควบคุมพื้นฐาน' : 'Classic controller features',
+                  Icons.gamepad,
+                  const ControllerHomePage(),
                 ),
-                _MenuItem(
-                  isThai ? 'Gamepad(4 Button)' : 'Gamepad (4 Button)',
-                  Icons.grid_on,
-                  const Gamepad4ButtonPage(),
-                  isThai ? 'ควบคุมสองฝั่ง 4 ปุ่ม' : 'Dual-side 4-button control',
-                ),
-                _MenuItem(
-                  isThai ? 'Joystick' : 'Joystick',
-                  Icons.sports_esports,
-                  const JoystickPage(),
-                  isThai ? 'ควบคุมแบบจอย' : 'Joystick control',
-                ),
-                _MenuItem(
-                  isThai ? 'Bluetooth Low Energy (BLE)' : 'Bluetooth Low Energy (BLE)',
-                  Icons.bluetooth,
-                  const BluetoothBlePage(),
-                  isThai ? 'สแกน/เชื่อมต่ออุปกรณ์ BLE' : 'Scan/connect BLE devices',
-                ),
-                _MenuItem(
-                  isThai ? 'Guide' : 'Guide',
-                  Icons.info_outline,
-                  const InfoPage(),
-                  isThai
-                      ? 'ตัวอย่างโค้ดและวิธีใช้งาน BLE'
-                      : 'Examples and BLE usage',
+                _HomeItem(
+                  'LineSonic',
+                  isThai ? 'ปรับค่า PID ผ่าน BLE' : 'PID tuning over BLE',
+                  Icons.timeline,
+                  const LineSonicPage(),
                 ),
               ];
+
               return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
                 itemCount: items.length,
-                separatorBuilder: (_, i) {
-                  return Divider(
-                    height: 1,
-                    color: _opacity(Colors.black, 0.08),
-                    indent: 72,
-                    endIndent: 12,
-                  );
-                },
-                itemBuilder: (ctx, i) {
-                  final it = items[i];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 8,
-                    ),
-                    leading: it.icon != null
-                        ? Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withAlpha((0.12 * 255).round()),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              it.icon,
-                              size: 26,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          )
-                        : const SizedBox(width: 44),
-                    title: Text(
-                      it.title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        it.subtitle,
-                        style:
-                            TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                      ),
-                    ),
-                    minLeadingWidth: 52,
-                    horizontalTitleGap: 14,
-                    trailing: const Icon(
-                      CupertinoIcons.chevron_forward,
-                      size: 18,
-                      color: Color(0xFFB5B5B9),
-                    ),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => it.page),
-                    ),
-                  );
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final it = items[index];
+                  return _HomeCard(item: it, accent: _accentFor(index));
                 },
               );
             },
@@ -194,20 +111,95 @@ class HomePage extends StatelessWidget {
       ),
     );
   }
+
+  Color _accentFor(int index) {
+    if (index == 0) return const Color(0xFF0EA5E9);
+    return const Color(0xFF22C55E);
+  }
 }
 
-class _MenuItem {
+class _HomeItem {
   final String title;
-  final IconData? icon;
-  final Widget page;
   final String subtitle;
+  final IconData icon;
+  final Widget page;
 
-  const _MenuItem(
-    this.title,
-    this.icon,
-    this.page,
-    this.subtitle,
-  );
+  const _HomeItem(this.title, this.subtitle, this.icon, this.page);
+}
+
+class _HomeCard extends StatelessWidget {
+  final _HomeItem item;
+  final Color accent;
+
+  const _HomeCard({required this.item, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => item.page),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: scheme.outlineVariant.withAlpha(80)),
+          boxShadow: [
+            BoxShadow(
+              color: scheme.shadow.withAlpha(18),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: accent.withAlpha(30),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(item.icon, color: accent, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: scheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 void _showThemeSheet(BuildContext context) {
