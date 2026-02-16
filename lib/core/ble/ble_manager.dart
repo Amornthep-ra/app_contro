@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'joystick_packet.dart';
 
 class BleManager {
@@ -30,6 +31,8 @@ class BleManager {
   DateTime? _lastRxTime;
   StreamSubscription<List<int>>? _txSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
+  StreamSubscription<List<ScanResult>>? _autoScanSub;
+  bool _autoConnectRunning = false;
 
   static const Duration _heartbeatInterval = Duration(seconds: 4);
   static const Duration _heartbeatTimeout = Duration(seconds: 15);
@@ -214,6 +217,64 @@ class BleManager {
   }
 
   Stream<List<int>>? onData() => _tx?.lastValueStream;
+
+  Future<void> autoConnectLastDevice({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (_autoConnectRunning || isConnected) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastId = prefs.getString('ble_last_device_id');
+    if (lastId == null || lastId.isEmpty) return;
+
+    final state = await FlutterBluePlus.adapterState.first;
+    if (state != BluetoothAdapterState.on) return;
+
+    _autoConnectRunning = true;
+
+    try {
+      await _autoScanSub?.cancel();
+      _autoScanSub = FlutterBluePlus.scanResults.listen((list) async {
+        if (!_autoConnectRunning || isConnected) return;
+        for (final r in list) {
+          if (r.device.remoteId.str != lastId) continue;
+
+          _autoConnectRunning = false;
+          await _autoScanSub?.cancel();
+          _autoScanSub = null;
+
+          try {
+            await FlutterBluePlus.stopScan();
+          } catch (_) {}
+
+          await disconnect();
+          try {
+            await r.device.disconnect();
+          } catch (_) {}
+
+          await r.device.connect(
+            license: License.free,
+            timeout: const Duration(seconds: 10),
+            autoConnect: false,
+          );
+
+          setDevice(r.device);
+          final ok = await discoverServices();
+          if (ok) {
+            send("HELLO_APP");
+          }
+          return;
+        }
+      });
+
+      await FlutterBluePlus.startScan(timeout: timeout);
+    } catch (_) {
+    } finally {
+      await _autoScanSub?.cancel();
+      _autoScanSub = null;
+      _autoConnectRunning = false;
+    }
+  }
 
   Future<void> disconnect() async {
     try {

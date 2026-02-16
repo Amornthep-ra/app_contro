@@ -11,10 +11,10 @@ import '../../core/ble/ble_manager.dart';
 import '../../core/ble/joystick_packet.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
+import '../../core/ui/custom_appbars.dart';
 import '../../core/widgets/logo_corner.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/utils/orientation_utils.dart';
-import '../../core/ui/custom_appbars.dart';
 import '../../core/ui/language_controller.dart';
 
 const String kIdle = '0';
@@ -39,13 +39,18 @@ const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.60;
+const double _gridStep = 0.05;
 
 const double speedRowGap = 6.0;
-const double _gamepadAppBarHeight = 48.0;
 const double _speedPanelTopGap = 6.0;
 
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());
+
+double _snapToGrid(double value) {
+  if (_gridStep <= 0) return value;
+  return (value / _gridStep).round() * _gridStep;
+}
 
 TapCfg cfgSpeedLow(BuildContext ctx) {
   final theme = Theme.of(ctx);
@@ -228,6 +233,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   final GlobalKey _tutorialTrnKey = GlobalKey();
 
   bool _editMode = false;
+  bool _showGrid = false;
+  final Set<String> _lockedIds = {};
   bool _menuOpen = false;
   Offset? _menuAnchor;
   Map<String, _ButtonLayout> _layoutAll = {};
@@ -236,6 +243,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   final Set<String> _pressedIds = {};
   String? _selectedId;
   Size? _panelSize;
+  final List<_EditSnapshot> _undoStack = [];
+  final List<_EditSnapshot> _redoStack = [];
+  static const int _maxHistory = 30;
 
   Timer? _tick;
   String _lastPacketKey = '';
@@ -619,6 +629,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     if (hasData)
                       TextButton(
                         onPressed: () async {
+                          gamepadBuzz();
                           await _loadPreset(slot);
                           if (context.mounted) Navigator.pop(context);
                         },
@@ -627,6 +638,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     if (hasData)
                       TextButton(
                         onPressed: () async {
+                          gamepadBuzz();
                           await prefs.remove(_presetKey(slot));
                           exists[slot] = false;
                           if (context.mounted) {
@@ -637,6 +649,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                       ),
                     TextButton(
                       onPressed: () async {
+                        gamepadBuzz();
                         await _savePreset(slot);
                         exists[slot] = true;
                         if (context.mounted) {
@@ -678,7 +691,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        gamepadBuzz();
+                        Navigator.pop(context);
+                      },
                       child: const Text('Cancel'),
                     ),
                   ),
@@ -774,6 +790,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     _layoutAll.removeWhere(
       (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
     );
+    _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
 
     if (mounted) {
       setState(() {});
@@ -851,9 +868,86 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     setState(() => _selectedId = id);
   }
 
+  Map<String, _ButtonLayout> _cloneLayout(Map<String, _ButtonLayout> src) {
+    final out = <String, _ButtonLayout>{};
+    src.forEach((k, v) {
+      out[k] = _ButtonLayout(v.cx, v.cy, v.size);
+    });
+    return out;
+  }
+
+  _EditSnapshot _captureSnapshot() {
+    return _EditSnapshot(
+      layoutAll: _cloneLayout(_layoutAll),
+      leftActive: Set<String>.from(_leftActive),
+      rightActive: Set<String>.from(_rightActive),
+      lockedIds: Set<String>.from(_lockedIds),
+      selectedId: _selectedId,
+    );
+  }
+
+  void _applySnapshot(_EditSnapshot snap) {
+    _layoutAll = _cloneLayout(snap.layoutAll);
+    _leftActive = Set<String>.from(snap.leftActive);
+    _rightActive = Set<String>.from(snap.rightActive);
+    _lockedIds
+      ..clear()
+      ..addAll(snap.lockedIds);
+    _selectedId = snap.selectedId;
+
+    _layoutAll.removeWhere(
+      (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
+    );
+    _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
+
+    _pressedIds.removeWhere((id) => !_layoutAll.containsKey(id));
+    _up = false;
+    _down = false;
+    _left = false;
+    _right = false;
+    _triangle = false;
+    _cross = false;
+    _square = false;
+    _circle = false;
+    _command = kIdle;
+  }
+
+  void _persistEditState() {
+    _saveLayout(_prefsLayoutAll, _layoutAll);
+    _saveActive(_prefsActiveLeft, _leftActive);
+    _saveActive(_prefsActiveRight, _rightActive);
+  }
+
+  void _pushHistory() {
+    _undoStack.add(_captureSnapshot());
+    if (_undoStack.length > _maxHistory) {
+      _undoStack.removeAt(0);
+    }
+    _redoStack.clear();
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    setState(() {
+      _redoStack.add(_captureSnapshot());
+      _applySnapshot(_undoStack.removeLast());
+    });
+    _persistEditState();
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    setState(() {
+      _undoStack.add(_captureSnapshot());
+      _applySnapshot(_redoStack.removeLast());
+    });
+    _persistEditState();
+  }
+
   void _adjustSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
+    if (_lockedIds.contains(id)) return;
 
     final panelSize = _panelSize;
     final current = _layoutAll[id];
@@ -868,6 +962,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _showSizeLimit(unclamped >= _maxBtnSize);
       return;
     }
+    _pushHistory();
     final sizePx = nextSize * s;
     final half = sizePx / 2;
 
@@ -880,6 +975,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _layoutAll = nextLayout;
     });
     _saveLayout(_prefsLayoutAll, _layoutAll);
+  }
+
+  void _toggleSelectedLock() {
+    final id = _selectedId;
+    if (id == null) return;
+    setState(() {
+      if (_lockedIds.contains(id)) {
+        _lockedIds.remove(id);
+      } else {
+        _lockedIds.add(id);
+      }
+    });
   }
 
   void _showSizeLimit(bool atMax) {
@@ -912,8 +1019,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Widget _buildResizeBar() {
     if (!_editMode) return const SizedBox.shrink();
-    final hasSelection = _selectedId != null;
-    final iconColor = hasSelection ? Colors.white : Colors.white54;
+    final selectedId = _selectedId;
+    final hasSelection = selectedId != null;
+    final selectedLocked =
+        selectedId != null && _lockedIds.contains(selectedId);
+    final sizeEnabled = hasSelection && !selectedLocked;
+    final iconColor = sizeEnabled ? Colors.white : Colors.white54;
+    final canUndo = _undoStack.isNotEmpty;
+    final canRedo = _redoStack.isNotEmpty;
 
     return Positioned(
       top: 6,
@@ -930,6 +1043,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _resizeButton(
+                Icons.undo,
+                canUndo ? _undo : null,
+                canUndo ? Colors.white : Colors.white54,
+              ),
+              const SizedBox(width: 2),
+              _resizeButton(
+                Icons.redo,
+                canRedo ? _redo : null,
+                canRedo ? Colors.white : Colors.white54,
+              ),
+              const SizedBox(width: 8),
               const Text(
                 'Size',
                 style: TextStyle(
@@ -941,14 +1066,30 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               const SizedBox(width: 6),
               _resizeButton(
                 Icons.remove,
-                hasSelection ? () => _adjustSelectedSize(-0.05) : null,
+                sizeEnabled ? () => _adjustSelectedSize(-0.05) : null,
                 iconColor,
               ),
               const SizedBox(width: 2),
               _resizeButton(
                 Icons.add,
-                hasSelection ? () => _adjustSelectedSize(0.05) : null,
+                sizeEnabled ? () => _adjustSelectedSize(0.05) : null,
                 iconColor,
+              ),
+              const SizedBox(width: 8),
+              _resizeButton(
+                _showGrid ? Icons.grid_on : Icons.grid_off,
+                () => setState(() => _showGrid = !_showGrid),
+                _showGrid ? const Color(0xFF38BDF8) : Colors.white,
+              ),
+              const SizedBox(width: 2),
+              _resizeButton(
+                selectedLocked ? Icons.lock : Icons.lock_open,
+                hasSelection ? _toggleSelectedLock : null,
+                hasSelection
+                    ? (selectedLocked
+                        ? const Color(0xFFFBBF24)
+                        : Colors.white)
+                    : Colors.white54,
               ),
             ],
           ),
@@ -957,7 +1098,34 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
+  Widget _buildGridOverlay() {
+    if (!_editMode || !_showGrid) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final themeB = theme.brightness;
+    final platformB = MediaQuery.of(context).platformBrightness;
+    final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
+    final base = isDark ? Colors.white : Colors.black;
+    final minor = _opacity(base, isDark ? 0.16 : 0.14);
+    final major = _opacity(base, isDark ? 0.30 : 0.24);
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: CustomPaint(
+            painter: _GridPainter(
+              step: _gridStep,
+              minorColor: minor,
+              majorColor: major,
+            ),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _resetLayouts() async {
+    _pushHistory();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);
     await prefs.remove(_prefsLayoutLeft);
@@ -968,17 +1136,108 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _layoutAll = {};
       _leftActive = {};
       _rightActive = {};
+      _lockedIds.clear();
       _selectedId = null;
     });
   }
 
+  void _resetSide(bool isLeft) {
+    final ids = (isLeft ? _leftActive : _rightActive).toList();
+    if (ids.isEmpty) return;
+    _pushHistory();
+    setState(() {
+      for (final id in ids) {
+        _layoutAll.remove(id);
+        _pressedIds.remove(id);
+        _lockedIds.remove(id);
+        if (_selectedId == id) _selectedId = null;
+        if (id == 'L:up') _up = false;
+        if (id == 'L:down') _down = false;
+        if (id == 'L:left') _left = false;
+        if (id == 'L:right') _right = false;
+        if (id == 'R:triangle') _triangle = false;
+        if (id == 'R:cross') _cross = false;
+        if (id == 'R:square') _square = false;
+        if (id == 'R:circle') _circle = false;
+      }
+      if (isLeft) {
+        _leftActive.clear();
+      } else {
+        _rightActive.clear();
+      }
+    });
+    if (isLeft) {
+      _saveActive(_prefsActiveLeft, _leftActive);
+    } else {
+      _saveActive(_prefsActiveRight, _rightActive);
+    }
+    _saveLayout(_prefsLayoutAll, _layoutAll);
+  }
+
+  Future<void> _showResetMenu() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(ctx).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              physics: const ClampingScrollPhysics(),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.restart_alt),
+                  title: const Text('Reset All'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    gamepadBuzz();
+                    _resetLayouts();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restart_alt),
+                  title: const Text('Reset Left'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    gamepadBuzz();
+                    _resetSide(true);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restart_alt),
+                  title: const Text('Reset Right'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    gamepadBuzz();
+                    _resetSide(false);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _toggleActive(String id, bool isLeft) {
+    _pushHistory();
     setState(() {
       if (isLeft) {
         if (_leftActive.contains(id)) {
           _leftActive.remove(id);
           _layoutAll.remove(id);
           _pressedIds.remove(id);
+          _lockedIds.remove(id);
           if (_selectedId == id) _selectedId = null;
           if (id == 'L:up') _up = false;
           if (id == 'L:down') _down = false;
@@ -993,6 +1252,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           _rightActive.remove(id);
           _layoutAll.remove(id);
           _pressedIds.remove(id);
+          _lockedIds.remove(id);
           if (_selectedId == id) _selectedId = null;
           if (id == 'R:triangle') _triangle = false;
           if (id == 'R:cross') _cross = false;
@@ -1013,32 +1273,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Widget _buildEditMenu() {
-    PopupMenuItem<String> header(String text) {
-      return PopupMenuItem<String>(
-        enabled: false,
-        child: Text(
-          text,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-      );
-    }
-
-    PopupMenuItem<String> item(String id, String label, bool active) {
-      return PopupMenuItem<String>(
-        value: id,
-        child: Row(
-          children: [
-            Icon(
-              active ? Icons.check_box : Icons.check_box_outline_blank,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Text(label),
-          ],
-        ),
-      );
-    }
-
     if (Platform.isIOS) {
       return Material(
         color: Colors.transparent,
@@ -1046,7 +1280,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           key: _tutorialButtonsKey,
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => _menuAnchor = d.globalPosition,
-          onTap: _showEditMenuIOS,
+          onTap: () {
+            gamepadBuzz();
+            _showEditMenuIOS();
+          },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
@@ -1067,52 +1304,231 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       );
     }
 
-    return PopupMenuButton<String>(
-      tooltip: 'Add/Remove buttons',
-      offset: const Offset(0, 40),
-      position: PopupMenuPosition.under,
-      onOpened: () => _menuOpen = true,
-      onCanceled: () => _menuOpen = false,
-      child: Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         key: _tutorialButtonsKey,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: _opacity(Colors.black, 0.18),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: const Text(
-          'Buttons',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        onTap: () {
+          gamepadBuzz();
+          _showEditMenuAndroid();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: _opacity(Colors.black, 0.18),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: const Text(
+            'Buttons',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
           ),
         ),
       ),
-      onSelected: (value) {
-        _menuOpen = false;
-        if (value.startsWith('L:')) {
-          _toggleActive(value, true);
-        } else if (value.startsWith('R:')) {
-          _toggleActive(value, false);
+    );
+  }
+
+  Future<void> _showEditMenuAndroid() async {
+    if (_menuOpen) return;
+    _menuOpen = true;
+    if (!mounted) {
+      _menuOpen = false;
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black87,
+      builder: (context) {
+        Widget row(
+          String id,
+          String label,
+          bool active,
+          void Function(VoidCallback fn) setSheetState,
+        ) {
+          return InkWell(
+            onTap: () {
+              gamepadBuzz();
+              if (id.startsWith('L:')) {
+                _toggleActive(id, true);
+              } else if (id.startsWith('R:')) {
+                _toggleActive(id, false);
+              }
+              setSheetState(() {});
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    active
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
-      },
-      itemBuilder: (context) {
-        return <PopupMenuEntry<String>>[
-          header('Left pad'),
-          item('L:up', 'Up', _leftActive.contains('L:up')),
-          item('L:down', 'Down', _leftActive.contains('L:down')),
-          item('L:left', 'Left', _leftActive.contains('L:left')),
-          item('L:right', 'Right', _leftActive.contains('L:right')),
-          header('Right pad'),
-          item('R:triangle', 'Triangle', _rightActive.contains('R:triangle')),
-          item('R:cross', 'Cross', _rightActive.contains('R:cross')),
-          item('R:square', 'Square', _rightActive.contains('R:square')),
-          item('R:circle', 'Circle', _rightActive.contains('R:circle')),
-        ];
+
+        final maxHeight = MediaQuery.of(context).size.height * 0.7;
+        final scrollController = ScrollController();
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            decoration: BoxDecoration(
+              color: _opacity(Colors.black, 0.9),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF7DD3FC)),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: StatefulBuilder(
+                builder: (context, setSheetState) {
+                  return ScrollbarTheme(
+                    data: isDark
+                        ? const ScrollbarThemeData()
+                        : ScrollbarThemeData(
+                            thumbColor:
+                                WidgetStateProperty.all(Colors.white),
+                          ),
+                    child: Scrollbar(
+                      controller: scrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      thickness: 4,
+                      radius: const Radius.circular(999),
+                      child: SingleChildScrollView(
+                        controller: scrollController,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Buttons',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    gamepadBuzz();
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Left pad',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            row(
+                              'L:up',
+                              'Left: Up',
+                              _leftActive.contains('L:up'),
+                              setSheetState,
+                            ),
+                            row(
+                              'L:down',
+                              'Left: Down',
+                              _leftActive.contains('L:down'),
+                              setSheetState,
+                            ),
+                            row(
+                              'L:left',
+                              'Left: Left',
+                              _leftActive.contains('L:left'),
+                              setSheetState,
+                            ),
+                            row(
+                              'L:right',
+                              'Left: Right',
+                              _leftActive.contains('L:right'),
+                              setSheetState,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Right pad',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            row(
+                              'R:triangle',
+                              'Right: Triangle',
+                              _rightActive.contains('R:triangle'),
+                              setSheetState,
+                            ),
+                            row(
+                              'R:cross',
+                              'Right: Cross',
+                              _rightActive.contains('R:cross'),
+                              setSheetState,
+                            ),
+                            row(
+                              'R:square',
+                              'Right: Square',
+                              _rightActive.contains('R:square'),
+                              setSheetState,
+                            ),
+                            row(
+                              'R:circle',
+                              'Right: Circle',
+                              _rightActive.contains('R:circle'),
+                              setSheetState,
+                            ),
+                            const SizedBox(height: 2),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
       },
     );
+
+    _menuOpen = false;
   }
 
   Future<void> _showEditMenuIOS() async {
@@ -1122,11 +1538,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _menuOpen = false;
       return;
     }
-    final allowDismiss = ValueNotifier<bool>(false);
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (allowDismiss.value) return;
-      allowDismiss.value = true;
-    });
     await showCupertinoModalPopup<void>(
       context: context,
       barrierDismissible: false,
@@ -1141,6 +1552,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ) {
           return CupertinoActionSheetAction(
             onPressed: () {
+              gamepadBuzz();
               if (id.startsWith('L:')) {
                 _toggleActive(id, true);
               } else if (id.startsWith('R:')) {
@@ -1163,96 +1575,87 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           );
         }
 
-        return SizedBox.expand(
-          child: Stack(
-            alignment: Alignment.bottomCenter,
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: allowDismiss,
-                builder: (context, armed, child) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: armed ? () => Navigator.pop(context) : null,
-                    child: const SizedBox.expand(),
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF7DD3FC)),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: StatefulBuilder(
+                builder: (context, setSheetState) {
+                  return CupertinoActionSheet(
+                    title: Row(
+                      children: [
+                        const Expanded(child: Text('Buttons')),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          onPressed: () {
+                            gamepadBuzz();
+                            Navigator.pop(context);
+                          },
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      action(
+                        'L:up',
+                        'Left: Up',
+                        _leftActive.contains('L:up'),
+                        setSheetState,
+                      ),
+                      action(
+                        'L:down',
+                        'Left: Down',
+                        _leftActive.contains('L:down'),
+                        setSheetState,
+                      ),
+                      action(
+                        'L:left',
+                        'Left: Left',
+                        _leftActive.contains('L:left'),
+                        setSheetState,
+                      ),
+                      action(
+                        'L:right',
+                        'Left: Right',
+                        _leftActive.contains('L:right'),
+                        setSheetState,
+                      ),
+                      action(
+                        'R:triangle',
+                        'Right: Triangle',
+                        _rightActive.contains('R:triangle'),
+                        setSheetState,
+                      ),
+                      action(
+                        'R:cross',
+                        'Right: Cross',
+                        _rightActive.contains('R:cross'),
+                        setSheetState,
+                      ),
+                      action(
+                        'R:square',
+                        'Right: Square',
+                        _rightActive.contains('R:square'),
+                        setSheetState,
+                      ),
+                      action(
+                        'R:circle',
+                        'Right: Circle',
+                        _rightActive.contains('R:circle'),
+                        setSheetState,
+                      ),
+                    ],
                   );
                 },
               ),
-              SafeArea(
-                top: false,
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF7DD3FC)),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: StatefulBuilder(
-                      builder: (context, setSheetState) {
-                        return CupertinoActionSheet(
-                          title: const Text('Buttons'),
-                          actions: [
-                            action(
-                              'L:up',
-                              'Left: Up',
-                              _leftActive.contains('L:up'),
-                              setSheetState,
-                            ),
-                            action(
-                              'L:down',
-                              'Left: Down',
-                              _leftActive.contains('L:down'),
-                              setSheetState,
-                            ),
-                            action(
-                              'L:left',
-                              'Left: Left',
-                              _leftActive.contains('L:left'),
-                              setSheetState,
-                            ),
-                            action(
-                              'L:right',
-                              'Left: Right',
-                              _leftActive.contains('L:right'),
-                              setSheetState,
-                            ),
-                            action(
-                              'R:triangle',
-                              'Right: Triangle',
-                              _rightActive.contains('R:triangle'),
-                              setSheetState,
-                            ),
-                            action(
-                              'R:cross',
-                              'Right: Cross',
-                              _rightActive.contains('R:cross'),
-                              setSheetState,
-                            ),
-                            action(
-                              'R:square',
-                              'Right: Square',
-                              _rightActive.contains('R:square'),
-                              setSheetState,
-                            ),
-                            action(
-                              'R:circle',
-                              'Right: Circle',
-                              _rightActive.contains('R:circle'),
-                              setSheetState,
-                            ),
-                          ],
-                          cancelButton: CupertinoActionSheetAction(
-                            onPressed: () => Navigator.pop(context),
-                            isDefaultAction: true,
-                            child: const Text('Cancel'),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -1400,7 +1803,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (!_speedPanelOpen) return const SizedBox.shrink();
 
     final topInset = MediaQuery.of(context).padding.top;
-    final panelTop = topInset + _gamepadAppBarHeight + _speedPanelTopGap;
+    final panelTop = topInset + kToolbarHeight + _speedPanelTopGap;
 
     return Positioned(
       top: panelTop,
@@ -1575,7 +1978,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     Row(
                       children: [
                         TextButton(
-                          onPressed: _finishTutorial,
+                          onPressed: () {
+                            gamepadBuzz();
+                            _finishTutorial();
+                          },
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.white70,
                           ),
@@ -1584,8 +1990,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         const Spacer(),
                         if (_tutorialStep > 0)
                           TextButton(
-                            onPressed: () =>
-                                _goTutorialStep(_tutorialStep - 1),
+                            onPressed: () {
+                              gamepadBuzz();
+                              _goTutorialStep(_tutorialStep - 1);
+                            },
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.white70,
                             ),
@@ -1594,8 +2002,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: isLast
-                              ? _finishTutorial
-                              : () => _goTutorialStep(_tutorialStep + 1),
+                              ? () {
+                                  gamepadBuzz();
+                                  _finishTutorial();
+                                }
+                              : () {
+                                  gamepadBuzz();
+                                  _goTutorialStep(_tutorialStep + 1);
+                                },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF7DD3FC),
                             foregroundColor: Colors.black,
@@ -1736,7 +2150,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(999),
-              onTap: _toggleEdit,
+              onTap: () {
+                gamepadBuzz();
+                _toggleEdit();
+              },
               child: Container(
                 key: _tutorialCustomizeKey,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1756,19 +2173,27 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               ),
             ),
           ),
-          if (_editMode)
-            IconButton(
-              icon: Icon(
-                Icons.delete_outline,
-                color: _selectedId == null ? Colors.white54 : Colors.white,
+            if (_editMode)
+              IconButton(
+                icon: Icon(
+                  Icons.delete_outline,
+                  color: _selectedId == null ? Colors.white54 : Colors.white,
+                ),
+                onPressed: _selectedId == null
+                    ? null
+                    : () {
+                        gamepadBuzz();
+                        _removeSelected();
+                      },
+                tooltip: 'Remove selected',
               ),
-              onPressed: _selectedId == null ? null : _removeSelected,
-              tooltip: 'Remove selected',
-            ),
           if (_editMode)
             IconButton(
               icon: const Icon(Icons.restart_alt),
-              onPressed: _resetLayouts,
+              onPressed: () {
+                gamepadBuzz();
+                _showResetMenu();
+              },
               tooltip: 'Reset layout',
             ),
           if (!_editMode)
@@ -1779,7 +2204,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   InkWell(
                     key: _tutorialPresetKey,
                     borderRadius: BorderRadius.circular(999),
-                    onTap: _showPresetSheet,
+                    onTap: () {
+                      gamepadBuzz();
+                      _showPresetSheet();
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
@@ -1803,7 +2231,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   const SizedBox(width: 6),
                   InkWell(
                     borderRadius: BorderRadius.circular(999),
-                    onTap: _restartTutorial,
+                    onTap: () {
+                      gamepadBuzz();
+                      _restartTutorial();
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
@@ -1835,17 +2266,17 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           SafeArea(
             child: Stack(
               children: [
-            IgnorePointer(
-              ignoring: _speedPanelOpen,
-              child: Opacity(
-                opacity: _speedPanelOpen ? 0.35 : 1.0,
-                child: LayoutBuilder(
+                _buildGridOverlay(),
+                IgnorePointer(
+                  ignoring: _speedPanelOpen,
+                  child: Opacity(
+                    opacity: _speedPanelOpen ? 0.35 : 1.0,
+                    child: LayoutBuilder(
                   builder: (context, cons) {
                     return Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
                         children: [
-                          const SizedBox(height: 8),
                           Expanded(
                             child: _editMode
                                 ? _EditablePadPanel(
@@ -1901,10 +2332,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                                       );
                                     },
                                     selectedId: _selectedId,
+                                    lockedIds: _lockedIds,
+                                    snapToGrid: _showGrid,
                                     onSelect: _selectButton,
                                     onPanelSize: (size) {
                                       _panelSize = size;
                                     },
+                                    onStart: _pushHistory,
                                   )
                                 : _LayoutPadPanel(
                                     ids: _allActiveIds(),
@@ -2032,6 +2466,47 @@ class _GradientTrackShape extends SliderTrackShape {
   }
 }
 
+class _GridPainter extends CustomPainter {
+  final double step;
+  final Color minorColor;
+  final Color majorColor;
+
+  const _GridPainter({
+    required this.step,
+    required this.minorColor,
+    required this.majorColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (step <= 0) return;
+    final paint = Paint()..strokeWidth = 1;
+
+    final dx = size.width * step;
+    final dy = size.height * step;
+    if (dx <= 0 || dy <= 0) return;
+
+    const int majorEvery = 4;
+    int ix = 1;
+    for (double x = dx; x < size.width; x += dx, ix++) {
+      paint.color = (ix % majorEvery == 0) ? majorColor : minorColor;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    int iy = 1;
+    for (double y = dy; y < size.height; y += dy, iy++) {
+      paint.color = (iy % majorEvery == 0) ? majorColor : minorColor;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GridPainter oldDelegate) {
+    return oldDelegate.step != step ||
+        oldDelegate.minorColor != minorColor ||
+        oldDelegate.majorColor != majorColor;
+  }
+}
+
 class _TutorialStep {
   final String titleTh;
   final String bodyTh;
@@ -2135,14 +2610,33 @@ class _ButtonLayout {
   Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
 }
 
+class _EditSnapshot {
+  final Map<String, _ButtonLayout> layoutAll;
+  final Set<String> leftActive;
+  final Set<String> rightActive;
+  final Set<String> lockedIds;
+  final String? selectedId;
+
+  const _EditSnapshot({
+    required this.layoutAll,
+    required this.leftActive,
+    required this.rightActive,
+    required this.lockedIds,
+    required this.selectedId,
+  });
+}
+
 class _EditablePadPanel extends StatefulWidget {
   final List<String> ids;
   final Map<String, _BtnSpec> specs;
   final Map<String, _ButtonLayout> layout;
   final ValueChanged<Map<String, _ButtonLayout>> onLayoutChanged;
   final String? selectedId;
+  final Set<String> lockedIds;
+  final bool snapToGrid;
   final ValueChanged<String> onSelect;
   final ValueChanged<Size> onPanelSize;
+  final VoidCallback? onStart;
 
   const _EditablePadPanel({
     required this.ids,
@@ -2150,8 +2644,11 @@ class _EditablePadPanel extends StatefulWidget {
     required this.layout,
     required this.onLayoutChanged,
     required this.selectedId,
+    required this.lockedIds,
+    required this.snapToGrid,
     required this.onSelect,
     required this.onPanelSize,
+    this.onStart,
   });
 
   @override
@@ -2225,11 +2722,14 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
               asset: spec.asset,
               selected: widget.selectedId == id,
               dimmed: widget.selectedId != null && widget.selectedId != id,
+              locked: widget.lockedIds.contains(id),
+              snapToGrid: widget.snapToGrid,
               onChanged: (next) {
                 setState(() => _layout[id] = next);
               },
               onEnd: () => widget.onLayoutChanged(_layout),
               onTap: () => widget.onSelect(id),
+              onStart: widget.onStart,
             );
           }).toList(),
         );
@@ -2307,9 +2807,12 @@ class _EditableButton extends StatefulWidget {
   final String asset;
   final bool selected;
   final bool dimmed;
+  final bool locked;
+  final bool snapToGrid;
   final ValueChanged<_ButtonLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback onTap;
+  final VoidCallback? onStart;
 
   const _EditableButton({
     required this.layout,
@@ -2317,9 +2820,12 @@ class _EditableButton extends StatefulWidget {
     required this.asset,
     required this.selected,
     required this.dimmed,
+    required this.locked,
+    required this.snapToGrid,
     required this.onChanged,
     required this.onEnd,
     required this.onTap,
+    this.onStart,
   });
 
   @override
@@ -2333,6 +2839,7 @@ class _EditableButtonState extends State<_EditableButton> {
   void _onScaleStart(ScaleStartDetails d) {
     _startFocal = d.focalPoint;
     _startLayout = widget.layout;
+    widget.onStart?.call();
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
@@ -2351,6 +2858,13 @@ class _EditableButtonState extends State<_EditableButton> {
 
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
+
+    if (widget.snapToGrid) {
+      double nx = _snapToGrid(cx / w);
+      double ny = _snapToGrid(cy / h);
+      cx = nx * w;
+      cy = ny * h;
+    }
 
     cx = cx.clamp(half, w - half);
     cy = cy.clamp(half, h - half);
@@ -2379,9 +2893,9 @@ class _EditableButtonState extends State<_EditableButton> {
       left: cx - size / 2,
       top: cy - size / 2,
       child: GestureDetector(
-        onScaleStart: _onScaleStart,
-        onScaleUpdate: _onScaleUpdate,
-        onScaleEnd: (_) => widget.onEnd(),
+        onScaleStart: widget.locked ? null : _onScaleStart,
+        onScaleUpdate: widget.locked ? null : _onScaleUpdate,
+        onScaleEnd: widget.locked ? null : (_) => widget.onEnd(),
         onTap: widget.onTap,
         child: Opacity(
           opacity: dimOpacity,
@@ -2444,6 +2958,7 @@ class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);
+    gamepadBuzz();
     widget.onPressChanged?.call(widget.sendValue, true);
   }
 

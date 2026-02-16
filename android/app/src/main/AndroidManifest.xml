@@ -19,6 +19,7 @@
         android:usesPermissionFlags="neverForLocation" />
     <!-- CONNECT: สำหรับเชื่อมต่อ/สื่อสาร (ทั้ง BLE และ Classic SPP) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- ถ้าต้องการโฆษณา BLE (Peripheral) ให้เปิดบรรทัดนี้ -->
     <!-- <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> -->
 

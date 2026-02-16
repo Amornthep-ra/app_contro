@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/ble_manager.dart';
 import '../connection/app_connection.dart';
 
@@ -161,17 +163,22 @@ class _ConnectionSheet extends StatefulWidget {
 }
 
 class _ConnectionSheetState extends State<_ConnectionSheet> {
+  static const _prefsLastDeviceId = 'ble_last_device_id';
+
   bool _scanning = false;
   bool _connecting = false;
   StreamSubscription<List<ScanResult>>? _scanSub;
   Timer? _cleanupTimer;
   final Map<String, _BleEntry> _deviceMap = {};
+  String? _lastDeviceId;
+  bool _pendingConnectLast = false;
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
 
   @override
   void initState() {
     super.initState();
+    _loadLastDevice();
     _cleanupTimer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => _pruneOldDevices(),
@@ -202,16 +209,76 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadLastDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getString(_prefsLastDeviceId);
+    if (mounted) {
+      setState(() {
+        _lastDeviceId = id;
+      });
+    } else {
+      _lastDeviceId = id;
+    }
+    _queueAutoConnectLast();
+  }
+
+  void _queueAutoConnectLast() {
+    if (_lastDeviceId == null) return;
+    if (_connecting || BleManager.instance.isConnected) return;
+    if (_pendingConnectLast) return;
+    _pendingConnectLast = true;
+    if (!_scanning) {
+      _startScan();
+    }
+  }
+
+  Future<void> _saveLastDeviceId(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsLastDeviceId, id);
+    if (mounted) {
+      setState(() {
+        _lastDeviceId = id;
+      });
+    } else {
+      _lastDeviceId = id;
+    }
+  }
+
+  Future<void> _forgetLastDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsLastDeviceId);
+    if (mounted) {
+      setState(() {
+        _lastDeviceId = null;
+      });
+    } else {
+      _lastDeviceId = null;
+    }
+  }
+
+  Future<void> _promptEnableBluetooth() async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bluetooth is off. Please turn it on.')),
+      );
+    }
+
+    if (Platform.isAndroid) {
+      try {
+        await FlutterBluePlus.turnOn(timeout: 30);
+        return;
+      } catch (_) {}
+    }
+
+    await openAppSettings();
+  }
+
   Future<void> _startScan() async {
     if (_scanning || _connecting) return;
 
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bluetooth is off')),
-        );
-      }
+      await _promptEnableBluetooth();
       return;
     }
 
@@ -231,6 +298,14 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
           }
         }
       });
+
+      if (_pendingConnectLast && _lastDeviceId != null) {
+        final entry = _deviceMap[_lastDeviceId!];
+        if (entry != null && !_connecting) {
+          _pendingConnectLast = false;
+          _connect(entry.result);
+        }
+      }
     });
 
     setState(() => _scanning = true);
@@ -256,6 +331,21 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     }
   }
 
+  Future<void> _connectLast() async {
+    final id = _lastDeviceId;
+    if (id == null) return;
+    final entry = _deviceMap[id];
+    if (entry == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Last device not found')),
+        );
+      }
+      return;
+    }
+    await _connect(entry.result);
+  }
+
   Future<void> _connect(ScanResult r) async {
     if (_connecting) return;
     setState(() => _connecting = true);
@@ -275,6 +365,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       BleManager.instance.setDevice(r.device);
       final ok = await BleManager.instance.discoverServices();
       if (ok) {
+        await _saveLastDeviceId(r.device.remoteId.str);
         AppConnection.instance.setBleConnected(true);
         BleManager.instance.send("HELLO_APP");
         if (mounted) Navigator.of(context).pop();
@@ -340,7 +431,15 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
                         style: TextStyle(color: Colors.redAccent),
                       ),
                     )
-                  else
+                  else ...[
+                    if (_lastDeviceId != null)
+                      TextButton(
+                        onPressed: _connecting ? null : _connectLast,
+                        child: const Text(
+                          'Connect last',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
                     TextButton(
                       onPressed: _scanning ? null : _startScan,
                       child: Text(
@@ -348,6 +447,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
                         style: const TextStyle(color: Colors.white),
                       ),
                     ),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
@@ -374,7 +474,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
                                 style: const TextStyle(color: Colors.white),
                               ),
                               subtitle: Text(
-                                'RSSI: ${r.rssi} dBm',
+                                'MAC: ${r.device.remoteId.str} · RSSI: ${r.rssi} dBm',
                                 style: const TextStyle(color: Colors.white54),
                               ),
                               trailing: _connecting
@@ -398,12 +498,25 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_lastDeviceId != null)
+                      TextButton(
+                        onPressed: _forgetLastDevice,
+                        child: const Text(
+                          'Forget',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -413,3 +526,4 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     );
   }
 }
+

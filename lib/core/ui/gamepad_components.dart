@@ -1,5 +1,7 @@
   //lib/core/ui/gamepad_components.dart
   import 'package:flutter/material.dart';
+  import 'package:flutter/services.dart';
+  import 'package:vibration/vibration.dart';
 
   ///  Helper ปรับสีสว่าง/เข้ม
   Color lighten(Color c, [double amt = .12]) {
@@ -14,6 +16,29 @@
 
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
+
+DateTime? _lastHapticAt;
+const _hapticCooldown = Duration(milliseconds: 15);
+
+void _buzz() {
+  final now = DateTime.now();
+  if (_lastHapticAt != null &&
+      now.difference(_lastHapticAt!) < _hapticCooldown) {
+    return;
+  }
+  _lastHapticAt = now;
+  try {
+    Vibration.vibrate(duration: 40, amplitude: 255);
+  } catch (_) {}
+  try {
+    HapticFeedback.heavyImpact();
+  } catch (_) {}
+  try {
+    SystemSound.play(SystemSoundType.click);
+  } catch (_) {}
+}
+
+void gamepadBuzz() => _buzz();
 
   ///  Config ของปุ่มแบบ Hold
   class BtnCfg {
@@ -350,16 +375,19 @@
               ),
             );
 
-      return Padding(
-        padding: cfg.margin,
-        child: SizedBox(
-          width: cfg.width,
-          height: cfg.height,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => _update(true),
-            onPointerUp: (_) => _update(false),
-            onPointerCancel: (_) => _update(false),
+      return Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) {
+          _buzz();
+          _update(true);
+        },
+        onPointerUp: (_) => _update(false),
+        onPointerCancel: (_) => _update(false),
+        child: Padding(
+          padding: cfg.margin,
+          child: SizedBox(
+            width: cfg.width,
+            height: cfg.height,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 90),
               curve: Curves.easeOut,
@@ -435,7 +463,8 @@
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(cfg.radius),
-              onTap: onTap,
+                    onTapDown: (_) => _buzz(),
+                    onTap: onTap,
               child: Ink(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(

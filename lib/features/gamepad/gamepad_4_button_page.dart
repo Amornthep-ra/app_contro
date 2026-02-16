@@ -33,9 +33,15 @@ const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 
 const double _minBtnSize = 0.6;
 const double _maxBtnSize = 1.3;
+const double _gridStep = 0.05;
 
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());
+
+double _snapToGrid(double value) {
+  if (_gridStep <= 0) return value;
+  return (value / _gridStep).round() * _gridStep;
+}
 
 class _S {
   final double _sx;
@@ -342,8 +348,10 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   final GlobalKey _tutorialPresetKey = GlobalKey();
   final GlobalKey _tutorialCmdKey = GlobalKey();
   final GlobalKey _tutorialSpdKey = GlobalKey();
+  final GlobalKey _tutorialGridKey = GlobalKey();
 
   bool _editMode = false;
+  bool _showGrid = false;
   bool _menuOpen = false;
   Offset? _menuAnchor;
   Map<String, _ButtonLayout> _layoutAll = {};
@@ -355,6 +363,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   };
   String? _selectedId;
   Size? _panelSize;
+  final List<Map<String, _ButtonLayout>> _undoStack = [];
+  final List<Map<String, _ButtonLayout>> _redoStack = [];
+  static const int _maxHistory = 30;
 
   Timer? _tick;
   int _lastSendMs = 0;
@@ -510,6 +521,40 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _toggleActive(id);
   }
 
+  Map<String, _ButtonLayout> _cloneLayout(Map<String, _ButtonLayout> src) {
+    final out = <String, _ButtonLayout>{};
+    src.forEach((k, v) {
+      out[k] = _ButtonLayout(v.cx, v.cy, v.size);
+    });
+    return out;
+  }
+
+  void _pushHistory() {
+    _undoStack.add(_cloneLayout(_layoutAll));
+    if (_undoStack.length > _maxHistory) {
+      _undoStack.removeAt(0);
+    }
+    _redoStack.clear();
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    setState(() {
+      _redoStack.add(_cloneLayout(_layoutAll));
+      _layoutAll = _undoStack.removeLast();
+    });
+    _saveLayout(_prefsLayoutAll, _layoutAll);
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    setState(() {
+      _undoStack.add(_cloneLayout(_layoutAll));
+      _layoutAll = _redoStack.removeLast();
+    });
+    _saveLayout(_prefsLayoutAll, _layoutAll);
+  }
+
   void _changeSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
@@ -525,6 +570,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       _showSizeLimit(unclamped >= _maxBtnSize);
       return;
     }
+    _pushHistory();
 
     final w = panelSize.width;
     final h = panelSize.height;
@@ -546,8 +592,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   void _showSizeLimit(bool atMax) {
     final msg = atMax
-        ? 'Max size reached / ถึงขนาดสูงสุดแล้ว'
-        : 'Min size reached / ถึงขนาดต่ำสุดแล้ว';
+        ? 'Max size reached / เธ–เธถเธเธเธเธฒเธ”เธชเธนเธเธชเธธเธ”เนเธฅเนเธง'
+        : 'Min size reached / เธ–เธถเธเธเธเธฒเธ”เธ•เนเธณเธชเธธเธ”เนเธฅเนเธง';
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
@@ -566,10 +612,16 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     return null;
   }
 
-  Widget _resizeButton(IconData icon, VoidCallback? onTap, Color color) {
+  Widget _resizeButton(
+    IconData icon,
+    VoidCallback? onTap,
+    Color color, {
+    Key? key,
+  }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        key: key,
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: Padding(
@@ -584,6 +636,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     if (!_editMode) return const SizedBox.shrink();
     final hasSelection = _selectedId != null;
     final iconColor = hasSelection ? Colors.white : Colors.white54;
+    final canUndo = _undoStack.isNotEmpty;
+    final canRedo = _redoStack.isNotEmpty;
 
     return Positioned(
       top: 6,
@@ -600,6 +654,25 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _resizeButton(
+                Icons.undo,
+                canUndo ? _undo : null,
+                canUndo ? Colors.white : Colors.white54,
+              ),
+              const SizedBox(width: 2),
+              _resizeButton(
+                Icons.redo,
+                canRedo ? _redo : null,
+                canRedo ? Colors.white : Colors.white54,
+              ),
+              const SizedBox(width: 6),
+              _resizeButton(
+                _showGrid ? Icons.grid_on : Icons.grid_off,
+                () => setState(() => _showGrid = !_showGrid),
+                _showGrid ? const Color(0xFF38BDF8) : Colors.white,
+                key: _tutorialGridKey,
+              ),
+              const SizedBox(width: 8),
               const Text(
                 'Size',
                 style: TextStyle(
@@ -621,6 +694,25 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                 iconColor,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridOverlay() {
+    if (!_editMode || !_showGrid) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final minor = _opacity(isDark ? Colors.white : Colors.black, isDark ? 0.14 : 0.16);
+    final major = _opacity(isDark ? Colors.white : Colors.black, isDark ? 0.24 : 0.30);
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _GridPainter(
+            step: _gridStep,
+            minorColor: minor,
+            majorColor: major,
           ),
         ),
       ),
@@ -696,6 +788,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         requiresEditMode: true,
       ),
       _TutorialStep(
+        titleTh: 'Grid',
+        bodyTh: 'เปิด Grid เพื่อช่วยจัดตำแหน่งและสแน็ปเข้าช่องกริด',
+        titleEn: 'Grid',
+        bodyEn: 'Toggle Grid to show guides and snap to grid.',
+        targetKey: _tutorialGridKey,
+        requiresEditMode: true,
+      ),
+      _TutorialStep(
         titleTh: 'Speed',
         bodyTh: 'เลือกความเร็ว Lo / Med / Hi',
         titleEn: 'Speed',
@@ -718,9 +818,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       ),
       _TutorialStep(
         titleTh: 'สถานะ BLE',
-        bodyTh: 'ดูสถานะการเชื่อมต่อที่นี่ (BLE Off / BLE On)',
+        bodyTh: 'แตะเพื่อเปิดแผง BLE และเชื่อมต่ออุปกรณ์ล่าสุดอัตโนมัติ (หากปิด Bluetooth จะพาไปตั้งค่า)',
         titleEn: 'BLE Status',
-        bodyEn: 'Check connection status here (BLE Off / BLE On).',
+        bodyEn: 'Tap to open BLE panel and auto-connect to the last device (prompts if Bluetooth is off).',
         targetKey: _tutorialBtKey,
       ),
     ];
@@ -937,22 +1037,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   Widget _buildEditMenu() {
-    PopupMenuItem<String> item(String id, String label, bool active) {
-      return PopupMenuItem<String>(
-        value: id,
-        child: Row(
-          children: [
-            Icon(
-              active ? Icons.check_box : Icons.check_box_outline_blank,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Text(label),
-          ],
-        ),
-      );
-    }
-
     if (Platform.isIOS) {
       return Material(
         color: Colors.transparent,
@@ -981,42 +1065,179 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       );
     }
 
-    return PopupMenuButton<String>(
-      tooltip: 'Add/Remove buttons',
-      offset: const Offset(0, 40),
-      position: PopupMenuPosition.under,
-      onOpened: () => _menuOpen = true,
-      onCanceled: () => _menuOpen = false,
-      child: Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         key: _tutorialButtonsKey,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: _opacity(Colors.black, 0.18),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: const Text(
-          'Buttons',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        onTap: _showEditMenuAndroid,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: _opacity(Colors.black, 0.18),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: const Text(
+            'Buttons',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
           ),
         ),
       ),
-      onSelected: (value) {
-        _menuOpen = false;
-        _toggleActive(value);
-      },
-      itemBuilder: (context) {
-        return <PopupMenuEntry<String>>[
-          item('F:forward', 'Forward', _activeIds.contains('F:forward')),
-          item('F:backward', 'Backward', _activeIds.contains('F:backward')),
-          item('F:left', 'Left', _activeIds.contains('F:left')),
-          item('F:right', 'Right', _activeIds.contains('F:right')),
-        ];
+    );
+  }
+
+  Future<void> _showEditMenuAndroid() async {
+    if (_menuOpen) return;
+    _menuOpen = true;
+    if (!mounted) {
+      _menuOpen = false;
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black87,
+      builder: (context) {
+        Widget row(
+          String id,
+          String label,
+          bool active,
+          void Function(VoidCallback fn) setSheetState,
+        ) {
+          return InkWell(
+            onTap: () {
+              _toggleActive(id);
+              setSheetState(() {});
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    active
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final maxHeight = MediaQuery.of(context).size.height * 0.7;
+        final scrollController = ScrollController();
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            decoration: BoxDecoration(
+              color: _opacity(Colors.black, 0.9),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF7DD3FC)),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: StatefulBuilder(
+                builder: (context, setSheetState) {
+                  return ScrollbarTheme(
+                    data: isDark
+                        ? const ScrollbarThemeData()
+                        : ScrollbarThemeData(
+                            thumbColor:
+                                WidgetStateProperty.all(Colors.white),
+                          ),
+                    child: Scrollbar(
+                      controller: scrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      thickness: 4,
+                      radius: const Radius.circular(999),
+                      child: SingleChildScrollView(
+                        controller: scrollController,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Buttons',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            row(
+                              'F:forward',
+                              'Forward',
+                              _activeIds.contains('F:forward'),
+                              setSheetState,
+                            ),
+                            row(
+                              'F:backward',
+                              'Backward',
+                              _activeIds.contains('F:backward'),
+                              setSheetState,
+                            ),
+                            row(
+                              'F:left',
+                              'Left',
+                              _activeIds.contains('F:left'),
+                              setSheetState,
+                            ),
+                            row(
+                              'F:right',
+                              'Right',
+                              _activeIds.contains('F:right'),
+                              setSheetState,
+                            ),
+                            const SizedBox(height: 2),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
       },
     );
+
+    _menuOpen = false;
   }
 
   Future<void> _showEditMenuIOS() async {
@@ -1026,11 +1247,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       _menuOpen = false;
       return;
     }
-    final allowDismiss = ValueNotifier<bool>(false);
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (allowDismiss.value) return;
-      allowDismiss.value = true;
-    });
     await showCupertinoModalPopup<void>(
       context: context,
       barrierDismissible: false,
@@ -1063,72 +1279,60 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           );
         }
 
-        return SizedBox.expand(
-          child: Stack(
-            alignment: Alignment.bottomCenter,
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: allowDismiss,
-                builder: (context, armed, child) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: armed ? () => Navigator.pop(context) : null,
-                    child: const SizedBox.expand(),
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF7DD3FC)),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: StatefulBuilder(
+                builder: (context, setSheetState) {
+                  return CupertinoActionSheet(
+                    title: Row(
+                      children: [
+                        const Expanded(child: Text('Buttons')),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      action(
+                        'F:forward',
+                        'Forward',
+                        _activeIds.contains('F:forward'),
+                        setSheetState,
+                      ),
+                      action(
+                        'F:backward',
+                        'Backward',
+                        _activeIds.contains('F:backward'),
+                        setSheetState,
+                      ),
+                      action(
+                        'F:left',
+                        'Left',
+                        _activeIds.contains('F:left'),
+                        setSheetState,
+                      ),
+                      action(
+                        'F:right',
+                        'Right',
+                        _activeIds.contains('F:right'),
+                        setSheetState,
+                      ),
+                    ],
                   );
                 },
               ),
-              SafeArea(
-                top: false,
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF7DD3FC)),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: StatefulBuilder(
-                      builder: (context, setSheetState) {
-                        return CupertinoActionSheet(
-                          title: const Text('Buttons'),
-                          actions: [
-                            action(
-                              'F:forward',
-                              'Forward',
-                              _activeIds.contains('F:forward'),
-                              setSheetState,
-                            ),
-                            action(
-                              'F:backward',
-                              'Backward',
-                              _activeIds.contains('F:backward'),
-                              setSheetState,
-                            ),
-                            action(
-                              'F:left',
-                              'Left',
-                              _activeIds.contains('F:left'),
-                              setSheetState,
-                            ),
-                            action(
-                              'F:right',
-                              'Right',
-                              _activeIds.contains('F:right'),
-                              setSheetState,
-                            ),
-                          ],
-                          cancelButton: CupertinoActionSheetAction(
-                            onPressed: () => Navigator.pop(context),
-                            isDefaultAction: true,
-                            child: const Text('Cancel'),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -1178,6 +1382,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _sendSpeed('Med');
     _loadLayouts();
     _maybeStartTutorial();
+    BleManager.instance.autoConnectLastDevice();
 
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
@@ -1426,7 +1631,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.white70,
                           ),
-                          child: Text(_tutorialThai ? 'ข้าม' : 'Skip'),
+                          child: Text(_tutorialThai ? 'เธเนเธฒเธก' : 'Skip'),
                         ),
                         const Spacer(),
                         if (_tutorialStep > 0)
@@ -1436,7 +1641,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.white70,
                             ),
-                            child: Text(_tutorialThai ? 'ย้อนกลับ' : 'Back'),
+                            child: Text(_tutorialThai ? 'เธขเนเธญเธเธเธฅเธฑเธ' : 'Back'),
                           ),
                         const SizedBox(width: 8),
                         ElevatedButton(
@@ -1449,8 +1654,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                           ),
                           child: Text(
                             isLast
-                                ? (_tutorialThai ? 'เสร็จสิ้น' : 'Finish')
-                                : (_tutorialThai ? 'ถัดไป' : 'Next'),
+                                ? (_tutorialThai ? 'เน€เธชเธฃเนเธเธชเธดเนเธ' : 'Finish')
+                                : (_tutorialThai ? 'เธ–เธฑเธ”เนเธ' : 'Next'),
                           ),
                         ),
                       ],
@@ -1612,6 +1817,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           SafeArea(
             child: Stack(
               children: [
+            _buildGridOverlay(),
             LayoutBuilder(
               builder: (context, cons) {
                 return Padding(
@@ -1644,6 +1850,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                                 ),
                               },
                               layout: _layoutAll,
+                              snapToGrid: _showGrid,
                               onLayoutChanged: (next) {
                                 _layoutAll = next;
                                 _saveLayout(
@@ -1656,6 +1863,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                               onPanelSize: (size) {
                                 _panelSize = size;
                               },
+                              onStart: _pushHistory,
                             )
                           : _LayoutPadPanel(
                               ids: _activeIds.toList(),
@@ -1698,6 +1906,47 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         ],
       ),
     );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  final double step;
+  final Color minorColor;
+  final Color majorColor;
+
+  const _GridPainter({
+    required this.step,
+    required this.minorColor,
+    required this.majorColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (step <= 0) return;
+    final paint = Paint()..strokeWidth = 1;
+
+    final dx = size.width * step;
+    final dy = size.height * step;
+    if (dx <= 0 || dy <= 0) return;
+
+    const int majorEvery = 4;
+    int ix = 1;
+    for (double x = dx; x < size.width; x += dx, ix++) {
+      paint.color = (ix % majorEvery == 0) ? majorColor : minorColor;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    int iy = 1;
+    for (double y = dy; y < size.height; y += dy, iy++) {
+      paint.color = (iy % majorEvery == 0) ? majorColor : minorColor;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GridPainter oldDelegate) {
+    return oldDelegate.step != step ||
+        oldDelegate.minorColor != minorColor ||
+        oldDelegate.majorColor != majorColor;
   }
 }
 
@@ -1781,10 +2030,8 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   final halfW = cfg.width / 2;
   final halfH = cfg.height / 2;
 
-  final cx = (layout.cx * w)
-      .clamp(halfW + _panelEdgeInset, w - halfW - _panelEdgeInset);
-  final cy = (layout.cy * h)
-      .clamp(halfH + _panelEdgeInset, h - halfH - _panelEdgeInset);
+  final cx = (layout.cx * w).clamp(halfW, w - halfW);
+  final cy = (layout.cy * h).clamp(halfH, h - halfH);
 
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
@@ -1901,8 +2148,10 @@ class _EditablePadPanel extends StatefulWidget {
   final Map<String, _ButtonLayout> layout;
   final ValueChanged<Map<String, _ButtonLayout>> onLayoutChanged;
   final String? selectedId;
+  final bool snapToGrid;
   final ValueChanged<String> onSelect;
   final ValueChanged<Size> onPanelSize;
+  final VoidCallback? onStart;
 
   const _EditablePadPanel({
     required this.ids,
@@ -1910,8 +2159,10 @@ class _EditablePadPanel extends StatefulWidget {
     required this.layout,
     required this.onLayoutChanged,
     required this.selectedId,
+    required this.snapToGrid,
     required this.onSelect,
     required this.onPanelSize,
+    this.onStart,
   });
 
   @override
@@ -1983,6 +2234,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
               layout: layout,
               panelSize: size,
               cfg: spec.cfg,
+              snapToGrid: widget.snapToGrid,
               selected: widget.selectedId == id,
               dimmed: widget.selectedId != null && widget.selectedId != id,
               onChanged: (next) {
@@ -1990,6 +2242,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
               },
               onEnd: () => widget.onLayoutChanged(_layout),
               onTap: () => widget.onSelect(id),
+              onStart: widget.onStart,
             );
           }).toList(),
         );
@@ -2057,21 +2310,25 @@ class _EditableButton extends StatefulWidget {
   final _ButtonLayout layout;
   final Size panelSize;
   final BtnCfg cfg;
+  final bool snapToGrid;
   final bool selected;
   final bool dimmed;
   final ValueChanged<_ButtonLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback onTap;
+  final VoidCallback? onStart;
 
   const _EditableButton({
     required this.layout,
     required this.panelSize,
     required this.cfg,
+    required this.snapToGrid,
     required this.selected,
     required this.dimmed,
     required this.onChanged,
     required this.onEnd,
     required this.onTap,
+    this.onStart,
   });
 
   @override
@@ -2087,6 +2344,7 @@ class _EditableButtonState extends State<_EditableButton> {
     _dragStart = d.globalPosition;
     _startLayout = widget.layout;
     _startScaled = _scaledHoldCfg(widget.cfg, _startLayout, widget.panelSize);
+    widget.onStart?.call();
   }
 
   void _onPanUpdate(DragUpdateDetails d) {
@@ -2100,6 +2358,13 @@ class _EditableButtonState extends State<_EditableButton> {
 
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
+
+    if (widget.snapToGrid) {
+      double nx = _snapToGrid(cx / w);
+      double ny = _snapToGrid(cy / h);
+      cx = nx * w;
+      cy = ny * h;
+    }
 
     cx = cx.clamp(halfW, w - halfW);
     cy = cy.clamp(halfH, h - halfH);
@@ -2155,3 +2420,6 @@ class _EditableButtonState extends State<_EditableButton> {
     );
   }
 }
+
+
+

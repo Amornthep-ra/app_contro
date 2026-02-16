@@ -1,8 +1,10 @@
 // lib/features/bluetooth/bluetooth_ble_page.dart
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/connection/app_connection.dart';
@@ -102,6 +104,17 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _lastDeviceName = _lastDeviceNamePersisted;
     }
     if (mounted) setState(() {});
+    _queueAutoConnectLast();
+  }
+
+  void _queueAutoConnectLast() {
+    if (_lastDeviceId == null) return;
+    if (_connecting || BleManager.instance.isConnected) return;
+    if (_pendingConnectLast) return;
+    _pendingConnectLast = true;
+    if (!_scanning) {
+      _startScan();
+    }
   }
 
   void _bindBluetoothState() {
@@ -130,7 +143,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
             'Bluetooth is off. Please turn it on to reconnect.',
           ),
         );
-      } else {}
+      } else {
+        _queueAutoConnectLast();
+      }
     });
 
     _isScanningSub = FlutterBluePlus.isScanning.listen((isScanning) {
@@ -184,9 +199,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
-      _showSnack(
-        _t('กรุณาเปิด Bluetooth แล้วลองใหม่', 'Please turn on Bluetooth and try again.'),
-      );
+      await _promptEnableBluetooth();
       AppConnection.instance.setBleConnected(false);
       return;
     }
@@ -274,6 +287,24 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _scanning = false;
       _scanSecondsLeft = 0;
     }
+  }
+
+  Future<void> _promptEnableBluetooth() async {
+    _showSnack(
+      _t(
+        'Bluetooth ถูกปิด โปรดเปิด Bluetooth แล้วลองอีกครั้ง',
+        'Bluetooth is off. Please turn it on and try again.',
+      ),
+    );
+
+    if (Platform.isAndroid) {
+      try {
+        await FlutterBluePlus.turnOn(timeout: 30);
+        return;
+      } catch (_) {}
+    }
+
+    await openAppSettings();
   }
 
   void _pruneOldDevices() {
@@ -930,3 +961,4 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     );
   }
 }
+
