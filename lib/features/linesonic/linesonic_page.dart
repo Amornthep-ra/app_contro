@@ -1,5 +1,5 @@
 // lib/features/linesonic/linesonic_page.dart
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart' hide Text;
 import 'package:flutter/material.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/routes/app_routes.dart';
@@ -135,3 +135,6 @@ class _LineSonicItem {
     required this.page,
   });
 }
+
+
+

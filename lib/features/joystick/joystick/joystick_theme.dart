@@ -18,6 +18,8 @@ class JoystickTheme {
 
   final String? leftKnobImage;
   final String? rightKnobImage;
+  final String? leftBaseImage;
+  final String? rightBaseImage;
 
   final double knobShadowBlur;
   final Color knobShadowColor;
@@ -47,6 +49,8 @@ class JoystickTheme {
 
     this.leftKnobImage,
     this.rightKnobImage,
+    this.leftBaseImage,
+    this.rightBaseImage,
 
     this.knobShadowBlur = 16,
     this.knobShadowColor = const Color(0x66000000),
@@ -63,6 +67,6 @@ class JoystickTheme {
 const joystickTheme = JoystickTheme(
   size: 200,
   knobSize: 60,
-  leftKnobImage:  "assets/icons/botton/knob_joystick_M.png",
-  rightKnobImage: "assets/icons/botton/knob_joystick_WM.png",
 );
+
+

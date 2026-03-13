@@ -1,6 +1,6 @@
 //lib/core/ble/ble_manager.dart
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'joystick_packet.dart';
@@ -218,6 +218,16 @@ class BleManager {
 
   Stream<List<int>>? onData() => _tx?.lastValueStream;
 
+  Future<int?> readRssi() async {
+    final device = _device;
+    if (device == null) return null;
+    try {
+      return await device.readRssi();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> autoConnectLastDevice({
     Duration timeout = const Duration(seconds: 8),
   }) async {
@@ -297,3 +307,6 @@ class BleManager {
     debugPrint("Disconnected");
   }
 }
+
+
+

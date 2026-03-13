@@ -189,7 +189,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(isThai ? '\u0e27\u0e34\u0e18\u0e35\u0e43\u0e0a\u0e49' : 'Tutorial'),
+          title: Text(isThai ? '\u0e27\u0e34\u0e18\u0e35\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19' : 'Tutorial'),
           content: SingleChildScrollView(
             child: Text(
               isThai
@@ -246,7 +246,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
         title: const Text('Read Sensor'),
         actions: [
           IconButton(
-            tooltip: isThai ? '\u0e27\u0e34\u0e18\u0e35\u0e43\u0e0a\u0e49' : 'Tutorial',
+            tooltip: isThai ? '\u0e27\u0e34\u0e18\u0e35\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19' : 'Tutorial',
             onPressed: () => _showTutorial(context),
             icon: const Icon(Icons.help_outline),
           ),
@@ -292,7 +292,9 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
           DropdownButtonFormField<int>(
             initialValue: _intervalMs,
             decoration: InputDecoration(
-              labelText: isThai ? '\u0e0a\u0e48\u0e27\u0e07\u0e40\u0e27\u0e25\u0e32\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 (ms)' : 'Auto Interval (ms)',
+              label: Text(
+                isThai ? 'ช่วงเวลาอัตโนมัติ (ms)' : 'Auto Interval (ms)',
+              ),
               border: const OutlineInputBorder(),
             ),
             items: const [
@@ -375,3 +377,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     );
   }
 }
+
+
+
+

@@ -1,7 +1,6 @@
 // lib/features/bluetooth/bluetooth_ble_page.dart
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -61,18 +60,19 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       color.withAlpha((opacity * 255).round());
   bool _isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
+  ColorScheme _scheme(BuildContext context) => Theme.of(context).colorScheme;
   Color _textPrimary(BuildContext context) =>
-      _isDark(context) ? Colors.white : Colors.black87;
+      _scheme(context).onSurface;
   Color _textSecondary(BuildContext context) =>
-      _isDark(context) ? Colors.white70 : Colors.black54;
+      _scheme(context).onSurfaceVariant;
   Color _textTertiary(BuildContext context) =>
-      _isDark(context) ? Colors.white54 : Colors.black45;
+      _opacity(_scheme(context).onSurfaceVariant, 0.82);
   Color _panelBg(BuildContext context) =>
-      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.06);
+      _opacity(_scheme(context).surfaceContainerHighest, _isDark(context) ? 0.55 : 0.9);
   Color _panelBorder(BuildContext context) =>
-      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.12);
+      _opacity(_scheme(context).outlineVariant, 0.78);
   Color _pillBg(BuildContext context) =>
-      _opacity(_isDark(context) ? Colors.white : Colors.black, 0.08);
+      _opacity(_scheme(context).primaryContainer, _isDark(context) ? 0.56 : 0.78);
 
   String _t(String th, String en) =>
       LanguageController.isThai.value ? th : en;
@@ -264,7 +264,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _scanCountdownTimer = null;
       _scanSecondsLeft = 0;
 
-      _showSnack(_t('เริ่มสแกนไม่สำเร็จ: $e', 'Start scan failed: $e'));
+      _showSnack(_t('เริ่มค้นหาไม่สำเร็จ: $e', 'Start scan failed: $e'));
       if (mounted) {
         setState(() => _scanning = false);
       }
@@ -494,8 +494,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       stream: BleManager.instance.connectionStream,
       initialData: BleManager.instance.isConnected,
       builder: (context, snap) {
-        final isDark = _isDark(context);
         final connected = snap.data ?? false;
+        final scheme = _scheme(context);
 
         String name;
         if (connected) {
@@ -511,23 +511,14 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
             name = _t('ไม่ทราบชื่อ', 'Unknown');
           }
         } else {
-          name = _t('ยังไม่เชื่อมต่อ', 'Not connected');
+          name = _t('ไม่มีการเชื่อมต่อ', 'Not connected');
         }
 
-        final titleColor = _textPrimary(context);
-        final t = Theme.of(context).textTheme;
-        final titleStyle =
-            t.titleMedium?.copyWith(
+        final titleColor = scheme.onSurface;
+        final subtitleColor = scheme.onSurfaceVariant;
+        final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: titleColor,
-              fontSize: 15,
-              shadows: const [Shadow(blurRadius: 6, color: Colors.black54)],
-            ) ??
-            TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: titleColor,
-              shadows: [Shadow(blurRadius: 6, color: Colors.black54)],
             );
 
         final grad = connected
@@ -535,25 +526,24 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  _opacity(const Color(0xFF0EA5E9), 0.30),
-                  _opacity(const Color(0xFF22D3EE), 0.18),
+                  _opacity(scheme.primaryContainer, 0.9),
+                  _opacity(scheme.primaryContainer, 0.62),
                 ],
               )
             : LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  _opacity(isDark ? Colors.white : Colors.black, 0.10),
-                  _opacity(isDark ? Colors.white : Colors.black, 0.04),
+                  _opacity(scheme.surfaceContainerHighest, 0.95),
+                  _opacity(scheme.surfaceContainerHighest, 0.7),
                 ],
               );
 
         final border = connected
-            ? _opacity(const Color(0xFF38BDF8), 0.55)
-            : _opacity(isDark ? const Color(0xFF60A5FA) : Colors.black, 0.25);
+            ? _opacity(scheme.primary, 0.55)
+            : _opacity(scheme.outlineVariant, 0.8);
 
         final actions = <Widget>[];
-
         if (!connected) {
           final icon = (_connecting || _scanning)
               ? Icons.hourglass_top
@@ -562,9 +552,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               ? _t('กำลังเชื่อมต่อ...', 'Connecting...')
               : (_scanning
                     ? (_scanSecondsLeft > 0
-                          ? _t('กำลังสแกน (${_scanSecondsLeft}s)', 'Scanning (${_scanSecondsLeft}s)')
-                          : _t('กำลังสแกน...', 'Scanning...'))
-                    : _t('สแกน', 'Scan'));
+                          ? _t('กำลังค้นหา (${_scanSecondsLeft}s)', 'Scanning (${_scanSecondsLeft}s)')
+                          : _t('กำลังค้นหา...', 'Scanning...'))
+                    : _t('ค้นหา', 'Scan'));
 
           actions.add(
             _smallAction(
@@ -594,106 +584,107 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           );
         }
 
-        return ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: grad,
-                border: Border.all(color: border, width: 1.2),
-                boxShadow: [
-                  BoxShadow(
-                    color: _opacity(Colors.black, 0.22),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: grad,
+            border: Border.all(color: border, width: 1.1),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: connected
+                      ? _opacity(scheme.primary, 0.14)
+                      : _opacity(scheme.outlineVariant, 0.35),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                  color: titleColor,
+                  size: 18,
+                ),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    connected
-                        ? Icons.bluetooth_connected
-                        : Icons.bluetooth_disabled,
-                    color: _textPrimary(context),
-                    size: 18,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          connected
-                              ? _t('เชื่อมต่อ: $name', 'Connected: $name')
-                              : _t('ยังไม่เชื่อมต่อ', 'Not connected'),
-                          key: ValueKey(
-                            connected ? "connected_$name" : "disconnected",
-                          ),
-                          style: titleStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.left,
-                        ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: Column(
+                    key: ValueKey(connected ? "connected_$name" : "disconnected"),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        connected
+                            ? _t('เชื่อมต่อแล้ว', 'Connected')
+                            : _t('ไม่มีการเชื่อมต่อ', 'Not connected'),
+                        style: titleStyle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
+                      const SizedBox(height: 2),
+                      Text(
+                        connected ? name : _t('กดค้นหาเพื่อเริ่มใช้งาน', 'Tap scan to begin'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: subtitleColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    ...actions,
-                  ],
-                ],
+                ),
               ),
-            ),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                ...actions,
+              ],
+            ],
           ),
         );
       },
     );
   }
-
   Widget _smallAction({
     required IconData icon,
     required String label,
     required VoidCallback? onTap,
     bool danger = false,
   }) {
-    final base = danger ? const Color(0xFFFF6B6B) : const Color(0xFF38BDF8);
+    final scheme = _scheme(context);
+    final base = danger ? scheme.error : scheme.primary;
+    final foreground = danger ? scheme.error : _textPrimary(context);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: _pillBg(context),
+    return TextButton.icon(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        minimumSize: const Size(0, 32),
+        foregroundColor: foreground,
+        backgroundColor: _pillBg(context),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: _opacity(base, 0.75), width: 1),
-          boxShadow: [BoxShadow(blurRadius: 8, color: _opacity(base, 0.25))],
+          side: BorderSide(color: _opacity(base, 0.72), width: 1),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: _textPrimary(context)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: _textPrimary(context),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+      ),
+      icon: Icon(icon, size: 14),
+      label: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     final results = _deviceMap.values.map((e) => e.result).where((r) {
@@ -709,127 +700,183 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, isThai, _) {
+        final scheme = Theme.of(context).colorScheme;
         return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        centerTitle: true,
-        title: Text(_t('Bluetooth Low Energy (BLE)', 'Bluetooth Low Energy (BLE)')),
-        flexibleSpace: Stack(
-          fit: StackFit.expand,
-          children: [
-            ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color.fromARGB(255, 89, 139, 255),
-                        Color.fromARGB(255, 192, 203, 250),
-                      ],
+          appBar: AppBar(
+            centerTitle: false,
+            title: Text(_t('Bluetooth Low Energy (BLE)', 'Bluetooth Low Energy (BLE)')),
+          ),
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Column(
+                children: [
+                  _buildBleStatusBar(),
+                  const SizedBox(height: 10),
+                  _lastDeviceCard(
+                    name: lastName ?? _t('ยังไม่มีอุปกรณ์ล่าสุด', 'No recent device'),
+                    id: lastId ?? '-',
+                    onConnect: (lastId == null || _connecting || _scanning)
+                        ? null
+                        : () {
+                            final entry = _deviceMap[lastId];
+                            if (entry != null) {
+                              _connect(entry.result);
+                            } else {
+                              _pendingConnectLast = true;
+                              _startScan();
+                            }
+                          },
+                    onScan: (_scanning || _connecting) ? null : _startScan,
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                      decoration: BoxDecoration(
+                        color: _panelBg(context),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _panelBorder(context)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.bluetooth_searching,
+                                size: 18,
+                                color: _textSecondary(context),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _t('อุปกรณ์ที่ค้นพบ', 'Discovered devices'),
+                                style: TextStyle(
+                                  color: _textPrimary(context),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: results.isEmpty
+                        ? Center(
+                            child: Container(
+                              constraints: const BoxConstraints(maxWidth: 420),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: _opacity(scheme.surface, 0.65),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                _scanning
+                                    ? _t(
+                                        'กำลังค้นหาอุปกรณ์ ...',
+                                        'Scanning for devices...',
+                                      )
+                                    : _t(
+                                        'ไม่พบรายการอุปกรณ์ \nกด ค้นหา เพื่อลองอีกครั้ง',
+                                        'No devices found.\nTap Scan to try again.',
+                                      ),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: EdgeInsets.zero,
+                            itemCount: results.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final r = results[index];
+                              final name = r.device.platformName.isNotEmpty
+                                  ? r.device.platformName
+                                  : (r.advertisementData.advName.isNotEmpty
+                                      ? r.advertisementData.advName
+                                      : r.device.remoteId.str);
+
+                              final rssi = r.rssi;
+                              final signalText = _signalLabel(rssi);
+                              final signalColor = _signalColor(context, rssi);
+                              final signalIcon = _signalIcon(rssi);
+
+                              return Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: _connecting ? null : () => _connect(r),
+                                  child: Ink(
+                                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                                    decoration: BoxDecoration(
+                                      color: _panelBg(context),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: _panelBorder(context)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 36,
+                                          height: 36,
+                                          decoration: BoxDecoration(
+                                            color: _opacity(signalColor, 0.13),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(signalIcon, color: signalColor, size: 18),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'RSSI: $rssi dBm | $signalText',
+                                                style: TextStyle(
+                                                  color: _textSecondary(context),
+                                                  fontSize: 12.5,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.chevron_right,
+                                          color: _opacity(_textSecondary(context), 0.75),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: Builder(
-            builder: (context) {
-              final pad = MediaQuery.of(context).padding;
-              final size = MediaQuery.of(context).size;
-              return Transform.translate(
-                offset: Offset(-pad.left, 0),
-                child: SizedBox(
-                  width: size.width + pad.left + pad.right,
-                  child: _buildBleStatusBar(),
-                ),
-              );
-            },
           ),
-        ),
-      ),
-      body: Column(
-        children: [
-          if (lastId != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-              child: _lastDeviceCard(
-                name: lastName ?? lastId,
-                id: lastId,
-                onConnect: (_connecting || _scanning)
-                    ? null
-                    : () {
-                        final entry = _deviceMap[lastId];
-                        if (entry != null) {
-                          _connect(entry.result);
-                        } else {
-                          _pendingConnectLast = true;
-                          _startScan();
-                        }
-                      },
-                onScan: (_scanning || _connecting) ? null : _startScan,
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-            child: _scanStatusBar(),
-          ),
-          Expanded(
-            child: results.isEmpty
-                  ? Center(
-                      child: Text(
-                        _scanning
-                            ? _t(
-                                'กำลังสแกนอุปกรณ์ PrinceBot...',
-                                'Scanning for PrinceBot devices...',
-                              )
-                            : _t(
-                                'ไม่พบอุปกรณ์ PrinceBot\nกด Scan เพื่อลองอีกครั้ง',
-                                'No PrinceBot device found.\nTap Scan to try again.',
-                              ),
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                : ListView.builder(
-                    itemCount: results.length,
-                    itemBuilder: (context, index) {
-                      final r = results[index];
-
-                      final name = r.device.platformName.isNotEmpty
-                          ? r.device.platformName
-                          : (r.advertisementData.advName.isNotEmpty
-                              ? r.advertisementData.advName
-                              : r.device.remoteId.str);
-
-                      final rssi = r.rssi;
-                      final signalText = _signalLabel(rssi);
-                      final signalColor = _signalColor(context, rssi);
-                      final signalIcon = _signalIcon(rssi);
-
-                      return ListTile(
-                        leading: Icon(signalIcon, color: signalColor),
-                        title: Text(name),
-                        subtitle: Text('RSSI: $rssi dBm • $signalText'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: _connecting ? null : () => _connect(r),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
         );
       },
     );
   }
-
   String? _resolveLastDeviceName(String? deviceId) {
     if (deviceId == null) return _lastDeviceName ?? _lastDeviceNamePersisted;
     final entry = _deviceMap[deviceId];
@@ -845,73 +892,31 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     return _lastDeviceName ?? _lastDeviceNamePersisted ?? deviceId;
   }
 
-  Widget _scanStatusBar() {
-    final String status = _connecting
-        ? _t('กำลังเชื่อมต่อ...', 'Connecting...')
-        : (_scanning
-            ? (_scanSecondsLeft > 0
-                ? _t(
-                    'กำลังสแกน... ${_scanSecondsLeft}s',
-                    'Scanning... ${_scanSecondsLeft}s',
-                  )
-                : _t('กำลังสแกน...', 'Scanning...'))
-            : _t('พร้อมสแกน', 'Ready to scan'));
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: _panelBg(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _panelBorder(context)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _scanning ? Icons.bluetooth_searching : Icons.bluetooth,
-            size: 16,
-            color: _textSecondary(context),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              status,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: _textPrimary(context),
-              ),
-            ),
-          ),
-          if (_scanning)
-            TextButton(
-              onPressed: _stopScan,
-              child: Text(_t('หยุด', 'Stop')),
-            )
-          else
-            TextButton(
-              onPressed: _connecting ? null : _startScan,
-              child: Text(_t('สแกน', 'Scan')),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _lastDeviceCard({
     required String name,
     required String id,
     required VoidCallback? onConnect,
     required VoidCallback? onScan,
   }) {
+    final scheme = _scheme(context);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _panelBg(context),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _panelBorder(context)),
       ),
       child: Row(
         children: [
-          Icon(Icons.history, color: _textPrimary(context)),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: _opacity(scheme.tertiaryContainer, 0.72),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.history, color: _textPrimary(context), size: 18),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -948,13 +953,14 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
             ),
           ),
           const SizedBox(width: 8),
-          TextButton(
+          FilledButton.tonal(
             onPressed: onConnect,
             child: Text(_t('เชื่อมต่อ', 'Connect')),
           ),
-          TextButton(
+          const SizedBox(width: 6),
+          FilledButton.tonal(
             onPressed: onScan,
-            child: Text(_t('สแกน', 'Scan')),
+            child: Text(_t('ค้นหา', 'Scan')),
           ),
         ],
       ),

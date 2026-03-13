@@ -1,4 +1,5 @@
   //lib/core/ui/gamepad_components.dart
+  import 'dart:math' as math;
   import 'package:flutter/material.dart';
   import 'package:flutter/services.dart';
   import 'package:vibration/vibration.dart';
@@ -40,6 +41,72 @@ void _buzz() {
 
 void gamepadBuzz() => _buzz();
 
+LinearGradient buildNeumorphicGradient({
+  required Color base,
+  required bool isPressed,
+  required bool isDark,
+}) {
+  final light = lighten(base, isDark ? 0.08 : 0.14);
+  final dark = darken(base, isDark ? 0.20 : 0.16);
+  return LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: isPressed ? [dark, light] : [light, dark],
+  );
+}
+
+List<BoxShadow> buildNeumorphicShadows({
+  required Color base,
+  required bool isPressed,
+  required bool isDark,
+  bool neonGlow = false,
+}) {
+  final light = _opacity(lighten(base, isDark ? 0.10 : 0.22), isDark ? 0.55 : 0.85);
+  final dark = _opacity(darken(base, isDark ? 0.28 : 0.20), isDark ? 0.85 : 0.35);
+
+  if (isPressed) {
+    final shadows = <BoxShadow>[
+      BoxShadow(
+        color: dark,
+        offset: const Offset(2, 2),
+        blurRadius: 6,
+        spreadRadius: isDark ? -1 : -2,
+      ),
+      BoxShadow(
+        color: light,
+        offset: const Offset(-2, -2),
+        blurRadius: 6,
+        spreadRadius: isDark ? -1 : -2,
+      ),
+    ];
+    if (neonGlow) {
+      shadows.add(
+        BoxShadow(
+          color: _opacity(const Color(0xFF00F0FF), 0.7),
+          blurRadius: 22,
+          spreadRadius: 1,
+        ),
+      );
+    }
+    return shadows;
+  }
+
+  return [
+    BoxShadow(
+      color: light,
+      offset: const Offset(-6, -6),
+      blurRadius: 12,
+      spreadRadius: 1,
+    ),
+    BoxShadow(
+      color: dark,
+      offset: const Offset(6, 6),
+      blurRadius: 12,
+      spreadRadius: 1,
+    ),
+  ];
+}
+
   ///  Config ของปุ่มแบบ Hold
   class BtnCfg {
     final double width;
@@ -65,6 +132,7 @@ void gamepadBuzz() => _buzz();
     final Color labelColor;
     final Color pressOverlayColor;
     final double pressOverlayOpacity;
+    final bool transparentIdle;
 
     const BtnCfg({
       required this.width,
@@ -90,6 +158,7 @@ void gamepadBuzz() => _buzz();
       required this.labelColor,
       required this.pressOverlayColor,
       required this.pressOverlayOpacity,
+      this.transparentIdle = false,
     });
 
     BtnCfg copyWith({
@@ -116,6 +185,7 @@ void gamepadBuzz() => _buzz();
       Color? labelColor,
       Color? pressOverlayColor,
       double? pressOverlayOpacity,
+      bool? transparentIdle,
     }) {
       return BtnCfg(
         width: width ?? this.width,
@@ -141,6 +211,7 @@ void gamepadBuzz() => _buzz();
         labelColor: labelColor ?? this.labelColor,
         pressOverlayColor: pressOverlayColor ?? this.pressOverlayColor,
         pressOverlayOpacity: pressOverlayOpacity ?? this.pressOverlayOpacity,
+        transparentIdle: transparentIdle ?? this.transparentIdle,
       );
     }
   }
@@ -311,10 +382,12 @@ void gamepadBuzz() => _buzz();
   class GamepadHoldButton extends StatefulWidget {
     final BtnCfg cfg;
     final void Function(bool down) onChange;
+    final bool? forceOn;
     const GamepadHoldButton({
       super.key,
       required this.cfg,
       required this.onChange,
+      this.forceOn,
     });
 
     @override
@@ -336,8 +409,9 @@ void gamepadBuzz() => _buzz();
 
     @override
     Widget build(BuildContext context) {
-      final on = _activePointers > 0;
+      final on = widget.forceOn ?? _activePointers > 0;
       final cfg = widget.cfg;
+      final isDark = Theme.of(context).brightness == Brightness.dark;
       final top = lighten(cfg.baseColor, 0.14);
 
       final Widget content = (cfg.iconAsset != null)
@@ -375,6 +449,67 @@ void gamepadBuzz() => _buzz();
               ),
             );
 
+      final bool transparentIdle = cfg.transparentIdle;
+      final bool showFill = !transparentIdle || (!isDark && on);
+
+      final BoxDecoration decoration = transparentIdle
+          ? BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(cfg.radius),
+              gradient: showFill
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        top,
+                        on ? cfg.baseColor : darken(cfg.baseColor, .02),
+                      ],
+                    )
+                  : null,
+              border: on
+                  ? Border.all(
+                      color: _opacity(
+                        lighten(cfg.borderColor, .08),
+                        on ? .95 : .6,
+                      ),
+                      width: on ? cfg.borderWidthOn : cfg.borderWidthOff,
+                    )
+                  : Border.all(color: Colors.transparent, width: 0),
+              boxShadow: on
+                  ? [
+                      BoxShadow(
+                        blurRadius: cfg.glowBlurOn,
+                        spreadRadius: cfg.glowSpreadOn,
+                        offset: cfg.shadowOffsetOn,
+                        color: isDark ? cfg.glowColor : _opacity(Colors.black, .22),
+                      ),
+                    ]
+                  : const [],
+            )
+          : BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [top, on ? cfg.baseColor : darken(cfg.baseColor, .02)],
+              ),
+              borderRadius: BorderRadius.circular(cfg.radius),
+              border: Border.all(
+                color: _opacity(
+                  lighten(cfg.borderColor, .08),
+                  on ? .95 : .6,
+                ),
+                width: on ? cfg.borderWidthOn : cfg.borderWidthOff,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: on ? cfg.glowBlurOn : cfg.glowBlurOff,
+                  spreadRadius: on ? cfg.glowSpreadOn : cfg.glowSpreadOff,
+                  offset: on ? cfg.shadowOffsetOn : cfg.shadowOffsetOff,
+                  color: on ? cfg.glowColor : _opacity(Colors.black, .22),
+                ),
+              ],
+            );
+
       return Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (_) {
@@ -392,29 +527,7 @@ void gamepadBuzz() => _buzz();
               duration: const Duration(milliseconds: 90),
               curve: Curves.easeOut,
               alignment: Alignment.center,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [top, on ? cfg.baseColor : darken(cfg.baseColor, .02)],
-                ),
-                borderRadius: BorderRadius.circular(cfg.radius),
-                border: Border.all(
-                  color: _opacity(
-                    lighten(cfg.borderColor, .08),
-                    on ? .95 : .6,
-                  ),
-                  width: on ? cfg.borderWidthOn : cfg.borderWidthOff,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    blurRadius: on ? cfg.glowBlurOn : cfg.glowBlurOff,
-                    spreadRadius: on ? cfg.glowSpreadOn : cfg.glowSpreadOff,
-                    offset: on ? cfg.shadowOffsetOn : cfg.shadowOffsetOff,
-                    color: on ? cfg.glowColor : _opacity(Colors.black, .22),
-                  ),
-                ],
-              ),
+              decoration: decoration,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(cfg.radius),
                 child: Stack(
@@ -441,7 +554,146 @@ void gamepadBuzz() => _buzz();
   }
 
   ///  ปุ่ม Tap สำหรับเลือก Speed
-  class GamepadTapButton extends StatelessWidget {
+class GamepadImageHoldButton extends StatefulWidget {
+  final String label;
+  final String sendValue;
+  final String asset;
+  final double diameter;
+  final bool showLabel;
+  final void Function(String id, bool isDown)? onPressChanged;
+
+  const GamepadImageHoldButton({
+    super.key,
+    required this.label,
+    required this.sendValue,
+    required this.asset,
+    this.diameter = 120,
+    this.showLabel = true,
+    this.onPressChanged,
+  });
+
+  @override
+  State<GamepadImageHoldButton> createState() => _GamepadImageHoldButtonState();
+}
+
+class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
+  bool _pressed = false;
+
+  void _onDown() {
+    if (_pressed) return;
+    setState(() => _pressed = true);
+    _buzz();
+    widget.onPressChanged?.call(widget.sendValue, true);
+  }
+
+  void _onUpOrCancel() {
+    if (!_pressed) return;
+    setState(() => _pressed = false);
+    widget.onPressChanged?.call(widget.sendValue, false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scale = _pressed ? 0.95 : 1.0;
+    final glowColor = _opacity(
+      theme.colorScheme.primary,
+      theme.brightness == Brightness.dark ? 0.65 : 0.45,
+    );
+
+    final coreButton = SizedBox(
+      width: widget.diameter,
+      height: widget.diameter,
+      child: AnimatedScale(
+        scale: scale,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOutBack,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 50),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: _pressed
+                ? [
+                    BoxShadow(
+                      color: glowColor,
+                      blurRadius: 18,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: ColorFiltered(
+              colorFilter: _pressed
+                  ? const ColorFilter.matrix([
+                      1, 0, 0, 0, 51,
+                      0, 1, 0, 0, 51,
+                      0, 0, 1, 0, 51,
+                      0, 0, 0, 1, 0,
+                    ])
+                  : const ColorFilter.matrix([
+                      1, 0, 0, 0, 0,
+                      0, 1, 0, 0, 0,
+                      0, 0, 1, 0, 0,
+                      0, 0, 0, 1, 0,
+                    ]),
+              child: Image.asset(
+                widget.asset,
+                fit: BoxFit.contain,
+                errorBuilder: (context, _, __) {
+                  return SizedBox.expand(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _opacity(theme.colorScheme.onSurface, 0.35),
+                          width: 1.4,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          widget.label,
+                          style: theme.textTheme.bodySmall,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Listener(
+      onPointerDown: (_) => _onDown(),
+      onPointerUp: (_) => _onUpOrCancel(),
+      onPointerCancel: (_) => _onUpOrCancel(),
+      child: widget.showLabel
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                coreButton,
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 18,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(widget.label, style: theme.textTheme.bodyMedium),
+                  ),
+                ),
+              ],
+            )
+          : coreButton,
+    );
+  }
+}
+
+class GamepadTapButton extends StatelessWidget {
     final TapCfg cfg;
     final bool selected;
     final VoidCallback onTap;
@@ -595,3 +847,265 @@ void gamepadBuzz() => _buzz();
       );
     }
   }
+
+class GamepadTutorialCard extends StatelessWidget {
+  final String title;
+  final String body;
+  final bool isThai;
+  final bool isLast;
+  final bool showBack;
+  final Color surfaceColor;
+  final Color ctaColor;
+  final VoidCallback onSkip;
+  final VoidCallback? onBack;
+  final VoidCallback onNext;
+  final double maxWidth;
+  final double? minHeight;
+  final bool roomyCompact;
+  final bool compact;
+
+  const GamepadTutorialCard({
+    super.key,
+    required this.title,
+    required this.body,
+    required this.isThai,
+    required this.isLast,
+    required this.showBack,
+    required this.surfaceColor,
+    required this.ctaColor,
+    required this.onSkip,
+    required this.onBack,
+    required this.onNext,
+    this.maxWidth = 420,
+    this.minHeight,
+    this.roomyCompact = false,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Color withOpacity(Color color, double opacity) =>
+        color.withAlpha((opacity * 255).round());
+    final double cardWidth = math.min<double>(
+      MediaQuery.of(context).size.width - 40,
+      maxWidth,
+    );
+    final double padH = compact ? (roomyCompact ? 14 : 10) : 20;
+    final double padTop = compact ? (roomyCompact ? 14 : 10) : 20;
+    final double padBottom = compact ? (roomyCompact ? 12 : 8) : 18;
+    final titleStyle = TextStyle(
+      color: Colors.white,
+      fontSize: compact
+          ? (roomyCompact ? (isThai ? 16.5 : 16.0) : (isThai ? 15.0 : 14.5))
+          : (isThai ? 19.0 : 18.0),
+      fontWeight: FontWeight.w800,
+      fontFamily: isThai ? 'Kanit' : 'Roboto',
+      decoration: TextDecoration.none,
+      height: 1.15,
+    );
+    final bodyStyle = TextStyle(
+      color: const Color(0xFFD3DAE6),
+      fontSize: compact
+          ? (roomyCompact ? (isThai ? 12.5 : 12.0) : (isThai ? 11.5 : 11.0))
+          : (isThai ? 14.5 : 14.0),
+      fontWeight: FontWeight.w500,
+      fontFamily: isThai ? 'Kanit' : 'Roboto',
+      decoration: TextDecoration.none,
+      height: compact ? (roomyCompact ? 1.4 : 1.35) : 1.45,
+    );
+    final linkStyle = TextStyle(
+      color: const Color(0xFFB6BEC9),
+      fontSize: compact
+          ? (roomyCompact ? (isThai ? 12.5 : 12.0) : (isThai ? 11.5 : 11.0))
+          : (isThai ? 13.5 : 13.0),
+      fontWeight: FontWeight.w500,
+      fontFamily: isThai ? 'Kanit' : 'Roboto',
+      decoration: TextDecoration.none,
+    );
+    final ctaStyle = TextStyle(
+      color: Colors.white,
+      fontSize: compact
+          ? (roomyCompact ? (isThai ? 12.5 : 12.0) : (isThai ? 11.5 : 11.0))
+          : (isThai ? 13.5 : 13.0),
+      fontWeight: FontWeight.w700,
+      fontFamily: isThai ? 'Kanit' : 'Roboto',
+      decoration: TextDecoration.none,
+    );
+
+    return SizedBox(
+      width: cardWidth,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: surfaceColor,
+          borderRadius: BorderRadius.circular(compact ? 18 : 24),
+          border: Border.all(color: withOpacity(Colors.white, 0.08), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: withOpacity(Colors.black, 0.34),
+              blurRadius: compact ? 20 : 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: (minHeight != null)
+            ? SizedBox(
+                height: minHeight,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    padH,
+                    padTop,
+                    padH,
+                    padBottom,
+                  ),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: titleStyle),
+                            SizedBox(height: compact ? (roomyCompact ? 6 : 4) : 10),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: EdgeInsets.only(
+                                  bottom: compact ? (roomyCompact ? 44 : 38) : 56,
+                                ),
+                                child: Text(body, style: bodyStyle),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Row(
+                          children: [
+                            TextButton(
+                              onPressed: onSkip,
+                              child: Text(isThai ? 'ข้าม' : 'Skip', style: linkStyle),
+                            ),
+                            const Spacer(),
+                            if (showBack) ...[
+                              TextButton(
+                                onPressed: onBack,
+                                child:
+                                    Text(isThai ? 'ย้อนกลับ' : 'Back', style: linkStyle),
+                              ),
+                              SizedBox(width: compact ? 4 : 8),
+                            ],
+                            ElevatedButton(
+                              onPressed: onNext,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: ctaColor,
+                                foregroundColor: Colors.white,
+                                padding: compact
+                                    ? (roomyCompact
+                                        ? const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 7,
+                                          )
+                                        : const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ))
+                                    : null,
+                                minimumSize: compact
+                                    ? (roomyCompact
+                                        ? const Size(0, 30)
+                                        : const Size(0, 28))
+                                    : null,
+                                tapTargetSize: compact
+                                    ? MaterialTapTargetSize.shrinkWrap
+                                    : null,
+                              ),
+                              child: Text(
+                                isLast
+                                    ? (isThai ? 'เสร็จสิ้น' : 'Finish')
+                                    : (isThai ? 'ถัดไป' : 'Next'),
+                                style: ctaStyle,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : Padding(
+                padding: EdgeInsets.fromLTRB(
+                  padH,
+                  padTop,
+                  padH,
+                  padBottom,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: titleStyle),
+                        SizedBox(height: compact ? (roomyCompact ? 6 : 4) : 10),
+                        Text(body, style: bodyStyle),
+                        SizedBox(height: compact ? (roomyCompact ? 10 : 6) : 18),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: onSkip,
+                              child: Text(isThai ? 'ข้าม' : 'Skip', style: linkStyle),
+                            ),
+                            const Spacer(),
+                            if (showBack) ...[
+                              TextButton(
+                                onPressed: onBack,
+                                child:
+                                    Text(isThai ? 'ย้อนกลับ' : 'Back', style: linkStyle),
+                              ),
+                              SizedBox(width: compact ? 4 : 8),
+                            ],
+                            ElevatedButton(
+                              onPressed: onNext,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: ctaColor,
+                                foregroundColor: Colors.white,
+                                padding: compact
+                                    ? (roomyCompact
+                                        ? const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 7,
+                                          )
+                                        : const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ))
+                                    : null,
+                                minimumSize: compact
+                                    ? (roomyCompact
+                                        ? const Size(0, 30)
+                                        : const Size(0, 28))
+                                    : null,
+                                tapTargetSize: compact
+                                    ? MaterialTapTargetSize.shrinkWrap
+                                    : null,
+                              ),
+                              child: Text(
+                                isLast
+                                    ? (isThai ? 'เสร็จสิ้น' : 'Finish')
+                                    : (isThai ? 'ถัดไป' : 'Next'),
+                                style: ctaStyle,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}

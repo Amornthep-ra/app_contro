@@ -453,29 +453,37 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   Future<void> _savePresetDialog() async {
-    final controller = TextEditingController(text: _presets[_selectedPreset].name);
+    final isThai = _isThai;
+    final controller =
+        TextEditingController(text: _presets[_selectedPreset].name);
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Save Preset'),
+        title: Text(isThai ? 'บันทึกพรีเซ็ต' : 'Save Preset'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Preset name',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            label: Text(isThai ? 'ชื่อพรีเซ็ต' : 'Preset name'),
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
+            child: Text(isThai ? 'บันทึก' : 'Save'),
           ),
         ],
       ),
     );
+    controller.dispose();
     if (name == null) return;
-    final newName = name.isEmpty ? 'Preset ${_selectedPreset + 1}' : name;
+    final fallbackName =
+        isThai ? 'รูปแบบที่ ${_selectedPreset + 1}' : 'Preset ${_selectedPreset + 1}';
+    final newName = name.isEmpty ? fallbackName : name;
     setState(() {
       _presets[_selectedPreset] = _PresetSlot(
         name: newName,
@@ -548,7 +556,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(isThai ? 'วิธีใช้' : 'Tutorial'),
+          title: Text(isThai ? 'วิธีใช้งาน' : 'Tutorial'),
           content: SingleChildScrollView(
             child: Text(
               isThai
@@ -644,7 +652,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
             title: const Text('PID Tuning'),
             actions: [
               IconButton(
-                tooltip: isThai ? 'วิธีใช้' : 'Tutorial',
+                tooltip: isThai ? 'วิธีใช้งาน' : 'Tutorial',
                 onPressed: () => _showTutorial(context),
                 icon: const Icon(Icons.help_outline),
                 iconSize: 20,
@@ -674,11 +682,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                             onTap: _openPresetPicker,
                             borderRadius: BorderRadius.circular(8),
                             child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Preset',
-                                border: OutlineInputBorder(),
+                              decoration: InputDecoration(
+                                label: Text(isThai ? 'ค่าที่ตั้งไว้' : 'Preset'),
+                                border: const OutlineInputBorder(),
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                               ),
                               child: Row(
                                 children: [
@@ -1386,8 +1395,7 @@ class _NumberField extends StatelessWidget {
         onChanged();
       },
       decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(fontSize: 11),
+        label: Text(label, style: const TextStyle(fontSize: 11)),
         border: const OutlineInputBorder(),
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -1472,4 +1480,8 @@ class _PresetChips extends StatelessWidget {
     );
   }
 }
+
+
+
+
 

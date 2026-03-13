@@ -1,7 +1,7 @@
 name: pb_controller
 description: "A new Flutter project."
 publish_to: "none"
-version: 2.0.4+15
+version: 2.0.5+16
 
 environment:
   sdk: ^3.9.2
@@ -37,8 +37,44 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/icons/Home/
+    - assets/icons/Controller/
+    - assets/icons/Gamepad_Mode_Edit/
+    - assets/icons/Gamepad_4Buttons/
+    - assets/icons/Joystick/
     - assets/Logo/
     - assets/icons/botton/
+  fonts:
+    - family: THSarabunNew
+      fonts:
+        - asset: assets/fonts/THSarabunNew/THSarabunNew.ttf
+        - asset: assets/fonts/THSarabunNew/THSarabunNew Bold.ttf
+          weight: 700
+        - asset: assets/fonts/THSarabunNew/THSarabunNew Italic.ttf
+          style: italic
+        - asset: assets/fonts/THSarabunNew/THSarabunNew BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto/static/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto/static/Roboto-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Roboto/static/Roboto-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Roboto/static/Roboto-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Kanit
+      fonts:
+        - asset: assets/fonts/Kanit/Kanit-Regular.ttf
+        - asset: assets/fonts/Kanit/Kanit-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Kanit/Kanit-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Kanit/Kanit-BoldItalic.ttf
+          weight: 700
+          style: italic
 
 flutter_native_splash:
   android: true
