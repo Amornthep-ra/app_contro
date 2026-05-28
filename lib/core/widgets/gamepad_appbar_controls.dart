@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_back_button.dart';
 import 'gamepad_app_bar.dart';
 
 Color _opacity(Color color, double opacity) =>
@@ -135,6 +136,99 @@ class GamepadActionPill extends StatelessWidget {
   }
 }
 
+class GamepadAppBarActionItem {
+  final Key? key;
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback? onTap;
+  final bool iconOnly;
+  final bool compact;
+  final bool compactOnNarrow;
+
+  const GamepadAppBarActionItem({
+    this.key,
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+    this.iconOnly = false,
+    this.compact = false,
+    this.compactOnNarrow = true,
+  });
+}
+
+class GamepadAppBarActionGroup extends StatelessWidget {
+  final List<GamepadAppBarActionItem> items;
+  final double gap;
+  final double compactBreakpoint;
+
+  const GamepadAppBarActionGroup({
+    super.key,
+    required this.items,
+    required this.gap,
+    this.compactBreakpoint = 720,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < compactBreakpoint;
+    final children = <Widget>[
+      for (final item in items)
+        Tooltip(
+          message: item.label,
+          child: GamepadActionPill(
+            pillKey: item.key,
+            label: item.label,
+            icon: item.icon,
+            accent: item.accent,
+            onTap: item.onTap,
+            iconOnly: item.iconOnly || (isNarrow && item.compactOnNarrow),
+            compact: item.compact || isNarrow,
+          ),
+        ),
+    ];
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < children.length; i++) ...[
+          children[i],
+          if (i != children.length - 1) SizedBox(width: gap),
+        ],
+      ],
+    );
+  }
+}
+
+class GamepadAppBarBackButton extends StatelessWidget {
+  final Key? buttonKey;
+  final VoidCallback onPressed;
+  final GamepadAppBarMetrics? metrics;
+
+  const GamepadAppBarBackButton({
+    super.key,
+    this.buttonKey,
+    required this.onPressed,
+    this.metrics,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedMetrics = metrics ??
+        GamepadAppBarMetrics.forWidth(MediaQuery.of(context).size.width);
+
+    return AppBackButton(
+      buttonKey: buttonKey,
+      width: resolvedMetrics.iconButtonExtent,
+      height: resolvedMetrics.controlHeight,
+      iconSize: resolvedMetrics.iconSize + 13,
+      borderRadius: BorderRadius.circular(resolvedMetrics.iconButtonExtent / 2),
+      onPressed: onPressed,
+    );
+  }
+}
+
 class GamepadSpeedTogglePill extends StatelessWidget {
   final Key? pillKey;
   final bool expanded;
@@ -169,12 +263,17 @@ class GamepadSpeedTogglePill extends StatelessWidget {
           children: [
             Icon(Icons.speed_rounded, size: 14, color: accent),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: textColor,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 64),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                ),
               ),
             ),
             const SizedBox(width: 4),

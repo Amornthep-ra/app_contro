@@ -16,7 +16,6 @@ import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
 import '../../core/ui/gamepad_skin.dart';
 import '../../core/ui/gamepad_tutorial_overlay_components.dart';
-import '../../core/widgets/logo_corner.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
@@ -271,6 +270,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Set<String> _leftActive = Set<String>.from(_defaultLeftActiveIds);
   Set<String> _rightActive = Set<String>.from(_defaultRightActiveIds);
   final Set<String> _pressedIds = {};
+  DateTime _lastRejectHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _selectedId;
   String? _editWarningId;
   int _lastBoundaryWarningMs = 0;
@@ -284,6 +284,32 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Timer? _tick;
   String _lastPacketKey = '';
   int _lastSendMs = 0;
+  StreamSubscription<bool>? _bleConnSub;
+  int? _bleTrafficOwner;
+
+  void _resetInputState() {
+    void apply() {
+      _up = false;
+      _down = false;
+      _left = false;
+      _right = false;
+      _triangle = false;
+      _cross = false;
+      _square = false;
+      _circle = false;
+      _command = kIdle;
+      _moveCmd = kIdle;
+      _actionCmd = '';
+      _pressedIds.clear();
+      _lastPacketKey = '';
+      _lastSendMs = 0;
+    }
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
+    }
+  }
 
   Set<int> _buildPressedButtons() {
     final btns = <int>{};
@@ -320,6 +346,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   void _sendBinary({bool force = false}) {
     if (!BleManager.instance.isConnected) return;
+    final owner = _bleTrafficOwner;
+    if (owner == null) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final key = _packetKey();
@@ -339,20 +367,41 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     _lastPacketKey = key;
     _lastSendMs = now;
 
-    BleManager.instance.sendJoystickBinary(
-      packet: JoystickPacket(
-        lx: (_driveSpeed / 100.0).clamp(0.0, 1.0),
-        ly: 0,
-        rx: (_turnSpeed / 100.0).clamp(0.0, 1.0),
-        ry: 0,
+    unawaited(
+      BleManager.instance.sendJoystickBinary(
+        packet: JoystickPacket(
+          lx: (_driveSpeed / 100.0).clamp(0.0, 1.0),
+          ly: 0,
+          rx: (_turnSpeed / 100.0).clamp(0.0, 1.0),
+          ry: 0,
+        ),
+        pressedButtons: _buildPressedButtons(),
+        owner: owner,
+        force: force,
       ),
-      pressedButtons: _buildPressedButtons(),
     );
   }
 
   @override
   void initState() {
     super.initState();
+    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
+      BleTrafficMode.controlBinary,
+      ownerName: 'gamepad_8',
+    );
+    final trafficOwner = _bleTrafficOwner;
+    if (trafficOwner != null) {
+      BleManager.instance.enableControlReconnect(
+        owner: trafficOwner,
+        ownerName: 'gamepad_8',
+      );
+      unawaited(
+        BleManager.instance.autoConnectLastDevice(
+          source: 'control_initial',
+          owner: trafficOwner,
+        ),
+      );
+    }
     OrientationUtils.setLandscapeOnly();
     _tutorialThai = LanguageController.isThai.value;
     _langListener = () {
@@ -366,6 +415,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     _loadSpeedPrefs();
     _maybeStartTutorial();
 
+    // ชั้น 3: reset input state เมื่อ BLE หลุด/reconnect
+    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!mounted) return;
+      _resetInputState();
+      if (connected) {
+        _sendBinary(force: true);
+      }
+    });
+
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
       (_) => _sendLoop(),
@@ -376,10 +434,24 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   void dispose() {
     _editWarningTimer?.cancel();
     _tick?.cancel();
+    _bleConnSub?.cancel();
     LanguageController.isThai.removeListener(_langListener);
 
-    if (BleManager.instance.isConnected && _command != kIdle) {
-      _sendBinary(force: true);
+    final trafficOwner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (trafficOwner != null) {
+      BleManager.instance.disableControlReconnect(trafficOwner);
+    }
+    if (BleManager.instance.isConnected && trafficOwner != null) {
+      unawaited(
+        BleManager.instance
+            .sendControlStop(owner: trafficOwner)
+            .whenComplete(() {
+              BleManager.instance.releaseTrafficMode(trafficOwner);
+            }),
+      );
+    } else if (trafficOwner != null) {
+      BleManager.instance.releaseTrafficMode(trafficOwner);
     }
 
     OrientationUtils.reset();
@@ -2212,31 +2284,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Widget _buildAppBarBackButton() {
-    final metrics = GamepadAppBarMetrics.forWidth(
-      MediaQuery.of(context).size.width,
-    );
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: _tutorialBackKey,
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          gamepadBuzz();
-          Navigator.maybePop(context);
-        },
-        child: SizedBox(
-          width: metrics.iconButtonExtent,
-          height: metrics.controlHeight,
-          child: Center(
-            child: Image.asset(
-              'assets/icons/Controller/Chevron-Backward.png',
-              width: 22,
-              height: 22,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-      ),
+    return GamepadAppBarBackButton(
+      buttonKey: _tutorialBackKey,
+      onPressed: () {
+        gamepadBuzz();
+        Navigator.maybePop(context);
+      },
     );
   }
 
@@ -2347,6 +2400,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       pillKey: _tutorialSpeedKey,
       expanded: _speedPanelOpen,
       accent: _barAccent('SPD'),
+      label: 'D$_driveSpeed T$_turnSpeed',
       onTap: () {
         setState(() => _speedPanelOpen = !_speedPanelOpen);
       },
@@ -2649,7 +2703,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: kToolbarHeight,
+      toolbarHeight: GamepadAppBarMetrics.toolbarHeight,
       elevation: 0,
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
@@ -2789,6 +2843,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                 ),
               ),
             ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _speedScaleLabel('0'),
+                _speedScaleLabel('50'),
+                _speedScaleLabel('100'),
+              ],
+            ),
           ],
         ),
       ),
@@ -2806,6 +2869,22 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return raw;
   }
 
+  Widget _speedScaleLabel(String label) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w700,
+        color: _opacity(
+          isDark ? Colors.white : theme.colorScheme.onSurface,
+          0.58,
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildSpeedPanel() {
     if (!_speedPanelOpen) return const SizedBox.shrink();
@@ -2814,7 +2893,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final isDark = theme.brightness == Brightness.dark;
     final topInset = MediaQuery.of(context).padding.top;
     final screenWidth = MediaQuery.of(context).size.width;
-    final panelTop = topInset + kToolbarHeight + _speedPanelTopGap;
+    final panelTop =
+        topInset + GamepadAppBarMetrics.toolbarHeight + _speedPanelTopGap;
     final panelWidth = math.min(screenWidth - 24, 250.0);
     final screenHeight = MediaQuery.of(context).size.height;
     final maxPanelHeight = math.max(180.0, screenHeight - panelTop - 10);
@@ -2897,15 +2977,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                             const SizedBox(width: 4),
                             TextButton.icon(
                               onPressed: _resetSpeedPrefs,
-                              icon: const Icon(Icons.restart_alt_rounded, size: 12),
+                              icon: const Icon(Icons.restart_alt_rounded, size: 13),
                               label: Text(isThai ? 'รีเซ็ต' : 'Reset'),
                               style: TextButton.styleFrom(
                                 foregroundColor: const Color(0xFF7DD3FC),
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
+                                  horizontal: 10,
+                                  vertical: 6,
                                 ),
-                                minimumSize: const Size(0, 26),
+                                minimumSize: const Size(40, 40),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 textStyle: const TextStyle(
                                   fontSize: 11,
@@ -2919,6 +2999,28 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                                       0.28,
                                     ),
                                   ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              tooltip: isThai ? 'ปิด' : 'Close',
+                              onPressed: () => setState(() => _speedPanelOpen = false),
+                              icon: const Icon(Icons.close_rounded, size: 17),
+                              color: _opacity(
+                                isDark ? Colors.white : theme.colorScheme.onSurface,
+                                0.72,
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 40,
+                                height: 40,
+                              ),
+                              style: IconButton.styleFrom(
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                backgroundColor: _opacity(
+                                  isDark ? Colors.white : const Color(0xFF0F172A),
+                                  isDark ? 0.06 : 0.04,
                                 ),
                               ),
                             ),
@@ -4016,16 +4118,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Widget _buildDimOverlay() {
-    if (!_speedPanelOpen || _showTutorial) return const SizedBox.shrink();
-    return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _speedPanelOpen = false),
-        child: Container(
-          color: Colors.black87,
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   void _sendLoop() {
@@ -4035,6 +4128,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   bool _applyPressLimit(String id, bool isDown) {
     if (isDown) {
       if (_pressedIds.length >= 2 && !_pressedIds.contains(id)) {
+        final now = DateTime.now();
+        if (now.difference(_lastRejectHapticAt) >
+            const Duration(milliseconds: 200)) {
+          HapticFeedback.selectionClick();
+          _lastRejectHapticAt = now;
+        }
         return false;
       }
       _pressedIds.add(id);
@@ -4136,18 +4235,21 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         actionsBuilder: _editMode
             ? null
             : (gap) {
-          final children = <Widget>[
-            _actionPill(
-              key: _tutorialCustomizeKey,
-              label: isThai ? 'แก้ไข' : 'Edit',
-              icon: Icons.edit,
-              accent: const Color(0xFF60A5FA),
-              onTap: () {
-                gamepadBuzz();
-                _toggleEdit();
-              },
-            ),
-            _actionPill(
+          return GamepadAppBarActionGroup(
+            gap: gap,
+            items: [
+              GamepadAppBarActionItem(
+                key: _tutorialCustomizeKey,
+                label: isThai ? 'แก้ไข' : 'Edit',
+                icon: Icons.edit,
+                accent: const Color(0xFF60A5FA),
+                compactOnNarrow: false,
+                onTap: () {
+                  gamepadBuzz();
+                  _toggleEdit();
+                },
+              ),
+              GamepadAppBarActionItem(
                 key: _tutorialPresetKey,
                 label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
                 icon: Icons.folder_open,
@@ -4157,7 +4259,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   _showPresetSheet();
                 },
               ),
-            _actionPill(
+              GamepadAppBarActionItem(
                 key: _tutorialHelpKey,
                 label: '?',
                 icon: Icons.help_outline,
@@ -4168,15 +4270,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   _restartTutorial();
                 },
               ),
-          ];
-
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (int i = 0; i < children.length; i++) ...[
-                children[i],
-                if (i != children.length - 1) SizedBox(width: gap),
-              ],
             ],
           );
         },
@@ -4187,11 +4280,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             child: Stack(
               children: [
                 _buildGridOverlay(),
-                IgnorePointer(
-                  ignoring: _speedPanelOpen,
-                  child: Opacity(
-                    opacity: _speedPanelOpen ? 0.35 : 1.0,
-                    child: LayoutBuilder(
+                LayoutBuilder(
                   builder: (context, cons) {
                     return Padding(
                       padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -4319,11 +4408,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     );
                   },
                 ),
-              ),
-            ),
-            const LogoCorner(),
-              ],
-            ),
+        ],
+      ),
           ),
           _buildDimOverlay(),
           _buildSpeedPanel(),
@@ -4803,12 +4889,13 @@ class _LayoutPadPanel extends StatelessWidget {
             return Positioned(
               left: cx - d / 2,
               top: cy - d / 2,
-              child: _ImagePressHoldButton(
+              child: GamepadImageHoldButton(
                 label: spec.label,
                 sendValue: spec.sendValue,
                 asset: spec.asset,
                 diameter: d,
                 showLabel: false,
+                lightImpactBeforeBuzz: true,
                 onPressChanged: onPressChanged,
               ),
             );
@@ -5175,146 +5262,4 @@ class _EditGuidePainter extends CustomPainter {
         oldDelegate.color != color;
   }
 }
-
-class _ImagePressHoldButton extends StatefulWidget {
-  final String label;
-  final String sendValue;
-  final String asset;
-  final double diameter;
-  final bool showLabel;
-  final void Function(String id, bool isDown)? onPressChanged;
-
-  const _ImagePressHoldButton({
-    required this.label,
-    required this.sendValue,
-    required this.asset,
-    this.diameter = 120,
-    this.showLabel = true,
-    this.onPressChanged,
-  });
-
-  @override
-  State<_ImagePressHoldButton> createState() => _ImagePressHoldButtonState();
-}
-
-class _ImagePressHoldButtonState extends State<_ImagePressHoldButton> {
-  bool _pressed = false;
-
-  void _onDown() {
-    if (_pressed) return;
-    setState(() => _pressed = true);
-    HapticFeedback.lightImpact();
-    gamepadBuzz();
-    widget.onPressChanged?.call(widget.sendValue, true);
-  }
-
-  void _onUpOrCancel() {
-    if (!_pressed) return;
-    setState(() => _pressed = false);
-    widget.onPressChanged?.call(widget.sendValue, false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scale = _pressed ? 0.95 : 1.0;
-    final glowColor = _opacity(
-      theme.colorScheme.primary,
-      theme.brightness == Brightness.dark ? 0.65 : 0.45,
-    );
-
-    return Listener(
-      onPointerDown: (_) => _onDown(),
-      onPointerUp: (_) => _onUpOrCancel(),
-      onPointerCancel: (_) => _onUpOrCancel(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: widget.diameter,
-            height: widget.diameter,
-            child: AnimatedScale(
-              scale: scale,
-              duration: const Duration(milliseconds: 90),
-              curve: Curves.easeOutBack,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 50),
-                curve: Curves.easeOut,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: _pressed
-                      ? [
-                          BoxShadow(
-                            color: glowColor,
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : const [],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(2),
-                  child: ColorFiltered(
-                    colorFilter: _pressed
-                        ? const ColorFilter.matrix([
-                            1, 0, 0, 0, 51,
-                            0, 1, 0, 0, 51,
-                            0, 0, 1, 0, 51,
-                            0, 0, 0, 1, 0,
-                          ])
-                        : const ColorFilter.matrix([
-                            1, 0, 0, 0, 0,
-                            0, 1, 0, 0, 0,
-                            0, 0, 1, 0, 0,
-                            0, 0, 0, 1, 0,
-                          ]),
-                    child: Image.asset(
-                      widget.asset,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, _, __) {
-                        return SizedBox.expand(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _opacity(theme.colorScheme.onSurface, 0.35),
-                                width: 1.4,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                widget.label,
-                                style: theme.textTheme.bodySmall,
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (widget.showLabel) ...[
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 18,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(widget.label, style: theme.textTheme.bodyMedium),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-
-
-
-
 

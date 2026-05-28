@@ -1,13 +1,12 @@
 // lib/features/controller/controller_home_page.dart
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart' hide Text;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/ble/ble_manager.dart';
-import '../../core/routes/app_routes.dart';
 import '../../core/ui/language_controller.dart';
-import '../../core/widgets/logo_corner.dart';
+import '../../core/widgets/gamepad_app_bar.dart';
 import '../gamepad/gamepad_4_button_page.dart';
 import '../gamepad/gamepad_mode_edit.dart';
 import '../info/info_page.dart';
@@ -23,6 +22,8 @@ class ControllerHomePage extends StatefulWidget {
 class _ControllerHomePageState extends State<ControllerHomePage> {
   StreamSubscription<bool>? _connSub;
   bool _connected = false;
+  bool _openingMode = false;
+  bool _reconnecting = false;
 
   @override
   void initState() {
@@ -48,103 +49,164 @@ class _ControllerHomePageState extends State<ControllerHomePage> {
     return 'Unknown';
   }
 
-  Widget _homeIcon(String name, {double size = 24}) {
-    return Image.asset(
-      'assets/icons/Home/$name',
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
+  Future<void> _openMode(_ControlMenuItem item) async {
+    if (_openingMode) return;
+    setState(() => _openingMode = true);
+    HapticFeedback.selectionClick();
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => item.page),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingMode = false);
+      }
+    }
+  }
+
+  Future<void> _reconnectLastDevice() async {
+    if (_reconnecting || _connected) return;
+    setState(() => _reconnecting = true);
+    HapticFeedback.selectionClick();
+    try {
+      await BleManager.instance.autoConnectLastDevice(
+        source: 'control_modes_reconnect',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _reconnecting = false);
+      }
+    }
+  }
+
+  Widget _buildReconnectChild(bool isThai) {
+    final label = _reconnecting
+        ? (isThai ? 'เชื่อมต่อ...' : 'Connecting...')
+        : (isThai ? 'เชื่อมต่ออีกครั้ง' : 'Reconnect');
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_reconnecting) ...[
+          const SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 6),
+        ],
+        Text(label),
+      ],
+    );
+  }
+
+  Widget _buildPlainBackButton() {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: MaterialLocalizations.of(context).backButtonTooltip,
+      child: Semantics(
+        button: true,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(22),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              Navigator.maybePop(context);
+            },
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(
+                Icons.chevron_left_rounded,
+                size: 28,
+                color: scheme.onSurface.withAlpha(216),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, isThai, _) {
         final items = _modeItems(isThai);
+        final scheme = Theme.of(context).colorScheme;
 
         return Scaffold(
-          appBar: AppBar(
-            title: Text(
-              isThai ? 'โหมดการควบคุม' : 'Control Modes',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          appBar: GamepadUnifiedAppBar(
+            leading: _buildPlainBackButton(),
+            title: isThai ? 'โหมดการควบคุม' : 'Control Modes',
+            centerTitle: true,
+            titleStyle: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
+              color: scheme.onSurface,
             ),
-            centerTitle: false,
-            automaticallyImplyLeading: false,
-            actions: [
-              IconButton(
-                icon: _homeIcon('Guide-Manual.png', size: 22),
-                tooltip: isThai ? 'คู่มือ' : 'Guide',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const InfoPage()),
-                ),
-              ),
-            ],
-            backgroundColor: scheme.surface,
-            surfaceTintColor: scheme.surfaceTint,
-            scrolledUnderElevation: 2,
           ),
-          body: Stack(
-            children: [
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildConnectionBar(context, isThai),
-                    const SizedBox(height: 14),
-                    _buildModeGrid(context, items),
-                  ],
-                ),
-              ),
-              const LogoCorner(),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            heroTag: 'home_fab_controller',
-            mini: true,
-            onPressed: () => Navigator.pushNamedAndRemoveUntil(
-              context,
-              AppRoutes.home,
-              (_) => false,
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildConnectionBar(context, isThai),
+                const SizedBox(height: 14),
+                _buildModeGrid(context, items),
+              ],
             ),
-            child: const Icon(Icons.home),
           ),
-          floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
         );
       },
     );
   }
 
-  List<_ModeItem> _modeItems(bool isThai) {
+  List<_ControlMenuItem> _modeItems(bool isThai) {
     return [
-      _ModeItem(
+      _ControlMenuItem(
         title: isThai ? 'Gamepad Mode Edit' : 'Gamepad Mode Edit',
         subtitle: isThai
-            ? 'ปุ่มกดมาตรฐาน 8 ทิศทาง (ปรับแต่งได้)'
-            : 'Standard 8-direction buttons (customizable)',
-        icon: Icons.tune,
+            ? 'ควบคุม 8 ปุ่ม ปรับแต่งตำแหน่งได้'
+            : '8-button layout with editable controls',
+        iconBuilder: (_) => const _ControlModeAssetIcon(
+          assetPath: 'assets/icons/control_mode_gamepad_8.png',
+        ),
         accent: const Color(0xFF8B5CF6),
         page: const GamepadModeEdit(),
       ),
-      _ModeItem(
+      _ControlMenuItem(
         title: isThai ? 'Gamepad (4 Buttons)' : 'Gamepad (4 Buttons)',
         subtitle: isThai
-            ? 'ปุ่มกดมาตรฐาน 4 ทิศทาง'
-            : 'Standard 4-direction buttons',
-        icon: Icons.grid_on,
+            ? 'ควบคุมทิศทางแบบ 4 ปุ่ม'
+            : 'Simple 4-button directional control',
+        iconBuilder: (_) => const _ControlModeAssetIcon(
+          assetPath: 'assets/icons/control_mode_gamepad_4.png',
+        ),
         accent: const Color(0xFF3B82F6),
         page: const Gamepad4ButtonPage(),
       ),
-      _ModeItem(
+      _ControlMenuItem(
         title: isThai ? 'Joystick Mode' : 'Joystick Mode',
-        subtitle: isThai ? 'บังคับทิศทางอิสระ' : 'Free-form joystick control',
-        icon: Icons.sports_esports,
+        subtitle:
+            isThai ? 'ควบคุมด้วยสติ๊กอิสระ' : 'Free-form analog stick control',
+        iconBuilder: (_) => const _ControlModeAssetIcon(
+          assetPath: 'assets/icons/control_mode_joystick.png',
+        ),
         accent: const Color(0xFF6D28D9),
         page: const JoystickPage(),
+      ),
+      _ControlMenuItem(
+        title: isThai ? 'คู่มือ' : 'Guide',
+        subtitle: isThai ? 'วิธีใช้งานและการตั้งค่า' : 'Usage and setup guide',
+        iconBuilder: (_) => const _ControlModeAssetIcon(
+          assetPath: 'assets/icons/control_mode_guide.png',
+        ),
+        accent: const Color(0xFF06B6D4),
+        page: const InfoPage(),
       ),
     ];
   }
@@ -166,7 +228,9 @@ class _ControllerHomePageState extends State<ControllerHomePage> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            Container(
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
               width: 8,
               height: 8,
               decoration: BoxDecoration(
@@ -176,27 +240,38 @@ class _ControllerHomePageState extends State<ControllerHomePage> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: connected ? scheme.onSurface : scheme.error,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: Text(
+                  text,
+                  key: ValueKey<String>(text),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: connected ? scheme.onSurface : scheme.error,
+                  ),
                 ),
               ),
             ),
             if (!connected)
-              OutlinedButton(
-                onPressed: () => BleManager.instance.autoConnectLastDevice(),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  textStyle:
-                      const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: FilledButton.tonal(
+                  key: ValueKey<bool>(_reconnecting),
+                  onPressed: _reconnecting ? null : _reconnectLastDevice,
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    textStyle:
+                        const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  child: _buildReconnectChild(isThai),
                 ),
-                child: Text(isThai ? 'เชื่อมต่ออีกครั้ง' : 'Reconnect'),
               ),
           ],
         ),
@@ -204,158 +279,179 @@ class _ControllerHomePageState extends State<ControllerHomePage> {
     );
   }
 
-  Widget _buildModeGrid(BuildContext context, List<_ModeItem> items) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final spacing = 12.0;
-        final width = constraints.maxWidth;
-        final half = (width - spacing) / 2;
-        final singleColumn = half < 160;
-
-        return Column(
-          children: [
-            if (singleColumn) ...[
-              SizedBox(
-                width: width,
-                child: _ModeCard(item: items[0], height: 170, wide: true),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: width,
-                child: _ModeCard(item: items[1], height: 170, wide: true),
-              ),
-            ] else
-              Row(
-                children: [
-                  SizedBox(
-                    width: half,
-                    child: _ModeCard(item: items[0], height: 180),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: half,
-                    child: _ModeCard(item: items[1], height: 180),
-                  ),
-                ],
-              ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: width,
-              child: _ModeCard(item: items[2], height: 160, wide: true),
+  Widget _buildModeGrid(BuildContext context, List<_ControlMenuItem> items) {
+    const cardHeight = 108.0;
+    return Column(
+      children: [
+        for (int i = 0; i < items.length; i++) ...[
+          SizedBox(
+            width: double.infinity,
+            child: _ControlMenuCard(
+              item: items[i],
+              height: cardHeight,
+              enabled: !_openingMode,
+              onTap: () => _openMode(items[i]),
             ),
-          ],
-        );
-      },
+          ),
+          if (i != items.length - 1) const SizedBox(height: 10),
+        ],
+      ],
     );
   }
 }
 
-class _ModeItem {
+class _ControlMenuItem {
   final String title;
   final String subtitle;
-  final IconData icon;
+  final Widget Function(Color accent) iconBuilder;
   final Color accent;
   final Widget page;
 
-  const _ModeItem({
+  const _ControlMenuItem({
     required this.title,
     required this.subtitle,
-    required this.icon,
+    required this.iconBuilder,
     required this.accent,
     required this.page,
   });
 }
 
-class _ModeCard extends StatelessWidget {
-  final _ModeItem item;
+class _ControlMenuCard extends StatefulWidget {
+  final _ControlMenuItem item;
   final double height;
-  final bool wide;
+  final bool enabled;
+  final VoidCallback onTap;
 
-  const _ModeCard({
+  const _ControlMenuCard({
     required this.item,
     required this.height,
-    this.wide = false,
+    required this.enabled,
+    required this.onTap,
   });
+
+  @override
+  State<_ControlMenuCard> createState() => _ControlMenuCardState();
+}
+
+class _ControlMenuCardState extends State<_ControlMenuCard> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = item.accent;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = widget.item.accent;
+    final glowColor = accent.withAlpha(isDark ? 74 : 44);
+    final glowBlur = isDark ? 13.0 : 9.0;
+    final glowSpread = isDark ? 1.0 : 0.0;
 
     final gradient = LinearGradient(
       colors: [
-        accent.withAlpha(28),
-        accent.withAlpha(10),
+        accent.withAlpha(20),
+        accent.withAlpha(7),
       ],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
 
-    return Card(
-      elevation: 3,
-      shadowColor: accent.withAlpha(60),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => item.page),
-        ),
-        child: Ink(
-          height: height,
-          decoration: BoxDecoration(
-            gradient: gradient,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+    return AnimatedScale(
+      scale: _pressed && widget.enabled ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 90),
+      curve: Curves.easeOut,
+      child: AnimatedOpacity(
+        opacity: widget.enabled ? 1.0 : 0.62,
+        duration: const Duration(milliseconds: 120),
+        child: Card(
+          margin: EdgeInsets.zero,
+          elevation: 1,
+          shadowColor: accent.withAlpha(32),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: widget.enabled ? widget.onTap : null,
+            onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
+            onTapCancel: () => _setPressed(false),
+            onTapUp: (_) => _setPressed(false),
+            child: Ink(
+              height: widget.height,
+              decoration: BoxDecoration(
+                gradient: gradient,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: scheme.outlineVariant.withAlpha(80),
+                  width: 0.8,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: accent.withAlpha(36),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(item.icon, size: 28, color: accent),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 42,
+                          height: 42,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: glowColor,
+                                      blurRadius: glowBlur,
+                                      spreadRadius: glowSpread,
+                                    ),
+                                  ],
+                                ),
+                                child: const SizedBox(width: 24, height: 24),
+                              ),
+                              widget.item.iconBuilder(accent),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            widget.item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 22,
+                          color: accent.withAlpha(isDark ? 150 : 120),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Image.asset(
-                        'assets/icons/Home/Chevron-Forward.png',
-                        width: 28,
-                        height: 28,
-                        fit: BoxFit.contain,
+                    const SizedBox(height: 10),
+                    Flexible(
+                      child: Text(
+                        widget.item.subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  item.subtitle,
-                  maxLines: wide ? 2 : 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -364,3 +460,18 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
+class _ControlModeAssetIcon extends StatelessWidget {
+  final String assetPath;
+
+  const _ControlModeAssetIcon({required this.assetPath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      assetPath,
+      width: 40,
+      height: 40,
+      fit: BoxFit.contain,
+    );
+  }
+}

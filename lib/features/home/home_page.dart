@@ -7,9 +7,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/ble/ble_manager.dart';
+import '../../core/ui/app_assets.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/ui/theme_controller.dart';
-import '../../core/widgets/logo_corner.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
 import '../controller/controller_home_page.dart';
 import '../info/info_page.dart';
@@ -28,6 +28,7 @@ class _HomePageState extends State<HomePage> {
   Future<PackageInfo>? _infoFuture;
 
   bool _connected = false;
+  bool _openingPage = false;
   int? _rssi;
   String? _lastDeviceId;
   String? _lastDeviceName;
@@ -109,20 +110,32 @@ class _HomePageState extends State<HomePage> {
     await _loadLastDevice();
   }
 
+  Future<void> _openPage(Widget page) async {
+    if (_openingPage) return;
+    setState(() => _openingPage = true);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => page),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingPage = false);
+      }
+    }
+  }
+
   Future<void> _handleRefresh() async {
     await _openBlePage();
   }
 
-      Future<void> _connectLastDevice(bool isThai) async {
+  Future<void> _connectLastDevice(bool isThai) async {
     if (_lastDeviceId == null || _lastDeviceId!.isEmpty) return;
     _showSnack(
-      isThai
-          ? 'กำลังเชื่อมต่ออุปกรณ์ล่าสุด...'
-          : 'Reconnecting to the last device...',
+      isThai ? 'กำลังเชื่อมต่ออุปกรณ์ล่าสุด...' : 'Reconnecting to the last device...',
     );
     await BleManager.instance.autoConnectLastDevice();
   }
-void _showSnack(String msg) {
+  void _showSnack(String msg) {
     if (!mounted) return;
     final theme = Theme.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -160,7 +173,7 @@ void _showSnack(String msg) {
 
   Widget _homeIcon(String name, {double size = 24}) {
     return Image.asset(
-      'assets/icons/Home/$name',
+      'assets/icons/HomeUnified/$name',
       width: size,
       height: size,
       fit: BoxFit.contain,
@@ -226,23 +239,23 @@ void _showSnack(String msg) {
             automaticallyImplyLeading: false,
             actions: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withAlpha(180),
-                    borderRadius: BorderRadius.circular(14),
+                    color: scheme.surfaceContainerHighest.withAlpha(132),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: scheme.outlineVariant.withAlpha(120),
+                      color: scheme.outlineVariant.withAlpha(88),
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(width: 8),
-                      _homeIcon('Translate-Language.png', size: 36),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 6),
+                      _homeIcon('Translate-Language.png', size: 28),
+                      const SizedBox(width: 2),
                       ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 48),
+                        constraints: const BoxConstraints(minHeight: 40),
                         child: Center(
                           child: SegmentedButton<bool>(
                             segments: const [
@@ -257,29 +270,35 @@ void _showSnack(String msg) {
                             style: SegmentedButton.styleFrom(
                               visualDensity:
                                   const VisualDensity(horizontal: -3, vertical: -3),
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 6),
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               textStyle: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                               ),
-                              minimumSize: const Size(0, 32),
+                              minimumSize: const Size(0, 30),
                               side: BorderSide(
-                                color: scheme.outlineVariant.withAlpha(120),
+                                color: scheme.outlineVariant.withAlpha(88),
                               ),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                     ],
                   ),
                 ),
               ),
-              IconButton(
-                icon: _homeIcon('Theme-Palette.png', size: 22),
-                onPressed: () => _showThemeSheet(context),
-                tooltip: isThai ? 'ธีม' : 'Theme',
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  icon: _homeIcon('Theme-Palette.png', size: 22),
+                  onPressed: () => _showThemeSheet(context),
+                  tooltip: isThai ? 'ธีม' : 'Theme',
+                  padding: EdgeInsets.zero,
+                  splashRadius: 20,
+                ),
               ),
             ],
             backgroundColor: scheme.surface,
@@ -321,7 +340,6 @@ void _showSnack(String msg) {
                   ],
                 ),
               ),
-              const LogoCorner(),
             ],
           ),
         );
@@ -329,21 +347,21 @@ void _showSnack(String msg) {
     );
   }
 
-        List<_NavItem> _navItems(bool isThai) {
+  List<_NavItem> _navItems(bool isThai) {
     return [
       _NavItem(
         title: isThai ? 'โหมดควบคุม' : 'Controller',
         subtitle: isThai
-            ? 'รวมฟังก์ชันการบังคับทิศทางและจอยสติ๊ก'
+            ? 'ควบคุมทิศทางและจอยสติ๊ก'
             : 'Direction control and joysticks in one place',
         iconAsset: 'Controller-Gamepad.png',
         accent: const Color(0xFF2563EB),
         page: const ControllerHomePage(),
       ),
       _NavItem(
-        title: isThai ? 'ปรับแต่งค่า PID' : 'LineSonic',
+        title: isThai ? 'LineSonic' : 'LineSonic',
         subtitle: isThai
-            ? 'ปรับจูนค่าการเคลื่อนที่ผ่าน BLE'
+            ? 'ปรับ PID และอ่านเซนเซอร์ผ่าน BLE'
             : 'Tune PID motion over BLE',
         iconAsset: 'LineSonic-PID Tuning.png',
         accent: const Color(0xFF16A34A),
@@ -352,7 +370,7 @@ void _showSnack(String msg) {
       _NavItem(
         title: isThai ? 'คู่มือการใช้งาน' : 'Guide',
         subtitle: isThai
-            ? 'วิธีการใช้งานและตัวอย่างโค้ดเบื้องต้น'
+            ? 'คู่มือและตัวอย่างโค้ด'
             : 'How to use the app and starter code',
         iconAsset: 'Guide-Manual.png',
         accent: const Color(0xFFF59E0B),
@@ -389,19 +407,16 @@ void _showSnack(String msg) {
       elevation: 3,
       shadowColor: Colors.black26,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: _openBlePage,
-        child: Ink(
-          decoration: BoxDecoration(
-            gradient: gradient,
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
                 Container(
                   width: 44,
                   height: 44,
@@ -421,7 +436,7 @@ void _showSnack(String msg) {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isThai ? 'สถานะการเชื่อมต่อ BLE' : 'BLE Connection',
+                        isThai ? 'สถานะ BLE' : 'BLE Connection',
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: isThai ? 15 : 12,
@@ -432,9 +447,7 @@ void _showSnack(String msg) {
                       Text(
                         connected
                             ? name
-                            : (isThai
-                                ? 'ยังไม่ได้เชื่อมต่ออุปกรณ์'
-                                : 'No device connected'),
+                            : (isThai ? 'ยังไม่เชื่อมต่อ' : 'No device'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -463,8 +476,18 @@ void _showSnack(String msg) {
                 if (!connected)
                   FilledButton.icon(
                     onPressed: _openBlePage,
-                    icon: _homeIcon('Search-Scan.png', size: 36),
-                    label: Text(isThai ? 'ค้นหาอุปกรณ์' : 'Scan devices'),
+                    icon: _homeIcon('Search-Scan.png', size: 21),
+                    label: Text(isThai ? 'ค้นหา' : 'Scan devices'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   )
                 else
                   Column(
@@ -480,14 +503,14 @@ void _showSnack(String msg) {
                       ),
                     ],
                   ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
     );
   }
-Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
+
+  Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final spacing = 12.0;
@@ -500,31 +523,59 @@ Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
             if (singleColumn) ...[
               SizedBox(
                 width: width,
-                child: _NavCard(item: items[0], height: 160, wide: true),
+                child: _NavCard(
+                  item: items[0],
+                  height: 160,
+                  wide: true,
+                  enabled: !_openingPage,
+                  onTap: () => _openPage(items[0].page),
+                ),
               ),
               const SizedBox(height: 12),
               SizedBox(
                 width: width,
-                child: _NavCard(item: items[1], height: 160, wide: true),
+                child: _NavCard(
+                  item: items[1],
+                  height: 160,
+                  wide: true,
+                  enabled: !_openingPage,
+                  onTap: () => _openPage(items[1].page),
+                ),
               ),
             ] else
               Row(
                 children: [
                   SizedBox(
                     width: half,
-                    child: _NavCard(item: items[0], height: 170),
+                    child: _NavCard(
+                      item: items[0],
+                      height: 170,
+                      enabled: !_openingPage,
+                      onTap: () => _openPage(items[0].page),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   SizedBox(
                     width: half,
-                    child: _NavCard(item: items[1], height: 170),
+                    child: _NavCard(
+                      item: items[1],
+                      height: 170,
+                      enabled: !_openingPage,
+                      onTap: () => _openPage(items[1].page),
+                    ),
                   ),
                 ],
               ),
             const SizedBox(height: 12),
             SizedBox(
               width: width,
-              child: _NavCard(item: items[2], height: 160, wide: true),
+              child: _NavCard(
+                item: items[2],
+                height: 120,
+                wide: true,
+                enabled: !_openingPage,
+                onTap: () => _openPage(items[2].page),
+              ),
             ),
           ],
         );
@@ -532,9 +583,36 @@ Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
     );
   }
 
-        Widget _buildRecentCard(BuildContext context, bool isThai) {
+  Widget _buildRecentCard(BuildContext context, bool isThai) {
     final scheme = Theme.of(context).colorScheme;
     final hasLast = _lastDeviceId != null && _lastDeviceId!.isNotEmpty;
+
+    if (!hasLast) {
+      return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Row(
+            children: [
+              _homeIcon('Recent Activity-History.png', size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isThai ? 'ยังไม่มีอุปกรณ์ล่าสุด' : 'No recent device yet',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Card(
       elevation: 2,
@@ -611,7 +689,7 @@ Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
       ),
     );
   }
-Widget _buildVersionInfo(BuildContext context) {
+  Widget _buildVersionInfo(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerRight,
@@ -619,13 +697,30 @@ Widget _buildVersionInfo(BuildContext context) {
         future: _infoFuture,
         builder: (context, snapshot) {
           final version = snapshot.data?.version ?? '2.0.4';
-          return Text(
-            'v$version',
-            style: TextStyle(
-              fontSize: 12,
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Opacity(
+                opacity: 0.28,
+                child: ClipOval(
+                  child: Image.asset(
+                    AppAssets.cornerLogo,
+                    width: 24,
+                    height: 24,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'v$version',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -649,21 +744,38 @@ class _NavItem {
   });
 }
 
-class _NavCard extends StatelessWidget {
+class _NavCard extends StatefulWidget {
   final _NavItem item;
   final double height;
   final bool wide;
+  final bool enabled;
+  final VoidCallback onTap;
 
   const _NavCard({
     required this.item,
     required this.height,
+    required this.enabled,
+    required this.onTap,
     this.wide = false,
   });
 
   @override
+  State<_NavCard> createState() => _NavCardState();
+}
+
+class _NavCardState extends State<_NavCard> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = item.accent;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = widget.item.accent;
 
     final gradient = LinearGradient(
       colors: [
@@ -674,101 +786,116 @@ class _NavCard extends StatelessWidget {
       end: Alignment.bottomRight,
     );
 
-    return Card(
-      elevation: 3,
-      shadowColor: accent.withAlpha(60),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => item.page),
-        ),
-        child: Ink(
-          height: height,
-          decoration: BoxDecoration(
-            gradient: gradient,
+    return AnimatedScale(
+      scale: _pressed && widget.enabled ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 90),
+      curve: Curves.easeOut,
+      child: AnimatedOpacity(
+        opacity: widget.enabled ? 1.0 : 0.62,
+        duration: const Duration(milliseconds: 120),
+        child: Card(
+          elevation: 3,
+          shadowColor: accent.withAlpha(60),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: InkWell(
             borderRadius: BorderRadius.circular(20),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final compact =
-                  constraints.maxWidth < 150 || constraints.maxHeight < 150;
-              final padding = compact
-                  ? const EdgeInsets.fromLTRB(6, 6, 6, 6)
-                  : const EdgeInsets.fromLTRB(16, 14, 16, 14);
-              final iconBox = compact ? 30.0 : 44.0;
-              final iconSize = compact ? 16.0 : 24.0;
-              final chevronSize = compact ? 28.0 : 36.0;
-              final gapTop = compact ? 2.0 : 12.0;
-              final gapMid = compact ? 0.0 : 6.0;
-              final defaultTitleSize = 16.0;
-              final defaultSubtitleSize = 12.0;
-              final titleSize = defaultTitleSize;
-              final subtitleSize = defaultSubtitleSize;
-              final subtitleLines = compact ? 1 : (wide ? 2 : 3);
+            onTap: widget.enabled ? widget.onTap : null,
+            onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
+            onTapCancel: () => _setPressed(false),
+            onTapUp: (_) => _setPressed(false),
+            child: Ink(
+              height: widget.height,
+              decoration: BoxDecoration(
+                gradient: gradient,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact =
+                      constraints.maxWidth < 150 || constraints.maxHeight < 150;
+                  final compactWide = widget.wide && constraints.maxHeight < 150;
+                  final padding = compact
+                      ? (compactWide
+                          ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
+                          : const EdgeInsets.fromLTRB(6, 6, 6, 6))
+                      : const EdgeInsets.fromLTRB(16, 14, 16, 14);
+                  final iconBox = compact
+                      ? (compactWide ? 36.0 : 30.0)
+                      : 44.0;
+                  final iconSize = compact
+                      ? (compactWide ? 24.0 : 18.0)
+                      : 28.0;
+                  final gapTop = compact
+                      ? (compactWide ? 6.0 : 2.0)
+                      : 12.0;
+                  final gapMid = compact
+                      ? (compactWide ? 2.0 : 0.0)
+                      : 6.0;
+                  final defaultTitleSize = 16.0;
+                  final defaultSubtitleSize = 12.0;
+                  final titleSize = defaultTitleSize;
+                  final subtitleSize = defaultSubtitleSize;
+                  final subtitleLines = compact ? 1 : (widget.wide ? 2 : 3);
 
-              return Padding(
-                padding: padding,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                  return Padding(
+                    padding: padding,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: iconBox,
-                          height: iconBox,
-                          decoration: BoxDecoration(
-                            color: accent.withAlpha(40),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Image.asset(
-                              'assets/icons/Home/${item.iconAsset}',
-                              width: iconSize,
-                              height: iconSize,
-                              fit: BoxFit.contain,
+                        Row(
+                          children: [
+                            Container(
+                              width: iconBox,
+                              height: iconBox,
+                              decoration: BoxDecoration(
+                                color: accent.withAlpha(40),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Image.asset(
+                                  'assets/icons/HomeUnified/${widget.item.iconAsset}',
+                                  width: iconSize,
+                                  height: iconSize,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
                             ),
+                            const Spacer(),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: compact ? 18 : 22,
+                              color: accent.withAlpha(isDark ? 130 : 100),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: gapTop),
+                        Text(
+                          widget.item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const Spacer(),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 6),
-                          child: Image.asset(
-                            'assets/icons/Home/Chevron-Forward.png',
-                            width: chevronSize,
-                            height: chevronSize,
-                            fit: BoxFit.contain,
+                        SizedBox(height: gapMid),
+                        Text(
+                          widget.item.subtitle,
+                          maxLines: subtitleLines,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: subtitleSize,
+                            height: compact ? 1.05 : 1.2,
+                            color: scheme.onSurfaceVariant,
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: gapTop),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: titleSize,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: gapMid),
-                    Text(
-                      item.subtitle,
-                      maxLines: subtitleLines,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: subtitleSize,
-                        height: compact ? 1.05 : 1.2,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
@@ -808,4 +935,3 @@ void _showThemeSheet(BuildContext context) {
     },
   );
 }
-

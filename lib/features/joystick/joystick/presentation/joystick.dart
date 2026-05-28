@@ -18,11 +18,9 @@ import '../../../../core/utils/orientation_utils.dart';
 import '../joystick_theme.dart';
 import '../../../controller/controller_home_page.dart';
 import '../../../../core/ble/joystick_packet.dart';
-import '../../../../core/ui/custom_appbars.dart';
 import '../../../../core/ui/gamepad_assets.dart';
 import '../../../../core/ui/gamepad_components.dart';
 import '../../../../core/ui/gamepad_tutorial_overlay_components.dart';
-import '../../../../core/widgets/logo_corner.dart';
 import '../../../../core/widgets/gamepad_app_bar.dart';
 import '../../../../core/widgets/gamepad_appbar_controls.dart';
 import '../../../../core/ui/language_controller.dart';
@@ -110,6 +108,8 @@ class _JoystickPageState extends State<JoystickPage> {
   static const double _deadZone = 0.05;
   static const double _smooth = 0.85;
   static const double _delta = 0.005;
+  static const int _activeKeepaliveMs = 50;
+  int _lastControlSendMs = 0;
 
   int _debugTick = 0;
 
@@ -155,6 +155,35 @@ class _JoystickPageState extends State<JoystickPage> {
   final ConnectionStatusBadgeController _bleBadgeController =
       ConnectionStatusBadgeController();
   bool _tutorialButtonsSheetOpened = false;
+  StreamSubscription<bool>? _bleConnSub;
+  int? _bleTrafficOwner;
+
+  void _resetInputState() {
+    void apply() {
+      _smoothLX = 0;
+      _smoothLY = 0;
+      _smoothRX = 0;
+      _smoothRY = 0;
+      _lastLX = 0;
+      _lastLY = 0;
+      _lastRX = 0;
+      _lastRY = 0;
+      _triangle = false;
+      _cross = false;
+      _square = false;
+      _circle = false;
+      _lastButtonsKey = 0;
+      _controller.setLeftJoystick(0, 0);
+      _controller.setRightJoystick(0, 0);
+      _setLeftDebug(0, 0);
+      _setRightDebug(0, 0);
+    }
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
+    }
+  }
 
   void _setLeftDebug(double x, double y) {
     _leftDebug = "X:${_fmt(x)} Y:${_fmt(y)}";
@@ -164,10 +193,21 @@ class _JoystickPageState extends State<JoystickPage> {
     _rightDebug = "X:${_fmt(x)} Y:${_fmt(y)}";
   }
 
-  void _sendBinary(JoystickPacket packet, {Set<int>? buttons}) {
-    BleManager.instance.sendJoystickBinary(
-      packet: packet,
-      pressedButtons: buttons ?? const <int>{},
+  void _sendBinary(
+    JoystickPacket packet, {
+    Set<int>? buttons,
+    bool force = false,
+  }) {
+    final owner = _bleTrafficOwner;
+    if (owner == null) return;
+    _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
+    unawaited(
+      BleManager.instance.sendJoystickBinary(
+        packet: packet,
+        pressedButtons: buttons ?? const <int>{},
+        owner: owner,
+        force: force,
+      ),
     );
   }
 
@@ -224,7 +264,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _timer = null;
   }
 
-  void _sendZeroAndClear({bool updateUi = true}) {
+  Future<void> _sendZeroAndClear({bool updateUi = true, int? owner}) {
     _smoothLX = 0;
     _smoothLY = 0;
     _smoothRX = 0;
@@ -235,20 +275,19 @@ class _JoystickPageState extends State<JoystickPage> {
     _lastRX = 0;
     _lastRY = 0;
 
+    _triangle = false;
+    _cross = false;
+    _square = false;
+    _circle = false;
+
     _controller.setLeftJoystick(0, 0);
     _controller.setRightJoystick(0, 0);
 
-    _lastButtonsKey = _buttonsKey();
-    _sendBinary(
-      JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
-      buttons: _pressedButtons(),
-    );
-    Future.delayed(const Duration(milliseconds: 20), () {
-      _sendBinary(
-        JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
-        buttons: _pressedButtons(),
-      );
-    });
+    _lastButtonsKey = 0;
+    final stopOwner = owner ?? _bleTrafficOwner;
+    final stopFuture = stopOwner == null
+        ? Future<void>.value()
+        : BleManager.instance.sendControlStop(owner: stopOwner);
 
     if (updateUi && mounted) {
       setState(() {
@@ -256,11 +295,23 @@ class _JoystickPageState extends State<JoystickPage> {
         _setRightDebug(0, 0);
       });
     }
+    return stopFuture;
   }
 
   @override
   void initState() {
     super.initState();
+    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
+      BleTrafficMode.controlBinary,
+      ownerName: 'joystick',
+    );
+    final trafficOwner = _bleTrafficOwner;
+    if (trafficOwner != null) {
+      BleManager.instance.enableControlReconnect(
+        owner: trafficOwner,
+        ownerName: 'joystick',
+      );
+    }
     OrientationUtils.setLandscapeOnly();
     _tutorialThai = LanguageController.isThai.value;
     _langListener = () {
@@ -272,7 +323,27 @@ class _JoystickPageState extends State<JoystickPage> {
     LanguageController.isThai.addListener(_langListener);
     _loadLayout();
     _maybeStartTutorial();
-    BleManager.instance.autoConnectLastDevice();
+    if (trafficOwner != null) {
+      unawaited(
+        BleManager.instance.autoConnectLastDevice(
+          source: 'control_initial',
+          owner: trafficOwner,
+        ),
+      );
+    }
+
+    // ชั้น 3: reset input state เมื่อ BLE หลุด/reconnect
+    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!mounted) return;
+      _resetInputState();
+      if (connected) {
+        _sendBinary(
+          JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+          buttons: _pressedButtons(),
+          force: true,
+        );
+      }
+    });
 
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       if (_editMode) return;
@@ -330,7 +401,13 @@ class _JoystickPageState extends State<JoystickPage> {
           (packet.rx - _lastRX).abs() > _delta ||
           (packet.ry - _lastRY).abs() > _delta;
 
-      if (!changed && !buttonsChanged) return;
+      if (!changed && !buttonsChanged) {
+        final active = !nearZero || buttonsKey != 0;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (!active || now - _lastControlSendMs < _activeKeepaliveMs) {
+          return;
+        }
+      }
 
       _lastLX = packet.lx;
       _lastLY = packet.ly;
@@ -355,7 +432,19 @@ class _JoystickPageState extends State<JoystickPage> {
   void dispose() {
     _stopTimer();
     _editWarningTimer?.cancel();
-    _sendZeroAndClear(updateUi: false);
+    _bleConnSub?.cancel();
+    final trafficOwner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (trafficOwner != null) {
+      BleManager.instance.disableControlReconnect(trafficOwner);
+    }
+    unawaited(
+      _sendZeroAndClear(updateUi: false, owner: trafficOwner).whenComplete(() {
+        if (trafficOwner != null) {
+          BleManager.instance.releaseTrafficMode(trafficOwner);
+        }
+      }),
+    );
     LanguageController.isThai.removeListener(_langListener);
     OrientationUtils.reset();
     super.dispose();
@@ -3144,7 +3233,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Future<bool> _onBack() async {
     OrientationUtils.reset();
-    _sendZeroAndClear();
+    unawaited(_sendZeroAndClear());
     _stopTimer();
     Navigator.pushAndRemoveUntil(
       context,
@@ -3154,50 +3243,23 @@ class _JoystickPageState extends State<JoystickPage> {
     return false;
   }
 
-  GamepadAppBarMetrics _joyAppBarMetrics(double width) {
-    final wide = width >= 1200;
-    return GamepadAppBarMetrics(
-      controlHeight: wide ? 36.0 : 34.0,
-      iconButtonExtent: wide ? 36.0 : 34.0,
-      labelButtonWidth: wide ? 132.0 : 120.0,
-      controlGap: wide ? 5.0 : 4.0,
-      sectionGap: wide ? 8.0 : 6.0,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      iconSize: wide ? 17.0 : 16.0,
-      borderRadius: BorderRadius.circular(999),
-      labelIconGap: 5.0,
-      telemetryLabelFontSize: 11.0,
-      telemetryValueFontSize: 11.0,
-      telemetryValueMaxWidth: wide ? 132.0 : 116.0,
-    );
-  }
-
   GamepadAppBarMetrics _metricsWithOverrides(
     GamepadAppBarMetrics base, {
-    double? controlHeight,
-    double? iconButtonExtent,
     double? labelButtonWidth,
-    double? telemetryLabelFontSize,
-    double? telemetryValueFontSize,
     double? telemetryValueMaxWidth,
-    EdgeInsets? contentPadding,
-    double? iconSize,
-    double? labelIconGap,
   }) {
     return GamepadAppBarMetrics(
-      controlHeight: controlHeight ?? base.controlHeight,
-      iconButtonExtent: iconButtonExtent ?? base.iconButtonExtent,
+      controlHeight: base.controlHeight,
+      iconButtonExtent: base.iconButtonExtent,
       labelButtonWidth: labelButtonWidth ?? base.labelButtonWidth,
       controlGap: base.controlGap,
       sectionGap: base.sectionGap,
-      contentPadding: contentPadding ?? base.contentPadding,
-      iconSize: iconSize ?? base.iconSize,
+      contentPadding: base.contentPadding,
+      iconSize: base.iconSize,
       borderRadius: base.borderRadius,
-      labelIconGap: labelIconGap ?? base.labelIconGap,
-      telemetryLabelFontSize:
-          telemetryLabelFontSize ?? base.telemetryLabelFontSize,
-      telemetryValueFontSize:
-          telemetryValueFontSize ?? base.telemetryValueFontSize,
+      labelIconGap: base.labelIconGap,
+      telemetryLabelFontSize: base.telemetryLabelFontSize,
+      telemetryValueFontSize: base.telemetryValueFontSize,
       telemetryValueMaxWidth:
           telemetryValueMaxWidth ?? base.telemetryValueMaxWidth,
     );
@@ -3230,164 +3292,10 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Color _hudTextColor({required Color accent, required ColorScheme cs}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final target = isDark ? Colors.white : cs.onSurface;
-    return Color.lerp(accent, target, isDark ? 0.42 : 0.62) ?? target;
-  }
-
-  Widget _glassPill({
-    required Widget child,
-    VoidCallback? onTap,
-    EdgeInsets padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    Color? background,
-    Color? borderColor,
-    Color? accentColor,
-    Key? key,
-    double? height,
-    double? width,
-    BorderRadius? borderRadius,
-  }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final interactionTint = accentColor != null
-        ? _opacity(accentColor, isDark ? 0.12 : 0.08)
-        : _opacity(cs.primary, isDark ? 0.08 : 0.05);
-    final surface =
-        background ??
-        _opacity(
-          Color.lerp(
-                isDark ? const Color(0xFF101827) : cs.surface,
-                isDark ? Colors.white : Colors.black,
-                isDark ? 0.04 : 0.02,
-              ) ??
-              cs.surface,
-          isDark ? 0.92 : 0.97,
-        );
-    final border = borderColor ?? _opacity(cs.outline, isDark ? 0.45 : 0.22);
-    final radius = borderRadius ?? BorderRadius.circular(999);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: key,
-        borderRadius: radius,
-        overlayColor: WidgetStatePropertyAll(interactionTint),
-        onTap: onTap,
-        child: Container(
-          width: width,
-          height: height,
-          alignment: Alignment.center,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: radius,
-            border: Border.all(color: border, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: _opacity(Colors.black, isDark ? 0.22 : 0.06),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: _opacity(Colors.white, isDark ? 0.06 : 0.16),
-                blurRadius: 10,
-                spreadRadius: 0.4,
-                blurStyle: BlurStyle.inner,
-              ),
-            ],
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  TextStyle _appBarActionTextStyle({
-    required bool isThai,
-    required ColorScheme cs,
-    required GamepadAppBarMetrics metrics,
-    required Color accent,
-  }) {
-    return TextStyle(
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-      fontSize: metrics.telemetryLabelFontSize,
-      fontWeight: FontWeight.w800,
-      letterSpacing: isThai ? 0 : 0.15,
-      color: _hudTextColor(accent: accent, cs: cs),
-    );
-  }
-
-  Widget _appBarActionPill({
-    required IconData icon,
-    required String labelEn,
-    required String labelTh,
-    required VoidCallback? onTap,
-    required bool showText,
-    required bool isThai,
-    required GamepadAppBarMetrics metrics,
-    bool enabled = true,
-    Color? accentColor,
-    Key? key,
-    double? minWidth,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    final label = isThai ? labelTh : labelEn;
-    final iconColor = accentColor ?? cs.primary;
-    final content = showText
-        ? Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: metrics.iconSize, color: iconColor),
-              SizedBox(width: metrics.labelIconGap),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _appBarActionTextStyle(
-                  isThai: isThai,
-                  cs: cs,
-                  metrics: metrics,
-                  accent: iconColor,
-                ),
-              ),
-            ],
-          )
-        : Icon(icon, size: metrics.iconSize, color: iconColor);
-    final pill = _glassPill(
-      key: key,
-      onTap: enabled ? onTap : null,
-      accentColor: accentColor,
-      height: metrics.controlHeight,
-      width: showText ? null : metrics.iconButtonExtent,
-      padding: showText ? metrics.contentPadding : EdgeInsets.zero,
-      borderRadius: metrics.borderRadius,
-      child: content,
-    );
-    final wrappedPill = showText
-        ? ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: minWidth ?? metrics.labelButtonWidth,
-            ),
-            child: pill,
-          )
-        : pill;
-    return Tooltip(
-      message: label,
-      child: enabled ? wrappedPill : Opacity(opacity: 0.45, child: wrappedPill),
-    );
-  }
-
   Widget _buildAppBarActionsRow({
     required bool isThai,
-    required bool showPrimaryText,
-    required bool showSecondaryText,
     required GamepadAppBarMetrics appBarMetrics,
-    required GamepadAppBarMetrics presetMetrics,
     required double actionGap,
-    required double presetWidth,
     required _TutorialStep? activeTutorialStep,
     required bool tutorialIsFirst,
     required bool tutorialIsLast,
@@ -3423,48 +3331,42 @@ class _JoystickPageState extends State<JoystickPage> {
     );
 
     addAction(
-      _appBarActionPill(
-        key: _tutorialCustomizeKey,
-        icon: Icons.edit,
-        labelEn: 'Edit',
-        labelTh: 'แก้ไข',
-        onTap: () {
-          gamepadBuzz();
-          _toggleEdit();
-        },
-        showText: showPrimaryText,
-        isThai: isThai,
-        metrics: appBarMetrics,
-        minWidth: 78,
-        accentColor: const Color(0xFF38BDF8),
-      ),
-    );
-    addAction(
-      _actionPill(
-        key: _tutorialPresetKey,
-        label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
-        icon: Icons.folder_open,
-        accent: const Color(0xFFF59E0B),
-        onTap: () {
-          gamepadBuzz();
-          _showPresetSheet();
-        },
-      ),
-    );
-    addAction(
-      _appBarActionPill(
-        key: _tutorialHelpKey,
-        icon: Icons.help_outline,
-        labelEn: 'Tutorial',
-        labelTh: 'วิธีใช้งาน',
-        onTap: () {
-          gamepadBuzz();
-          _restartTutorial();
-        },
-        showText: false,
-        isThai: isThai,
-        metrics: appBarMetrics,
-        accentColor: const Color(0xFFEC4899),
+      GamepadAppBarActionGroup(
+        gap: actionGap,
+        items: [
+          GamepadAppBarActionItem(
+            key: _tutorialCustomizeKey,
+            label: isThai ? 'แก้ไข' : 'Edit',
+            icon: Icons.edit,
+            accent: const Color(0xFF38BDF8),
+            compactOnNarrow: false,
+            onTap: () {
+              gamepadBuzz();
+              _toggleEdit();
+            },
+          ),
+          GamepadAppBarActionItem(
+            key: _tutorialPresetKey,
+            label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
+            icon: Icons.folder_open,
+            accent: const Color(0xFFF59E0B),
+            onTap: () {
+              gamepadBuzz();
+              _showPresetSheet();
+            },
+          ),
+          GamepadAppBarActionItem(
+            key: _tutorialHelpKey,
+            label: isThai ? 'วิธีใช้งาน' : 'Tutorial',
+            icon: Icons.help_outline,
+            accent: const Color(0xFFEC4899),
+            iconOnly: true,
+            onTap: () {
+              gamepadBuzz();
+              _restartTutorial();
+            },
+          ),
+        ],
       ),
     );
 
@@ -3483,11 +3385,7 @@ class _JoystickPageState extends State<JoystickPage> {
     required GamepadAppBarMetrics appBarMetrics,
     required GamepadAppBarMetrics cmdMetrics,
     required GamepadAppBarMetrics axisMetrics,
-    required GamepadAppBarMetrics presetMetrics,
-    required bool showPrimaryText,
-    required bool showSecondaryText,
     required double uniformGap,
-    required double presetWidth,
     required _TutorialStep? activeTutorialStep,
     required bool tutorialIsFirst,
     required bool tutorialIsLast,
@@ -3530,12 +3428,8 @@ class _JoystickPageState extends State<JoystickPage> {
       SizedBox(width: uniformGap),
       _buildAppBarActionsRow(
         isThai: isThai,
-        showPrimaryText: showPrimaryText,
-        showSecondaryText: showSecondaryText,
         appBarMetrics: appBarMetrics,
-        presetMetrics: presetMetrics,
         actionGap: uniformGap,
-        presetWidth: presetWidth,
         activeTutorialStep: activeTutorialStep,
         tutorialIsFirst: tutorialIsFirst,
         tutorialIsLast: tutorialIsLast,
@@ -3673,7 +3567,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: kToolbarHeight,
+      toolbarHeight: GamepadAppBarMetrics.toolbarHeight,
       elevation: 0,
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
@@ -3720,30 +3614,13 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Widget _buildAppBarBackButton(GamepadAppBarMetrics metrics) {
-    final backIconSize = metrics.iconSize + 10;
-
-    return Material(
-      key: _tutorialBackKey,
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(metrics.iconButtonExtent / 2),
-        onTap: () {
-          gamepadBuzz();
-          _onBack();
-        },
-        child: SizedBox(
-          width: metrics.iconButtonExtent,
-          height: metrics.controlHeight,
-          child: Center(
-            child: Image.asset(
-              'assets/icons/Controller/Chevron-Backward.png',
-              width: backIconSize,
-              height: backIconSize,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-      ),
+    return GamepadAppBarBackButton(
+      buttonKey: _tutorialBackKey,
+      metrics: metrics,
+      onPressed: () {
+        gamepadBuzz();
+        _onBack();
+      },
     );
   }
 
@@ -3757,9 +3634,7 @@ class _JoystickPageState extends State<JoystickPage> {
     final tutorialIsFirst = _tutorialStep <= 0;
     final tutorialIsLast = _tutorialStep == steps.length - 1;
     final width = MediaQuery.of(context).size.width;
-    final showPrimaryText = width >= 600;
-    final showSecondaryText = width >= 720;
-    final appBarMetrics = _joyAppBarMetrics(width);
+    final appBarMetrics = GamepadAppBarMetrics.forWidth(width);
     final cmdMetrics = _metricsWithOverrides(
       appBarMetrics,
       labelButtonWidth: 86,
@@ -3769,7 +3644,6 @@ class _JoystickPageState extends State<JoystickPage> {
       appBarMetrics,
       labelButtonWidth: width >= 1200 ? 172 : 156,
       telemetryValueMaxWidth: width >= 1200 ? 144 : 132,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
     );
     final presetMetrics = _metricsWithOverrides(
       appBarMetrics,
@@ -3805,19 +3679,14 @@ class _JoystickPageState extends State<JoystickPage> {
         extendBodyBehindAppBar: true,
         appBar: _editMode
             ? _buildEditModeAppBar(isThai)
-            : JoystickAppBar(
-                title: "",
+            : GamepadUnifiedAppBar(
                 toolbarPadding: const EdgeInsets.symmetric(horizontal: 12),
                 toolbarContent: _buildAppBarToolbarRow(
                   isThai: isThai,
                   appBarMetrics: appBarMetrics,
                   cmdMetrics: cmdMetrics,
                   axisMetrics: axisMetrics,
-                  presetMetrics: presetMetrics,
-                  showPrimaryText: showPrimaryText,
-                  showSecondaryText: showSecondaryText,
                   uniformGap: uniformGap,
-                  presetWidth: width >= 1200 ? 118 : 108,
                   activeTutorialStep: activeTutorialStep,
                   tutorialIsFirst: tutorialIsFirst,
                   tutorialIsLast: tutorialIsLast,
@@ -3956,7 +3825,6 @@ class _JoystickPageState extends State<JoystickPage> {
                       },
                     ),
                   ),
-                  const LogoCorner(),
                   _buildEmptyState(),
                 ],
               ),
@@ -5193,8 +5061,3 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         id == kBtnCircleId;
   }
 }
-
-
-
-
-

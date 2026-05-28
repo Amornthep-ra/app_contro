@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/ui/language_controller.dart';
+import '../../core/widgets/app_back_button.dart';
 
 class InfoPage extends StatefulWidget {
   const InfoPage({super.key});
@@ -35,15 +36,38 @@ class _InfoPageState extends State<InfoPage>
     setState(() {});
   }
 
-  Widget _buildPage(List<Widget> children) {
+  Widget _buildPage(List<Widget> children, List<_GuideTopic> topics) {
+    final resolvedTopics = <_ResolvedGuideTopic>[];
+    final keyedChildren = List<Widget>.of(children);
+
+    for (final topic in topics) {
+      final index = keyedChildren.indexWhere((child) {
+        return child is _InfoCard && topic.matches(child.title);
+      });
+      if (index == -1) continue;
+      final key = GlobalKey();
+      keyedChildren[index] = KeyedSubtree(
+        key: key,
+        child: keyedChildren[index],
+      );
+      resolvedTopics.add(_ResolvedGuideTopic(topic.label, key));
+    }
+
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      itemCount: children.length,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      itemCount: keyedChildren.length + (resolvedTopics.isEmpty ? 0 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) => children[index],
+      itemBuilder: (context, index) {
+        if (resolvedTopics.isNotEmpty && index == 0) {
+          return _TopicChips(topics: resolvedTopics);
+        }
+        final childIndex = resolvedTopics.isEmpty ? index : index - 1;
+        return keyedChildren[childIndex];
+      },
     );
   }
 
+  // ignore: unused_element
   Widget _buildPager(BuildContext context, bool isThai) {
     final theme = Theme.of(context);
     final index = _tabController.index + 1;
@@ -103,11 +127,62 @@ class _InfoPageState extends State<InfoPage>
     );
   }
 
+  List<_GuideTopic> _overviewTopics(bool isThai) {
+    return [
+      _GuideTopic('BLE', (title) => title.contains('BLE')),
+      _GuideTopic(
+        isThai ? 'ปัญหา' : 'Troubleshooting',
+        (title) => title.contains('Troubleshooting') || title.contains('ปัญหา'),
+      ),
+      _GuideTopic(
+        isThai ? 'ติดต่อ' : 'Support',
+        (title) => title.contains('Support') || title.contains('ติดต่อ'),
+      ),
+    ];
+  }
+
+  List<_GuideTopic> _controllerTopics(bool isThai) {
+    return [
+      _GuideTopic(
+        'Gamepad',
+        (title) => title.contains('Gamepad Mode') || title.contains('8'),
+      ),
+      _GuideTopic(
+        '4 Buttons',
+        (title) => title.contains('4 Button') || title.contains('4'),
+      ),
+      _GuideTopic('Joystick', (title) => title.contains('Joystick')),
+      _GuideTopic(
+        'Bit Map',
+        (title) => title.contains('Bit Map') || title.contains('ผัง'),
+      ),
+    ];
+  }
+
+  List<_GuideTopic> _lineSonicTopics(bool isThai) {
+    return [
+      _GuideTopic(
+        isThai ? 'ตัวอย่าง' : 'Examples',
+        (title) => title.contains('Examples') || title.contains('ตัวอย่าง'),
+      ),
+      _GuideTopic(
+        isThai ? 'คำสั่ง' : 'Commands',
+        (title) => title.contains('Commands') || title.contains('คำสั่ง'),
+      ),
+      _GuideTopic(
+        isThai ? 'เซนเซอร์' : 'Read Sensor',
+        (title) => title.contains('Sensor') || title.contains('เซน'),
+      ),
+      _GuideTopic('PID', (title) => title.contains('PID')),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, isThai, _) {
+        final scheme = Theme.of(context).colorScheme;
         final tabs = <Tab>[
           Tab(child: Text(isThai ? 'ภาพรวม' : 'Overview')),
           const Tab(child: Text('Controller')),
@@ -116,83 +191,49 @@ class _InfoPageState extends State<InfoPage>
 
         return Scaffold(
           appBar: AppBar(
-            toolbarHeight: 48,
+            automaticallyImplyLeading: false,
+            toolbarHeight: 44,
             elevation: 0,
             backgroundColor: Colors.transparent,
-            foregroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            foregroundColor: scheme.onSurface,
             centerTitle: true,
             leading: Navigator.of(context).canPop()
-                ? const BackButton(color: Colors.white)
+                ? const AppBackButton()
                 : null,
             title: Text(
               isThai ? 'คู่มือ' : 'Guide',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(50),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: Container(
-                  height: 36,
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: TabBar(
-                    controller: _tabController,
-                    dividerColor: Colors.transparent,
-                    indicatorSize: TabBarIndicatorSize.tab,
-                    labelPadding: EdgeInsets.zero,
-                    labelColor: Colors.white,
-                    unselectedLabelColor: Colors.white70,
-                    labelStyle: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    unselectedLabelStyle: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    indicator: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    tabs: tabs,
-                  ),
-                ),
-              ),
-            ),
-            flexibleSpace: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF37474F), Color(0xFF546E7A)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+                color: scheme.onSurface,
               ),
             ),
           ),
           body: Column(
             children: [
+              _GuideTabSelector(controller: _tabController, tabs: tabs),
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _buildPage(isThai ? _buildOverviewThai() : _buildOverviewEnglish()),
-                    _buildPage(isThai ? _buildPbBleThai() : _buildPbBleEnglish()),
-                    _buildPage(isThai ? _buildLineSonicThai() : _buildLineSonicEnglish()),
+                    _buildPage(
+                      isThai ? _buildOverviewThai() : _buildOverviewEnglish(),
+                      _overviewTopics(isThai),
+                    ),
+                    _buildPage(
+                      isThai ? _buildPbBleThai() : _buildPbBleEnglish(),
+                      _controllerTopics(isThai),
+                    ),
+                    _buildPage(
+                      isThai ? _buildLineSonicThai() : _buildLineSonicEnglish(),
+                      _lineSonicTopics(isThai),
+                    ),
                   ],
                 ),
               ),
-              _buildPager(context, isThai),
             ],
           ),
         );
@@ -438,6 +479,7 @@ List<Widget> _buildPbBleEnglish() {
         const _InfoTile('KB-IDE block code examples are available in the Examples menu.'),
         const _InfoTile('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
         const _InfoTile('Restart Arduino IDE if the library does not appear'),
+        const _InfoTile('Arduino examples are self-contained; open the sketch folder and upload the .ino file.'),
         _InfoTileRich([
           _t('Open '),
           _mono('examples_arduino'),
@@ -464,6 +506,10 @@ List<Widget> _buildPbBleEnglish() {
           '  uint8_t btn = PB_GetButtonsLow();\n'
           '  int drv = PB_GetDriveSpeed();\n'
           '  int trn = PB_GetTurnSpeed();\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // Stop motors here if needed.\n'
+          '    return;\n'
+          '  }\n'
           '\n'
           '  if ((btn & 0x01) && (btn & 0x04)) {\n'
           '    // Up + Left\n'
@@ -507,6 +553,10 @@ List<Widget> _buildPbBleEnglish() {
           '  uint8_t btn = PB_GetButtonsLow();\n'
           '  uint8_t level = PB_GetSpeedLevel();\n'
           '  int spd = PB_SpeedFromLevel(level);\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // Stop motors here if needed.\n'
+          '    return;\n'
+          '  }\n'
           '\n'
           '  // 4-button mapping\n'
           '  if (btn & 0x01) {\n'
@@ -554,6 +604,11 @@ List<Widget> _buildPbBleEnglish() {
           '\n'
           'void loop() {\n'
           '  PB_JoystickDual_updateAxes();\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // Stop motors here if needed.\n'
+          '    return;\n'
+          '  }\n'
+          '\n'
           '  int lx = PB_JoystickDual_getLX100();\n'
           '  int ly = PB_JoystickDual_getLY100();\n'
           '  int rx = PB_JoystickDual_getRX100();\n'
@@ -594,6 +649,9 @@ List<Widget> _buildPbBleEnglish() {
       icon: Icons.sticky_note_2_outlined,
       children: const [
         _InfoTile('Use bitwise AND to check button combos.'),
+        _InfoTile('GPIO7 blinks while BLE is disconnected and stays on when connected.'),
+        _InfoTile('Only one active BLE client is accepted at a time.'),
+        _InfoTile('If control packets stop for 400ms, button/joystick state is reset.'),
         _InfoTile('Keep BLE loop fast; update display less often.'),
       ],
     ),
@@ -614,6 +672,7 @@ List<Widget> _buildPbBleThai() {
         const _InfoTile('ตัวอย่างโค้ดบล็อกของ KBIDE มีอยู่ในเมนู Examples ของโปรแกรม'),
         const _InfoTile('Arduino IDE: Sketch -> Include Library -> Add .ZIP Library'),
         const _InfoTile('หากไม่พบไลบรารี ให้ปิดแล้วเปิด Arduino IDE ใหม่'),
+        const _InfoTile('ตัวอย่าง Arduino เป็นแบบ self-contained ให้เปิดโฟลเดอร์ sketch แล้วอัปโหลดไฟล์ .ino'),
         _InfoTileRich([
           _t('เปิดโฟลเดอร์ '),
           _mono('examples_arduino'),
@@ -640,6 +699,10 @@ List<Widget> _buildPbBleThai() {
           '  uint8_t btn = PB_GetButtonsLow();\n'
           '  int drv = PB_GetDriveSpeed();\n'
           '  int trn = PB_GetTurnSpeed();\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // หยุดมอเตอร์ตรงนี้ถ้าจำเป็น\n'
+          '    return;\n'
+          '  }\n'
           '\n'
           '  if ((btn & 0x01) && (btn & 0x04)) {\n'
           '    // Up + Left\n'
@@ -683,6 +746,10 @@ List<Widget> _buildPbBleThai() {
           '  uint8_t btn = PB_GetButtonsLow();\n'
           '  uint8_t level = PB_GetSpeedLevel();\n'
           '  int spd = PB_SpeedFromLevel(level);\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // หยุดมอเตอร์ตรงนี้ถ้าจำเป็น\n'
+          '    return;\n'
+          '  }\n'
           '\n'
           '  // 4-button mapping\n'
           '  if (btn & 0x01) {\n'
@@ -730,6 +797,11 @@ List<Widget> _buildPbBleThai() {
           '\n'
           'void loop() {\n'
           '  PB_JoystickDual_updateAxes();\n'
+          '  if (!PBGamepad_isControlFresh()) {\n'
+          '    // หยุดมอเตอร์ตรงนี้ถ้าจำเป็น\n'
+          '    return;\n'
+          '  }\n'
+          '\n'
           '  int lx = PB_JoystickDual_getLX100();\n'
           '  int ly = PB_JoystickDual_getLY100();\n'
           '  int rx = PB_JoystickDual_getRX100();\n'
@@ -770,6 +842,9 @@ List<Widget> _buildPbBleThai() {
       icon: Icons.sticky_note_2_outlined,
       children: const [
         _InfoTile('ใช้ bitwise AND เพื่อตรวจการกดปุ่มพร้อมกัน'),
+        _InfoTile('GPIO7 จะกระพริบเมื่อ BLE ยังไม่เชื่อมต่อ และติดค้างเมื่อเชื่อมต่อแล้ว'),
+        _InfoTile('บอร์ดรับ active BLE client ได้ครั้งละ 1 เครื่อง'),
+        _InfoTile('ถ้าไม่มี control packet เกิน 400ms ระบบจะรีเซ็ตสถานะปุ่ม/จอย'),
         _InfoTile('ให้ลูป BLE ทำงานเร็ว และลดความถี่การอัปเดตจอ'),
       ],
     ),
@@ -809,6 +884,9 @@ List<Widget> _buildLineSonicEnglish() {
           _mono('LFR_HW_Config.h'),
           _t(' (0 = PB, 1 = Generic).'),
         ]),
+        const _InfoTile(
+          'Default examples keep PB hardware mapping. ESP32-C3/PicoMini users must set Generic and edit pins before uploading.',
+        ),
         _InfoTileRich([
           _t('Edit pins in '),
           _mono('PB_LineFollowerRobotHW.cpp'),
@@ -825,9 +903,21 @@ List<Widget> _buildLineSonicEnglish() {
         _InfoTileRich([_b('SEQ=...'), _t(' send full step sequence')]),
         _InfoTileRich([_b('SEQPD=...'), _t(' update KP/KD/Speed while running')]),
         _InfoTileRich([_b('SW1=1'), _t(' start/stop')]),
-        _InfoTileRich([_b('RESET=1'), _t(' reset')]),
+        _InfoTileRich([
+          _b('RESET=1'),
+          _t(' stop/reset runtime but keep loaded sequence'),
+        ]),
+        _InfoTileRich([_b('CLEAR=1'), _t(' clear loaded sequence')]),
         _InfoTileRich([_b('SENS=1'), _t(' request sensor values')]),
         _InfoTileRich([_t('Response: '), _b('SENS=a,b,c,...,SUM=x')]),
+        _InfoTileRich([
+          _t('PID replies: '),
+          _b('ACK:SEQ'),
+          _t(', '),
+          _b('ACK:SEQPD'),
+          _t(', '),
+          _b('ERR:NO_SEQ'),
+        ]),
       ],
     ),
     _InfoCard(
@@ -876,6 +966,9 @@ List<Widget> _buildLineSonicThai() {
           _mono('LFR_HW_Config.h'),
           _t(' (0 = PB, 1 = Generic)'),
         ]),
+        const _InfoTile(
+          'ค่าเริ่มต้นยังใช้ mapping ของบอร์ด PB หากใช้ ESP32-C3/PicoMini ให้ตั้ง Generic และแก้ pin ก่อนอัปโหลด',
+        ),
         _InfoTileRich([
           _t('แก้ไขพินใน '),
           _mono('PB_LineFollowerRobotHW.cpp'),
@@ -892,9 +985,21 @@ List<Widget> _buildLineSonicThai() {
         _InfoTileRich([_b('SEQ=...'), _t(' ส่งลำดับสเต็ปทั้งหมด')]),
         _InfoTileRich([_b('SEQPD=...'), _t(' ปรับค่า KP/KD/Speed ระหว่างทำงาน')]),
         _InfoTileRich([_b('SW1=1'), _t(' เริ่ม/หยุด')]),
-        _InfoTileRich([_b('RESET=1'), _t(' รีเซ็ต')]),
+        _InfoTileRich([
+          _b('RESET=1'),
+          _t(' หยุด/รีเซ็ตการทำงาน แต่ยังเก็บ sequence ที่โหลดไว้'),
+        ]),
+        _InfoTileRich([_b('CLEAR=1'), _t(' ล้าง sequence ที่โหลดไว้')]),
         _InfoTileRich([_b('SENS=1'), _t(' ขอค่าเซ็นเซอร์')]),
         _InfoTileRich([_t('ตอบกลับ: '), _b('SENS=a,b,c,...,SUM=x')]),
+        _InfoTileRich([
+          _t('PID ตอบกลับ: '),
+          _b('ACK:SEQ'),
+          _t(', '),
+          _b('ACK:SEQPD'),
+          _t(', '),
+          _b('ERR:NO_SEQ'),
+        ]),
       ],
     ),
     _InfoCard(
@@ -921,6 +1026,105 @@ TextSpan _i(String text) =>
 TextSpan _mono(String text) =>
     TextSpan(text: text, style: const TextStyle(fontFamily: 'monospace'));
 
+class _GuideTopic {
+  final String label;
+  final bool Function(String title) matches;
+
+  const _GuideTopic(this.label, this.matches);
+}
+
+class _ResolvedGuideTopic {
+  final String label;
+  final GlobalKey key;
+
+  const _ResolvedGuideTopic(this.label, this.key);
+}
+
+class _GuideTabSelector extends StatelessWidget {
+  final TabController controller;
+  final List<Tab> tabs;
+
+  const _GuideTabSelector({
+    required this.controller,
+    required this.tabs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withAlpha(120),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: scheme.outlineVariant.withAlpha(120)),
+        ),
+        child: TabBar(
+          controller: controller,
+          dividerColor: Colors.transparent,
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelPadding: EdgeInsets.zero,
+          labelColor: scheme.onPrimaryContainer,
+          unselectedLabelColor: scheme.onSurfaceVariant,
+          labelStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0,
+          ),
+          indicator: BoxDecoration(
+            color: scheme.primaryContainer.withAlpha(180),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          tabs: tabs,
+        ),
+      ),
+    );
+  }
+}
+
+class _TopicChips extends StatelessWidget {
+  final List<_ResolvedGuideTopic> topics;
+
+  const _TopicChips({required this.topics});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: topics.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final topic = topics[index];
+          return ActionChip(
+            visualDensity: VisualDensity.compact,
+            label: Text(topic.label),
+            onPressed: () {
+              final targetContext = topic.key.currentContext;
+              if (targetContext == null) return;
+              Scrollable.ensureVisible(
+                targetContext,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: 0.04,
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _InfoCard extends StatelessWidget {
   final String title;
   final IconData? icon;
@@ -935,13 +1139,14 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Card(
       elevation: 0,
-      color: theme.colorScheme.surface,
+      color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: theme.dividerColor.withValues(alpha: 0.35),
+          color: scheme.outlineVariant.withAlpha(120),
         ),
       ),
       child: Padding(
@@ -952,13 +1157,25 @@ class _InfoCard extends StatelessWidget {
             Row(
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 18, color: theme.colorScheme.primary),
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer.withAlpha(135),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, size: 16, color: scheme.onPrimaryContainer),
+                  ),
                   const SizedBox(width: 8),
                 ],
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -1132,7 +1349,9 @@ class _AppVersionTile extends StatelessWidget {
       future: _loadInfo(),
       builder: (context, snapshot) {
         final info = snapshot.data;
-        final text = info == null ? '-' : '${info.version} (${info.buildNumber})';
+        final text = info == null
+            ? '-'
+            : 'v${info.version} (build ${info.buildNumber})';
         return ListTile(
           dense: true,
           visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
@@ -1159,21 +1378,27 @@ class _CodeBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F5F7),
+        color: scheme.surfaceContainerHighest.withAlpha(130),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFCBD2D9)),
+        border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Text(
-        code,
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 12,
-          height: 1.35,
-          color: Color(0xFF2E2E2E),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(
+          code,
+          softWrap: false,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 12,
+            height: 1.35,
+            color: scheme.onSurface,
+          ),
         ),
       ),
     );

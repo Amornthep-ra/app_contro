@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../ui/language_controller.dart';
 import '../ble/ble_manager.dart';
+import '../ble/ble_permissions.dart';
 import '../connection/app_connection.dart';
 import 'gamepad_app_bar.dart';
 
@@ -167,15 +168,23 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
     final theme = Theme.of(context);
     final isThai = LanguageController.isThai.value;
 
-    return StreamBuilder<bool>(
-      stream: BleManager.instance.connectionStream,
-      initialData: BleManager.instance.isConnected,
+    return StreamBuilder<BleConnectionStatus>(
+      stream: BleManager.instance.statusStream,
+      initialData: BleManager.instance.connectionStatus,
       builder: (context, snapshot) {
-        final connected = snapshot.data ?? false;
+        final status = snapshot.data ?? BleConnectionStatus.disconnected;
+        final connected = status == BleConnectionStatus.connected;
+        final reconnecting = status == BleConnectionStatus.reconnecting;
+        final failed = status == BleConnectionStatus.reconnectFailed;
         final metrics = widget.appBarMetrics;
         final isDark = theme.brightness == Brightness.dark;
-        final accentColor =
-            connected ? const Color(0xFF34D399) : const Color(0xFF60A5FA);
+        final accentColor = connected
+            ? const Color(0xFF34D399)
+            : reconnecting
+                ? const Color(0xFFF59E0B)
+                : failed
+                    ? const Color(0xFFF87171)
+                    : const Color(0xFF60A5FA);
 
         final bgColor = _opacity(
           Color.lerp(
@@ -191,13 +200,24 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
           isDark ? 0.45 : 0.22,
         );
 
-        final icon =
-            connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled;
+        final icon = connected
+            ? Icons.bluetooth_connected
+            : reconnecting
+                ? Icons.bluetooth_searching
+                : Icons.bluetooth_disabled;
 
         final text = connected
             ? _t(isThai, 'BLE เปิด', 'BLE On')
-            : _t(isThai, 'BLE ปิด', 'BLE Off');
-        final dotColor = connected ? Colors.green : Colors.redAccent;
+            : reconnecting
+                ? _t(isThai, 'กำลังเชื่อมต่อ...', 'Reconnecting...')
+                : failed
+                    ? _t(isThai, 'เชื่อมต่อไม่สำเร็จ', 'Reconnect failed')
+                    : _t(isThai, 'BLE ปิด', 'BLE Off');
+        final dotColor = connected
+            ? Colors.green
+            : reconnecting
+                ? const Color(0xFFF59E0B)
+                : Colors.redAccent;
         final iconGap = metrics?.labelIconGap ?? 4.0;
         final borderRadius =
             metrics?.borderRadius ?? BorderRadius.circular(20);
@@ -624,6 +644,25 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   Future<void> _startScan() async {
     if (_scanning || _connecting) return;
 
+    final permissionsOk = await ensureBleScanPermissions();
+    if (!permissionsOk) {
+      if (mounted) {
+        final isThai = LanguageController.isThai.value;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _t(
+                isThai,
+                'กรุณาอนุญาตสิทธิ์ Bluetooth เพื่อค้นหาอุปกรณ์',
+                'Please allow Bluetooth permission to scan for devices.',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
       await _promptEnableBluetooth();
@@ -704,7 +743,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     setState(() => _connecting = true);
     try {
       await FlutterBluePlus.stopScan();
-      await BleManager.instance.disconnect();
+      await BleManager.instance.disconnect(source: 'manual_connect_replace');
       try {
         await r.device.disconnect();
       } catch (_) {}
@@ -720,8 +759,14 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       if (ok) {
         await _saveLastDeviceId(r.device.remoteId.str);
         AppConnection.instance.setBleConnected(true);
-        BleManager.instance.send("HELLO_APP");
+        await BleManager.instance.sendSystemText(
+          "HELLO_APP",
+          source: 'connection_status_badge',
+        );
         if (mounted) Navigator.of(context).pop();
+      } else {
+        await BleManager.instance.disconnect(source: 'services_missing');
+        AppConnection.instance.setBleConnected(false);
       }
     } catch (_) {
       AppConnection.instance.setBleConnected(false);

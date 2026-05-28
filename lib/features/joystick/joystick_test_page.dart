@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/app_back_button.dart';
 import 'joystick/widgets/joystick_widget.dart';
 import 'joystick/joystick_controller.dart';
 
@@ -19,6 +20,10 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: Navigator.of(context).canPop()
+            ? const AppBackButton(width: 48, height: 48, iconSize: 32)
+            : null,
         title: const Text("Joystick Test"),
       ),
       body: SafeArea(

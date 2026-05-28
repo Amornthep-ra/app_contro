@@ -560,6 +560,7 @@ class GamepadImageHoldButton extends StatefulWidget {
   final String asset;
   final double diameter;
   final bool showLabel;
+  final bool lightImpactBeforeBuzz;
   final void Function(String id, bool isDown)? onPressChanged;
 
   const GamepadImageHoldButton({
@@ -569,6 +570,7 @@ class GamepadImageHoldButton extends StatefulWidget {
     required this.asset,
     this.diameter = 120,
     this.showLabel = true,
+    this.lightImpactBeforeBuzz = false,
     this.onPressChanged,
   });
 
@@ -582,6 +584,9 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);
+    if (widget.lightImpactBeforeBuzz) {
+      HapticFeedback.lightImpact();
+    }
     _buzz();
     widget.onPressChanged?.call(widget.sendValue, true);
   }
@@ -606,8 +611,8 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
       height: widget.diameter,
       child: AnimatedScale(
         scale: scale,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOutBack,
+        duration: const Duration(milliseconds: 70),
+        curve: Curves.easeOutCubic,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 50),
           curve: Curves.easeOut,
@@ -670,7 +675,23 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
     );
 
     return Listener(
-      onPointerDown: (_) => _onDown(),
+      onPointerDown: (e) {
+        final r = widget.diameter / 2;
+        final dx = e.localPosition.dx - r;
+        final dy = e.localPosition.dy - r;
+        if (dx * dx + dy * dy > r * r) return;
+        _onDown();
+      },
+      onPointerMove: (e) {
+        if (!_pressed) return;
+        final r = widget.diameter / 2;
+        final dx = e.localPosition.dx - r;
+        final dy = e.localPosition.dy - r;
+        final tolerance = r * 1.3;
+        if (dx * dx + dy * dy > tolerance * tolerance) {
+          _onUpOrCancel();
+        }
+      },
       onPointerUp: (_) => _onUpOrCancel(),
       onPointerCancel: (_) => _onUpOrCancel(),
       child: widget.showLabel

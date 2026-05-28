@@ -11,7 +11,6 @@ import '../../core/ble/ble_manager.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
-import '../../core/widgets/logo_corner.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
@@ -30,7 +29,7 @@ const double _panelColGap = 32.0;
 
 const int kLoopHz = 60;
 const int kLoopMs = 1000 ~/ kLoopHz;
-const int kMinActiveMs = 150;
+const int kMinActiveMs = 50;
 const int kMinIdleMs = 150;
 
 const int kMaxSendHz = 40;
@@ -393,6 +392,25 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   Timer? _tick;
   int _lastSendMs = 0;
+  StreamSubscription<bool>? _bleConnSub;
+  int? _bleTrafficOwner;
+
+  void _resetInputState() {
+    void apply() {
+      _f = false;
+      _b = false;
+      _l = false;
+      _r = false;
+      _command = '0';
+      _lastPacketKey = '';
+      _lastSendMs = 0;
+    }
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
+    }
+  }
 
   Set<int> _buildPressedButtons() {
     final btns = <int>{};
@@ -422,15 +440,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   String _commandByteLabel() => _buttonsByte().toString();
-
-  int _speedByte() {
-    if (_speedLabel == 'Lo') return 1 << (kBleBtnSpeedLow - 9);
-    if (_speedLabel == 'Med') return 1 << (kBleBtnSpeedMid - 9);
-    if (_speedLabel == 'Hi') return 1 << (kBleBtnSpeedHigh - 9);
-    return 0;
-  }
-
-  String _speedByteLabel() => _speedByte().toString();
 
   Future<void> _loadLayouts() async {
     final prefs = await SharedPreferences.getInstance();
@@ -1603,6 +1612,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   void _sendBinary({bool force = false}) {
     if (!BleManager.instance.isConnected) return;
+    final owner = _bleTrafficOwner;
+    if (owner == null) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final key = _packetKey();
@@ -1622,15 +1633,30 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _lastPacketKey = key;
     _lastSendMs = now;
 
-    BleManager.instance.sendJoystickBinary(
-      packet: JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
-      pressedButtons: _buildPressedButtons(),
+    unawaited(
+      BleManager.instance.sendJoystickBinary(
+        packet: JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+        pressedButtons: _buildPressedButtons(),
+        owner: owner,
+        force: force,
+      ),
     );
   }
 
   @override
   void initState() {
     super.initState();
+    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
+      BleTrafficMode.controlBinary,
+      ownerName: 'gamepad_4',
+    );
+    final trafficOwner = _bleTrafficOwner;
+    if (trafficOwner != null) {
+      BleManager.instance.enableControlReconnect(
+        owner: trafficOwner,
+        ownerName: 'gamepad_4',
+      );
+    }
     OrientationUtils.setLandscapeOnly();
     _tutorialThai = LanguageController.isThai.value;
     _langListener = () {
@@ -1643,7 +1669,23 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _sendSpeed('Med');
     _loadLayouts();
     _maybeStartTutorial();
-    BleManager.instance.autoConnectLastDevice();
+    if (trafficOwner != null) {
+      unawaited(
+        BleManager.instance.autoConnectLastDevice(
+          source: 'control_initial',
+          owner: trafficOwner,
+        ),
+      );
+    }
+
+    // ชั้น 3: reset input state เมื่อ BLE หลุด/reconnect
+    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!mounted) return;
+      _resetInputState();
+      if (connected) {
+        _sendBinary(force: true);
+      }
+    });
 
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
@@ -1655,10 +1697,24 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   void dispose() {
     _editWarningTimer?.cancel();
     _tick?.cancel();
+    _bleConnSub?.cancel();
     LanguageController.isThai.removeListener(_langListener);
 
-    if (BleManager.instance.isConnected && _command != '0') {
-      _sendBinary(force: true);
+    final trafficOwner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (trafficOwner != null) {
+      BleManager.instance.disableControlReconnect(trafficOwner);
+    }
+    if (BleManager.instance.isConnected && trafficOwner != null) {
+      unawaited(
+        BleManager.instance
+            .sendControlStop(owner: trafficOwner)
+            .whenComplete(() {
+              BleManager.instance.releaseTrafficMode(trafficOwner);
+            }),
+      );
+    } else if (trafficOwner != null) {
+      BleManager.instance.releaseTrafficMode(trafficOwner);
     }
     OrientationUtils.reset();
     super.dispose();
@@ -1738,31 +1794,12 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   Widget _buildAppBarBackButton() {
-    final metrics = GamepadAppBarMetrics.forWidth(
-      MediaQuery.of(context).size.width,
-    );
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          gamepadBuzz();
-          Navigator.maybePop(context);
-        },
-        child: SizedBox(
-          key: _tutorialBackKey,
-          width: metrics.iconButtonExtent,
-          height: metrics.controlHeight,
-          child: Center(
-            child: Image.asset(
-              'assets/icons/Controller/Chevron-Backward.png',
-              width: 22,
-              height: 22,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-      ),
+    return GamepadAppBarBackButton(
+      buttonKey: _tutorialBackKey,
+      onPressed: () {
+        gamepadBuzz();
+        Navigator.maybePop(context);
+      },
     );
   }
 
@@ -1799,23 +1836,23 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     };
   }
 
-  Future<void> _openSpeedMenu() async {
-    if (_speedMenuOpen) return;
-    setState(() => _speedMenuOpen = true);
-    final selected = await _showSpeedGlassMenu();
-    if (!mounted) return;
-    setState(() => _speedMenuOpen = false);
-    if (selected != null) {
-      _sendSpeed(selected);
-    }
+  void _openSpeedMenu() {
+    setState(() => _speedMenuOpen = !_speedMenuOpen);
   }
 
-  Future<String?> _showSpeedGlassMenu() {
+  void _selectSpeedMenuValue(String value) {
+    setState(() => _speedMenuOpen = false);
+    _sendSpeed(value);
+  }
+
+  Widget _buildSpeedMenuPanel() {
+    if (!_speedMenuOpen || _editMode) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final media = MediaQuery.of(context);
     final panelWidth = math.min(media.size.width - 24, 168.0);
-    final panelTop = media.padding.top + kToolbarHeight + 6;
+    final panelTop =
+        media.padding.top + GamepadAppBarMetrics.toolbarHeight + 6;
     final panelBg = isDark
         ? _opacity(const Color(0xFF020817), 0.78)
         : _opacity(const Color(0xFFF8FAFC), 0.94);
@@ -1823,91 +1860,99 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       const Color(0xFF7DD3FC),
       isDark ? 0.45 : 0.24,
     );
+    final title = LanguageController.isThai.value ? 'ความเร็ว' : 'Speed';
 
-    return showGeneralDialog<String>(
-      context: context,
-      barrierLabel: 'Speed',
-      barrierDismissible: true,
-      barrierColor: _opacity(Colors.black, isDark ? 0.22 : 0.12),
-      transitionDuration: const Duration(milliseconds: 130),
-      pageBuilder: (ctx, _, __) {
-        return Stack(
-          children: [
-            Positioned(
-              top: panelTop,
-              right: 12,
-              child: Material(
-                color: Colors.transparent,
-                child: SizedBox(
-                  width: panelWidth,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                        decoration: BoxDecoration(
-                          color: panelBg,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: panelBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, isDark ? 0.22 : 0.08),
-                              blurRadius: 18,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 22,
-                                  height: 22,
-                                  decoration: BoxDecoration(
-                                    color: _opacity(
-                                      const Color(0xFF38BDF8),
-                                      isDark ? 0.18 : 0.12,
-                                    ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.speed_rounded,
-                                    size: 12,
-                                    color: Color(0xFF38BDF8),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Speed',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w900,
-                                    color: isDark
-                                        ? Colors.white
-                                        : theme.colorScheme.onSurface,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ..._buildSpeedGlassItems(
-                              onSelect: (value) => Navigator.of(ctx).pop(value),
-                            ),
-                          ],
-                        ),
-                      ),
+    return Positioned(
+      top: panelTop,
+      right: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          width: panelWidth,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                decoration: BoxDecoration(
+                  color: panelBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: panelBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _opacity(Colors.black, isDark ? 0.22 : 0.08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
                     ),
-                  ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: _opacity(
+                              const Color(0xFF38BDF8),
+                              isDark ? 0.18 : 0.12,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.speed_rounded,
+                            size: 12,
+                            color: Color(0xFF38BDF8),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                              color: isDark
+                                  ? Colors.white
+                                  : theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip:
+                              LanguageController.isThai.value ? 'ปิด' : 'Close',
+                          onPressed: () => setState(() => _speedMenuOpen = false),
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          color: _opacity(
+                            isDark ? Colors.white : theme.colorScheme.onSurface,
+                            0.72,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 32,
+                            height: 32,
+                          ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ..._buildSpeedGlassItems(onSelect: _selectSpeedMenuValue),
+                  ],
                 ),
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ),
     );
   }
 
@@ -1923,7 +1968,10 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       final color = _speedColor(label);
       final bgColor = selected
           ? _opacity(color, isDark ? 0.24 : 0.18)
-          : _opacity(isDark ? Colors.white : const Color(0xFF0F172A), isDark ? 0.04 : 0.03);
+          : _opacity(
+              isDark ? Colors.white : const Color(0xFF0F172A),
+              isDark ? 0.04 : 0.03,
+            );
       final borderColor = selected
           ? _opacity(color, isDark ? 0.72 : 0.58)
           : _opacity(theme.colorScheme.outline, isDark ? 0.36 : 0.30);
@@ -2165,7 +2213,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final topInset = MediaQuery.of(context).padding.top;
-    final panelTop = topInset + kToolbarHeight + 8;
+    final panelTop = topInset + GamepadAppBarMetrics.toolbarHeight + 8;
     final panelWidth = math.min(MediaQuery.of(context).size.width - 24, 210.0);
     return Positioned(
       top: panelTop,
@@ -3205,7 +3253,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                 ? null
                 : SizedBox(
                     key: _tutorialSpdKey,
-                    child: _appBarBadge('SPD', _speedByteLabel()),
+                    child: _appBarBadge('SPD', _speedLabel),
                   ),
             bleBadge: _editMode
                 ? null
@@ -3217,37 +3265,32 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
               if (_editMode) {
                 return const SizedBox.shrink();
               }
-              final children = <Widget>[
-                _actionPill(
-                  key: _tutorialCustomizeKey,
-                  label: isThai ? 'แก้ไข' : 'Edit',
-                  icon: _editMode ? Icons.check_rounded : Icons.tune_rounded,
-                  accent: _barAccent('EDIT'),
-                  onTap: _toggleEdit,
-                ),
-                _actionPill(
-                  key: _tutorialPresetKey,
-                  label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
-                  icon: Icons.bookmark_rounded,
-                  accent: _barAccent('PRESET'),
-                  onTap: _showPresetSheet,
-                ),
-                _actionPill(
-                  key: _tutorialHelpKey,
-                  label: '?',
-                  icon: Icons.help_outline,
-                  accent: const Color(0xFFEC4899),
-                  iconOnly: true,
-                  onTap: _restartTutorial,
-                ),
-              ];
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (int i = 0; i < children.length; i++) ...[
-                    children[i],
-                    if (i != children.length - 1) SizedBox(width: gap),
-                  ],
+              return GamepadAppBarActionGroup(
+                gap: gap,
+                items: [
+                  GamepadAppBarActionItem(
+                    key: _tutorialCustomizeKey,
+                    label: isThai ? 'แก้ไข' : 'Edit',
+                    icon: _editMode ? Icons.check_rounded : Icons.tune_rounded,
+                    accent: _barAccent('EDIT'),
+                    compactOnNarrow: false,
+                    onTap: _toggleEdit,
+                  ),
+                  GamepadAppBarActionItem(
+                    key: _tutorialPresetKey,
+                    label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
+                    icon: Icons.bookmark_rounded,
+                    accent: _barAccent('PRESET'),
+                    onTap: _showPresetSheet,
+                  ),
+                  GamepadAppBarActionItem(
+                    key: _tutorialHelpKey,
+                    label: '?',
+                    icon: Icons.help_outline,
+                    accent: const Color(0xFFEC4899),
+                    iconOnly: true,
+                    onTap: _restartTutorial,
+                  ),
                 ],
               );
             },
@@ -3346,13 +3389,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                         );
                       },
                     ),
-                    const LogoCorner(),
                   ],
                 ),
               ),
             ],
           ),
         ),
+        _buildSpeedMenuPanel(),
         _buildTutorialOverlay(),
         _buildTutorialPromptOverlay(),
       ],

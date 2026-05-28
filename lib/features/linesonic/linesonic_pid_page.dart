@@ -3,10 +3,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/ble/ble_manager.dart';
-import '../../core/routes/app_routes.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/widgets/connection_status_badge.dart';
 
@@ -138,11 +138,16 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   DateTime _lastPdSend = DateTime.fromMillisecondsSinceEpoch(0);
   bool _sending = false;
   Timer? _autosaveTimer;
+  int? _bleTrafficOwner;
   bool get _isThai => LanguageController.isThai.value;
 
   @override
   void initState() {
     super.initState();
+    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
+      BleTrafficMode.textCommand,
+      ownerName: 'linesonic_pid',
+    );
     _initAsync();
   }
 
@@ -161,6 +166,11 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     _autosaveTimer?.cancel();
     for (final s in _steps) {
       s.dispose();
+    }
+    final trafficOwner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (trafficOwner != null) {
+      BleManager.instance.releaseTrafficMode(trafficOwner);
     }
     super.dispose();
   }
@@ -308,7 +318,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       return;
     }
 
-    await BleManager.instance.send(msg);
+    final owner = _bleTrafficOwner;
+    if (owner == null) {
+      _sending = false;
+      return;
+    }
+    await BleManager.instance.send(msg, owner: owner);
     _sending = false;
     if (toast != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -632,6 +647,23 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     setState(() => _selectedPreset = selected);
   }
 
+  Widget _buildPlainBackButton(bool isThai) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        tooltip: isThai ? 'กลับ' : 'Back',
+        icon: const Icon(Icons.chevron_left_rounded, size: 30),
+        onPressed: () {
+          HapticFeedback.selectionClick();
+          Navigator.maybePop(context);
+        },
+        padding: EdgeInsets.zero,
+        splashRadius: 22,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
@@ -647,9 +679,29 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, isThai, _) {
+        final scheme = Theme.of(context).colorScheme;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('PID Tuning'),
+            automaticallyImplyLeading: false,
+            toolbarHeight: 44,
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            foregroundColor: scheme.onSurface,
+            leading: Navigator.of(context).canPop()
+                ? _buildPlainBackButton(isThai)
+                : null,
+            centerTitle: true,
+            title: Text(
+              'PID Tuning',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+                color: scheme.onSurface,
+              ),
+            ),
             actions: [
               IconButton(
                 tooltip: isThai ? 'วิธีใช้งาน' : 'Tutorial',
@@ -676,63 +728,49 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                         style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
-                      Column(
+                      Row(
                         children: [
-                          InkWell(
-                            onTap: _openPresetPicker,
-                            borderRadius: BorderRadius.circular(8),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                label: Text(isThai ? 'ค่าที่ตั้งไว้' : 'Preset'),
-                                border: const OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding:
-                                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _presets[_selectedPreset].isEmpty
-                                          ? '${_presets[_selectedPreset].name} (empty)'
-                                          : _presets[_selectedPreset].name,
-                                      overflow: TextOverflow.ellipsis,
+                          Expanded(
+                            child: InkWell(
+                              onTap: _openPresetPicker,
+                              borderRadius: BorderRadius.circular(8),
+                              child: InputDecorator(
+                                decoration: InputDecoration(
+                                  label: Text(isThai ? 'ค่าที่ตั้งไว้' : 'Preset'),
+                                  border: const OutlineInputBorder(),
+                                  isDense: true,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _presets[_selectedPreset].isEmpty
+                                            ? '${_presets[_selectedPreset].name} (${isThai ? 'ว่าง' : 'empty'})'
+                                            : _presets[_selectedPreset].name,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
-                                  const Icon(Icons.arrow_drop_down),
-                                ],
+                                    const Icon(Icons.arrow_drop_down),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: 32,
-                                  child: FilledButton(
-                                    onPressed: _savePresetDialog,
-                                    child: Text(
-                                      isThai ? 'บันทึก' : 'Save',
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: SizedBox(
-                                  height: 32,
-                                  child: OutlinedButton(
-                                    onPressed: () => _loadPreset(_selectedPreset),
-                                    child: Text(
-                                      isThai ? 'โหลด' : 'Load',
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip: isThai ? 'บันทึกพรีเซ็ต' : 'Save preset',
+                            onPressed: _savePresetDialog,
+                            icon: const Icon(Icons.save_outlined),
+                            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton.outlined(
+                            tooltip: isThai ? 'โหลดพรีเซ็ต' : 'Load preset',
+                            onPressed: () => _loadPreset(_selectedPreset),
+                            icon: const Icon(Icons.download_outlined),
+                            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                           ),
                         ],
                       ),
@@ -755,7 +793,11 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                   final hasMode = step.mode != null;
                   final isTime = step.mode == _StepMode.time;
                   final isCollapsed = step.collapsed;
-                  final modeLabel = hasMode ? (isTime ? 'Time' : 'CheckSum') : '';
+                  final modeLabel = hasMode
+                      ? (isTime
+                          ? (isThai ? 'เวลา' : 'Time')
+                          : (isThai ? 'เช็กผลรวม' : 'CheckSum'))
+                      : '';
                   final tone = hasMode
                       ? (isTime ? const Color(0xFF3B82F6) : const Color(0xFFF59E0B))
                       : (isDark ? const Color(0xFF4B5563) : const Color(0xFF94A3B8));
@@ -800,7 +842,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                             borderRadius: BorderRadius.circular(999),
                                           ),
                                           child: Text(
-                                            'Step ${index + 1}${modeLabel.isEmpty ? '' : ' ($modeLabel)'}',
+                                            '${isThai ? 'ขั้นตอน' : 'Step'} ${index + 1}${modeLabel.isEmpty ? '' : ' ($modeLabel)'}',
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
                                               color: Colors.white,
@@ -822,21 +864,21 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
-                                        tooltip: 'Duplicate',
+                                        tooltip: isThai ? 'ทำซ้ำ' : 'Duplicate',
                                         onPressed: () => _duplicateStep(index),
                                         icon: const Icon(Icons.copy_all_outlined),
                                         iconSize: 18,
                                         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                                       ),
                                       IconButton(
-                                        tooltip: 'Delete',
+                                        tooltip: isThai ? 'ลบ' : 'Delete',
                                         onPressed: () => _deleteStep(index),
                                         icon: const Icon(Icons.delete_outline),
                                         iconSize: 18,
                                         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                                       ),
                                       IconButton(
-                                        tooltip: 'Move up',
+                                        tooltip: isThai ? 'เลื่อนขึ้น' : 'Move up',
                                         onPressed: index == 0
                                             ? null
                                             : () {
@@ -851,7 +893,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                                       ),
                                       IconButton(
-                                        tooltip: 'Move down',
+                                        tooltip: isThai ? 'เลื่อนลง' : 'Move down',
                                         onPressed: index == _steps.length - 1
                                             ? null
                                             : () {
@@ -892,7 +934,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: _ValuePill(
-                                          label: 'Speed',
+                                          label: isThai ? 'ความเร็ว' : 'Speed',
                                           value: _numOrZero(step.speedCtrl.text),
                                         ),
                                       ),
@@ -923,7 +965,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                     ),
                                     const SizedBox(height: 8),
                                     _NumberField(
-                                      label: 'Speed',
+                                      label: isThai ? 'ความเร็ว' : 'Speed',
                                       controller: step.speedCtrl,
                                       onChanged: _onSpeedChanged,
                                     ),
@@ -954,7 +996,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: _NumberField(
-                                            label: 'Speed',
+                                            label: isThai ? 'ความเร็ว' : 'Speed',
                                             controller: step.speedCtrl,
                                             onChanged: _onSpeedChanged,
                                           ),
@@ -1023,14 +1065,20 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: SegmentedButton<_StepMode>(
-                                          segments: const [
+                                          segments: [
                                             ButtonSegment(
                                               value: _StepMode.time,
-                                              label: Text('Time', style: TextStyle(fontSize: 10)),
+                                              label: Text(
+                                                isThai ? 'เวลา' : 'Time',
+                                                style: const TextStyle(fontSize: 10),
+                                              ),
                                             ),
                                             ButtonSegment(
                                               value: _StepMode.checksum,
-                                              label: Text('CheckSum', style: TextStyle(fontSize: 10)),
+                                              label: Text(
+                                                isThai ? 'เช็กผลรวม' : 'CheckSum',
+                                                style: const TextStyle(fontSize: 10),
+                                              ),
                                             ),
                                           ],
                                           emptySelectionAllowed: true,
@@ -1252,41 +1300,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                         children: [
                           Expanded(
                             child: SizedBox(
-                              height: 44,
-                              child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: sw1Fg,
-                                  side: BorderSide(color: sw1Fg),
-                                ),
-                                onPressed: _sending ? null : _sendSW1,
-                                icon: const Icon(Icons.touch_app),
-                                label: Text(isThai ? '\u0e2a\u0e27\u0e34\u0e15\u0e0b\u0e4c SW1' : 'SW1'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
-                              child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: resetFg,
-                                  side: BorderSide(color: resetFg),
-                                ),
-                                onPressed: _sending ? null : _sendReset,
-                                icon: const Icon(Icons.power_settings_new),
-                                label: Text(isThai ? '\u0e23\u0e35\u0e40\u0e0b\u0e47\u0e15\u0e1a\u0e2d\u0e23\u0e4c\u0e14' : 'Reset Board'),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
+                              height: 48,
                               child: ElevatedButton.icon(
                                 onPressed: _sending ? null : _sendSequence,
                                 icon: const Icon(Icons.send),
@@ -1306,14 +1320,48 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                           Expanded(
                             child: SizedBox(
                               height: 44,
-                              child: ElevatedButton.icon(
+                              child: FilledButton.tonalIcon(
                                 onPressed: _sending ? null : _sendSequencePd,
                                 icon: const Icon(Icons.tune),
                                 label: Text(isThai ? '\u0e2a\u0e48\u0e07 PD+Speed' : 'Send PD+Speed'),
-                                style: ElevatedButton.styleFrom(
+                                style: FilledButton.styleFrom(
                                   backgroundColor: pdBg,
                                   foregroundColor: pdFg,
                                 ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 40,
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: sw1Fg,
+                                  side: BorderSide(color: sw1Fg),
+                                ),
+                                onPressed: _sending ? null : _sendSW1,
+                                icon: const Icon(Icons.touch_app, size: 18),
+                                label: Text(isThai ? '\u0e2a\u0e27\u0e34\u0e15\u0e0b\u0e4c SW1' : 'SW1'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 40,
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: resetFg,
+                                  side: BorderSide(color: resetFg),
+                                ),
+                                onPressed: _sending ? null : _sendReset,
+                                icon: const Icon(Icons.power_settings_new, size: 18),
+                                label: Text(isThai ? '\u0e23\u0e35\u0e40\u0e0b\u0e47\u0e15\u0e1a\u0e2d\u0e23\u0e4c\u0e14' : 'Reset Board'),
                               ),
                             ),
                           ),
@@ -1328,7 +1376,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
               ),
             ],
           ),
-          floatingActionButton: FloatingActionButton(
+          floatingActionButton: FloatingActionButton.extended(
             heroTag: 'add_step_linesonic_pid',
             onPressed: () {
               setState(() {
@@ -1336,28 +1384,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                 _scheduleAutoSave();
               });
             },
-            child: const Icon(Icons.add),
+            icon: const Icon(Icons.add),
+            label: Text(isThai ? 'เพิ่ม Step' : 'Add Step'),
           ),
           floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-          persistentFooterButtons: [
-            SizedBox(
-              height: 32,
-              child: TextButton.icon(
-                onPressed: () => Navigator.popUntil(
-                  context,
-                  (route) => route.settings.name == AppRoutes.home || route.isFirst,
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  minimumSize: const Size(0, 32),
-                  visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                icon: const Icon(Icons.home, size: 16),
-                label: const Text('Home', style: TextStyle(fontSize: 12)),
-              ),
-            ),
-          ],
         );
       },
     );

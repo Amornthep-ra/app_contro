@@ -2,12 +2,14 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/connection/app_connection.dart';
 import '../../core/ble/ble_manager.dart';
+import '../../core/ble/ble_permissions.dart';
 import '../../core/ui/language_controller.dart';
 
 class BluetoothBlePage extends StatefulWidget {
@@ -47,6 +49,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   static const int _scanTimeoutSeconds = 10;
   int _scanSecondsLeft = 0;
   Timer? _scanCountdownTimer;
+  int? _bleTrafficOwner;
 
   static const _prefsLastDeviceIdKey = 'ble_last_device_id';
   static const _prefsLastDeviceNameKey = 'ble_last_device_name';
@@ -77,6 +80,32 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   String _t(String th, String en) =>
       LanguageController.isThai.value ? th : en;
 
+  Widget _homeIcon(String name, {double size = 24}) {
+    return Image.asset(
+      'assets/icons/HomeUnified/$name',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+    );
+  }
+
+  Widget _buildPlainBackButton() {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        tooltip: _t('กลับ', 'Back'),
+        icon: const Icon(Icons.chevron_left_rounded, size: 30),
+        onPressed: () {
+          HapticFeedback.selectionClick();
+          Navigator.maybePop(context);
+        },
+        padding: EdgeInsets.zero,
+        splashRadius: 22,
+      ),
+    );
+  }
+
   bool isRobot(ScanResult r) {
     return r.advertisementData.serviceUuids.any(
       (uuid) => uuid.str.toLowerCase().startsWith("6e400001"),
@@ -86,6 +115,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   @override
   void initState() {
     super.initState();
+    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
+      BleTrafficMode.textCommand,
+      ownerName: 'bluetooth_page',
+    );
     _bindBluetoothState();
     _bindConnectionGuard();
 
@@ -190,12 +223,29 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
     _adapterStateSub?.cancel();
     _isScanningSub?.cancel();
     _connStateSub?.cancel();
+    final trafficOwner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (trafficOwner != null) {
+      BleManager.instance.releaseTrafficMode(trafficOwner);
+    }
 
     super.dispose();
   }
 
   Future<void> _startScan() async {
     if (_scanning || _connecting) return;
+
+    final permissionsOk = await ensureBleScanPermissions();
+    if (!permissionsOk) {
+      AppConnection.instance.setBleConnected(false);
+      _showSnack(
+        _t(
+          'กรุณาอนุญาตสิทธิ์ Bluetooth เพื่อค้นหาอุปกรณ์',
+          'Please allow Bluetooth permission to scan for devices.',
+        ),
+      );
+      return;
+    }
 
     final state = await FlutterBluePlus.adapterState.first;
     if (state != BluetoothAdapterState.on) {
@@ -402,7 +452,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
     try {
       await FlutterBluePlus.stopScan();
-      await BleManager.instance.disconnect();
+      await BleManager.instance.disconnect(source: 'manual_connect_replace');
       try {
         await d.disconnect();
       } catch (_) {}
@@ -417,8 +467,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       if (mounted) {
         setState(() => _connectedDevice = d);
       }
-      AppConnection.instance.setBleConnected(true);
-
       final showName = d.platformName.isNotEmpty
           ? d.platformName
           : d.remoteId.str;
@@ -438,13 +486,24 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
       final ok = await BleManager.instance.discoverServices();
       if (!ok) {
+        await BleManager.instance.disconnect(source: 'services_missing');
+        AppConnection.instance.setBleConnected(false);
+        if (mounted) {
+          setState(() => _connectedDevice = null);
+        } else {
+          _connectedDevice = null;
+        }
         if (mounted) {
           _showSnack(
             _t('ไม่พบ UART RX/TX characteristic', 'UART RX/TX characteristic not found'),
           );
         }
       } else {
-        BleManager.instance.send("HELLO_APP");
+        AppConnection.instance.setBleConnected(true);
+        await BleManager.instance.sendSystemText(
+          "HELLO_APP",
+          source: 'bluetooth_page',
+        );
       }
     } catch (e) {
       AppConnection.instance.setBleConnected(false);
@@ -559,6 +618,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           actions.add(
             _smallAction(
               icon: icon,
+              assetName: (!_connecting && !_scanning)
+                  ? 'Search-Scan.png'
+                  : null,
               label: label,
               onTap: (_scanning || _connecting) ? null : _startScan,
             ),
@@ -604,10 +666,13 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                       : _opacity(scheme.outlineVariant, 0.35),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                  color: titleColor,
-                  size: 18,
+                child: Center(
+                  child: _homeIcon(
+                    connected
+                        ? 'Bluetooth Connected.png'
+                        : 'Bluetooth Disabled.png',
+                    size: 24,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -653,6 +718,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
   Widget _smallAction({
     required IconData icon,
+    String? assetName,
     required String label,
     required VoidCallback? onTap,
     bool danger = false,
@@ -675,7 +741,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
           side: BorderSide(color: _opacity(base, 0.72), width: 1),
         ),
       ),
-      icon: Icon(icon, size: 14),
+      icon: assetName == null
+          ? Icon(icon, size: 14)
+          : _homeIcon(assetName, size: 16),
       label: Text(
         label,
         style: const TextStyle(
@@ -703,8 +771,12 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
         final scheme = Theme.of(context).colorScheme;
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
+            leading: Navigator.of(context).canPop()
+                ? _buildPlainBackButton()
+                : null,
             centerTitle: false,
-            title: Text(_t('Bluetooth Low Energy (BLE)', 'Bluetooth Low Energy (BLE)')),
+            title: Text(_t('BLE Connection', 'BLE Connection')),
           ),
           body: SafeArea(
             child: Padding(
@@ -714,6 +786,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                   _buildBleStatusBar(),
                   const SizedBox(height: 10),
                   _lastDeviceCard(
+                    hasLastDevice: lastId != null,
                     name: lastName ?? _t('ยังไม่มีอุปกรณ์ล่าสุด', 'No recent device'),
                     id: lastId ?? '-',
                     onConnect: (lastId == null || _connecting || _scanning)
@@ -727,7 +800,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                               _startScan();
                             }
                           },
-                    onScan: (_scanning || _connecting) ? null : _startScan,
                   ),
                   const SizedBox(height: 8),
                   Expanded(
@@ -735,19 +807,20 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                       width: double.infinity,
                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                       decoration: BoxDecoration(
-                        color: _panelBg(context),
+                        color: _opacity(
+                          scheme.surfaceContainerHighest,
+                          _isDark(context) ? 0.42 : 0.72,
+                        ),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _panelBorder(context)),
+                        border: Border.all(
+                          color: _opacity(scheme.outlineVariant, 0.55),
+                        ),
                       ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              Icon(
-                                Icons.bluetooth_searching,
-                                size: 18,
-                                color: _textSecondary(context),
-                              ),
+                              _homeIcon('Search-Scan.png', size: 20),
                               const SizedBox(width: 8),
                               Text(
                                 _t('อุปกรณ์ที่ค้นพบ', 'Discovered devices'),
@@ -763,28 +836,36 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                           Expanded(
                             child: results.isEmpty
                         ? Center(
-                            child: Container(
-                              constraints: const BoxConstraints(maxWidth: 420),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: _opacity(scheme.surface, 0.65),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _scanning
-                                    ? _t(
-                                        'กำลังค้นหาอุปกรณ์ ...',
-                                        'Scanning for devices...',
-                                      )
-                                    : _t(
-                                        'ไม่พบรายการอุปกรณ์ \nกด ค้นหา เพื่อลองอีกครั้ง',
-                                        'No devices found.\nTap Scan to try again.',
-                                      ),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: scheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _homeIcon(
+                                    _scanning
+                                        ? 'Search-Scan.png'
+                                        : 'Bluetooth Disabled.png',
+                                    size: 42,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    _scanning
+                                        ? _t(
+                                            'กำลังค้นหาอุปกรณ์ ...',
+                                            'Scanning for devices...',
+                                          )
+                                        : _t(
+                                            'ไม่พบรายการอุปกรณ์\nกด ค้นหา เพื่อลองอีกครั้ง',
+                                            'No devices found.\nTap Scan to try again.',
+                                          ),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: scheme.onSurfaceVariant,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           )
@@ -893,14 +974,19 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   }
 
   Widget _lastDeviceCard({
+    required bool hasLastDevice,
     required String name,
     required String id,
     required VoidCallback? onConnect,
-    required VoidCallback? onScan,
   }) {
     final scheme = _scheme(context);
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(
+        12,
+        hasLastDevice ? 12 : 10,
+        12,
+        hasLastDevice ? 12 : 10,
+      ),
       decoration: BoxDecoration(
         color: _panelBg(context),
         borderRadius: BorderRadius.circular(16),
@@ -915,22 +1001,27 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
               color: _opacity(scheme.tertiaryContainer, 0.72),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.history, color: _textPrimary(context), size: 18),
+            child: Center(
+              child: _homeIcon('Recent Activity-History.png', size: 22),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  _t('อุปกรณ์ล่าสุด', 'Last device'),
-                  style: TextStyle(
-                    color: _textSecondary(context),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                if (hasLastDevice) ...[
+                  Text(
+                    _t('อุปกรณ์ล่าสุด', 'Last device'),
+                    style: TextStyle(
+                      color: _textSecondary(context),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
+                  const SizedBox(height: 2),
+                ],
                 Text(
                   name,
                   maxLines: 1,
@@ -940,31 +1031,28 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                Text(
-                  id,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _textTertiary(context),
-                    fontSize: 11,
+                if (hasLastDevice)
+                  Text(
+                    id,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _textTertiary(context),
+                      fontSize: 11,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          FilledButton.tonal(
-            onPressed: onConnect,
-            child: Text(_t('เชื่อมต่อ', 'Connect')),
-          ),
-          const SizedBox(width: 6),
-          FilledButton.tonal(
-            onPressed: onScan,
-            child: Text(_t('ค้นหา', 'Scan')),
-          ),
+          if (hasLastDevice) ...[
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: onConnect,
+              child: Text(_t('เชื่อมต่อ', 'Connect')),
+            ),
+          ],
         ],
       ),
     );
   }
 }
-

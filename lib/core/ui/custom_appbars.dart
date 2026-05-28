@@ -1,10 +1,5 @@
 // lib/core/ui/custom_appbars.dart
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
-
-Color _appBarOpacity(Color color, double opacity) =>
-    color.withAlpha((opacity * 255).round());
 
 class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   const HomeAppBar({super.key});
@@ -79,115 +74,6 @@ class BleAppBar extends StatelessWidget implements PreferredSizeWidget {
             colors: [Color(0xFF1E2A78), Color(0xFF243B94), Color(0xFF4263EB)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class JoystickAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String title;
-  final Widget? titleWidget;
-  final Widget? toolbarContent;
-  final List<Widget>? actions;
-  final Widget? leading;
-  final double? leadingWidth;
-  final PreferredSizeWidget? bottom;
-  final List<Color>? gradientColors;
-  final EdgeInsetsGeometry toolbarPadding;
-
-  static const double _barHeight = 48;
-
-  const JoystickAppBar({
-    super.key,
-    required this.title,
-    this.titleWidget,
-    this.toolbarContent,
-    this.actions,
-    this.leading,
-    this.leadingWidth,
-    this.bottom,
-    this.gradientColors,
-    this.toolbarPadding = const EdgeInsets.symmetric(horizontal: 12),
-  });
-
-  @override
-  Size get preferredSize =>
-      Size.fromHeight(_barHeight + (bottom?.preferredSize.height ?? 0));
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final baseColor =
-        isDark
-            ? _appBarOpacity(const Color(0xFF111827), 0.94)
-            : _appBarOpacity(
-                Color.lerp(const Color(0xFFF8FAFC), cs.surface, 0.55) ??
-                    cs.surface,
-                0.97,
-              );
-    final border = _appBarOpacity(
-      isDark ? const Color(0xFF38BDF8) : cs.outline,
-      isDark ? 0.28 : 0.16,
-    );
-    final topLine = _appBarOpacity(Colors.white, isDark ? 0.1 : 0.45);
-    final bottomLine = _appBarOpacity(
-      isDark ? const Color(0xFF38BDF8) : cs.outline,
-      isDark ? 0.32 : 0.18,
-    );
-    final content = toolbarContent;
-    return AppBar(
-      toolbarHeight: _barHeight,
-      automaticallyImplyLeading: false,
-      elevation: 0,
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      foregroundColor: cs.onSurface,
-      iconTheme: IconThemeData(color: cs.onSurface),
-      actionsIconTheme: IconThemeData(color: cs.onSurface),
-      leading: content == null ? leading : null,
-      leadingWidth: content == null ? leadingWidth : null,
-      actions: content == null ? actions : null,
-      centerTitle: content == null,
-      bottom: bottom,
-      titleSpacing: content == null ? NavigationToolbar.kMiddleSpacing : 0,
-      title: content != null
-          ? Padding(padding: toolbarPadding, child: content)
-          : titleWidget ??
-               Text(
-                 title,
-                 style: TextStyle(
-                   fontSize: 16,
-                   fontWeight: FontWeight.w700,
-                   color: cs.onSurface,
-                 ),
-               ),
-      flexibleSpace: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
-            decoration: BoxDecoration(
-              color: baseColor,
-              border: Border(
-                top: BorderSide(color: topLine, width: 0.8),
-                bottom: BorderSide(color: border, width: 0.9),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _appBarOpacity(Colors.black, isDark ? 0.24 : 0.08),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: Container(height: 1, color: bottomLine),
-            ),
           ),
         ),
       ),
