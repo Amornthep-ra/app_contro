@@ -4557,7 +4557,8 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   final s = GamepadEditMetrics.panelUnit(size);
   final btn = s * 0.30;
   final gap = s * 0.08;
-  final cy = h / 2;
+  final frame = GamepadEditMetrics.defaultLayoutFrame(size);
+  final cy = frame.center.dy;
 
   _ButtonLayout make(double x, double y) {
     return _ButtonLayout(x / w, y / h, btn / s);
@@ -4581,7 +4582,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
       suffixMap.containsKey('circle');
 
   if (hasMove) {
-    final cxLeft = w * 0.28;
+    final cxLeft = frame.left + frame.width * 0.28;
     if (suffixMap.containsKey('up')) {
       out[suffixMap['up']!] = make(cxLeft, cy - gap - btn / 2);
     }
@@ -4597,7 +4598,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   }
 
   if (hasAction) {
-    final cxRight = w * 0.72;
+    final cxRight = frame.left + frame.width * 0.72;
     if (suffixMap.containsKey('triangle')) {
       out[suffixMap['triangle']!] = make(cxRight, cy - gap - btn / 2);
     }
@@ -5262,4 +5263,3 @@ class _EditGuidePainter extends CustomPainter {
         oldDelegate.color != color;
   }
 }
-

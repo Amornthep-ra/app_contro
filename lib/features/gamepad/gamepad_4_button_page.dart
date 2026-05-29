@@ -3538,6 +3538,10 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
 
+BtnCfg _defaultRenderedCfg(BtnCfg base, Size panel) {
+  return _scaledHoldCfg(base, const _ButtonLayout(0.5, 0.5, 0.30), panel).cfg;
+}
+
 Map<String, _ButtonLayout> _defaultLayoutForIds(
   Size size,
   Map<String, _BtnSpec> specs,
@@ -3546,6 +3550,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   final w = size.width;
   final h = size.height;
   final s = _scaleForPanel(size);
+  final frame = GamepadEditMetrics.defaultLayoutFrame(size);
 
   _ButtonLayout make(double x, double y) {
     return _ButtonLayout(x / w, y / h, 0.30);
@@ -3559,16 +3564,20 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   final out = <String, _ButtonLayout>{};
 
   if (hasForward || hasBackward) {
-    final cfgF = hasForward ? _scaleBtn(specs['F:forward']!.cfg, s) : null;
-    final cfgB = hasBackward ? _scaleBtn(specs['F:backward']!.cfg, s) : null;
+    final cfgF = hasForward
+        ? _defaultRenderedCfg(specs['F:forward']!.cfg, size)
+        : null;
+    final cfgB = hasBackward
+        ? _defaultRenderedCfg(specs['F:backward']!.cfg, size)
+        : null;
     final totalHeight = [
       if (cfgF != null) cfgF.height + cfgF.margin.vertical,
       if (cfgB != null) cfgB.height + cfgB.margin.vertical,
     ].fold(0.0, (a, b) => a + b);
     final gapY =
         (cfgF != null && cfgB != null) ? s.h(_panelColGap) : 0.0;
-    final colLeft = _panelEdgeInset;
-    double y = (h - (totalHeight + gapY)) / 2.0;
+    final colLeft = frame.left + _panelEdgeInset;
+    double y = frame.top + (frame.height - (totalHeight + gapY)) / 2.0;
 
     if (cfgF != null) {
       y += cfgF.margin.top;
@@ -3590,8 +3599,12 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   }
 
   if (hasLeft || hasRight) {
-    final cfgL = hasLeft ? _scaleBtn(specs['F:left']!.cfg, s) : null;
-    final cfgR = hasRight ? _scaleBtn(specs['F:right']!.cfg, s) : null;
+    final cfgL = hasLeft
+        ? _defaultRenderedCfg(specs['F:left']!.cfg, size)
+        : null;
+    final cfgR = hasRight
+        ? _defaultRenderedCfg(specs['F:right']!.cfg, size)
+        : null;
     final gap = s.w(_panelRowGap);
     final rowWidth = [
       if (cfgL != null) cfgL.width + cfgL.margin.horizontal,
@@ -3603,8 +3616,8 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
       if (cfgR != null) cfgR.height + cfgR.margin.vertical,
     ].fold(0.0, math.max);
 
-    double x = w - rowWidth - _panelEdgeInset;
-    final y = (h - maxHeight) / 2.0;
+    double x = frame.right - rowWidth - _panelEdgeInset;
+    final y = frame.top + (frame.height - maxHeight) / 2.0;
 
     if (cfgL != null) {
       final cy = y + cfgL.margin.top + cfgL.height / 2;
@@ -4239,7 +4252,6 @@ class _EditableButtonState extends State<_EditableButton> {
     );
   }
 }
-
 
 
 
