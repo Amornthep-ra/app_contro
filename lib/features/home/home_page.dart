@@ -2,21 +2,44 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' hide Text;
+import 'package:flutter/foundation.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/ble/ble_manager.dart';
+import '../../core/ble/ble_connection_coordinator.dart';
+import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/app_assets.dart';
+import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/language_controller.dart';
-import '../../core/ui/theme_controller.dart';
+import '../../core/utils/orientation_utils.dart';
+import '../../core/widgets/ble_presentation_icon.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
-import '../controller/controller_home_page.dart';
-import '../info/info_page.dart';
+import '../gamepad/gamepad_4_button_page.dart';
+import '../gamepad/gamepad_mode_edit.dart';
+import '../joystick/joystick/presentation/joystick.dart';
 import '../linesonic/linesonic_page.dart';
 
+class _HomePalette {
+  static const background = Color(0xFFF5F0FF);
+  static const controller = Color(0xFF6F8FFF);
+  static const lineSonic = Color(0xFF45D6A1);
+  static const guide = Color(0xFFFFB56B);
+  static const scanPurple = Color(0xFF7256B6);
+  static const scanCyan = Color(0xFF37D8FF);
+  static const deepPlum = Color(0xFF261B39);
+  static const coral = Color(0xFFF05264);
+  static const glass = Color(0xEAFDF9FF);
+  static const glassBorder = Color(0xCCFFFFFF);
+}
+
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.blePageBuilder, this.blePresentationState});
+
+  final WidgetBuilder? blePageBuilder;
+  final ValueListenable<BlePresentationState>? blePresentationState;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -26,6 +49,8 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<bool>? _connSub;
   Timer? _rssiTimer;
   Future<PackageInfo>? _infoFuture;
+  late ValueListenable<BlePresentationState> _blePresentationState;
+  BlePresentationStateController? _ownedBlePresentationState;
 
   bool _connected = false;
   bool _openingPage = false;
@@ -35,12 +60,17 @@ class _HomePageState extends State<HomePage> {
 
   static const _prefsLastDeviceIdKey = 'ble_last_device_id';
   static const _prefsLastDeviceNameKey = 'ble_last_device_name';
+  static final _facebookPageUri = Uri.parse(
+    'https://www.facebook.com/PrinceBotAndElectronics',
+  );
 
   @override
   void initState() {
     super.initState();
+    unawaited(OrientationUtils.request(AppOrientation.portrait));
     _connected = BleManager.instance.isConnected;
     _infoFuture = PackageInfo.fromPlatform();
+    _bindBlePresentationState();
     _loadLastDevice();
     _bindConnection();
   }
@@ -49,7 +79,32 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _connSub?.cancel();
     _rssiTimer?.cancel();
+    _blePresentationState.removeListener(_onBlePresentationChanged);
+    _ownedBlePresentationState?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.blePresentationState != widget.blePresentationState) {
+      _blePresentationState.removeListener(_onBlePresentationChanged);
+      _ownedBlePresentationState?.dispose();
+      _bindBlePresentationState();
+    }
+  }
+
+  void _bindBlePresentationState() {
+    _ownedBlePresentationState = widget.blePresentationState == null
+        ? BlePresentationStateController.production()
+        : null;
+    _blePresentationState =
+        widget.blePresentationState ?? _ownedBlePresentationState!;
+    _blePresentationState.addListener(_onBlePresentationChanged);
+  }
+
+  void _onBlePresentationChanged() {
+    if (mounted) setState(() {});
   }
 
   void _bindConnection() {
@@ -105,8 +160,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openBlePage() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const BluetoothBlePage()),
+      MaterialPageRoute(
+        builder: widget.blePageBuilder ?? (_) => const BluetoothBlePage(),
+      ),
     );
+    await OrientationUtils.request(AppOrientation.portrait);
     await _loadLastDevice();
   }
 
@@ -114,10 +172,9 @@ class _HomePageState extends State<HomePage> {
     if (_openingPage) return;
     setState(() => _openingPage = true);
     try {
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => page),
-      );
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
     } finally {
+      await OrientationUtils.request(AppOrientation.portrait);
       if (mounted) {
         setState(() => _openingPage = false);
       }
@@ -131,10 +188,17 @@ class _HomePageState extends State<HomePage> {
   Future<void> _connectLastDevice(bool isThai) async {
     if (_lastDeviceId == null || _lastDeviceId!.isEmpty) return;
     _showSnack(
-      isThai ? 'กำลังเชื่อมต่ออุปกรณ์ล่าสุด...' : 'Reconnecting to the last device...',
+      isThai
+          ? 'Reconnecting to the last device...'
+          : 'Reconnecting to the last device...',
     );
-    await BleManager.instance.autoConnectLastDevice();
+    await BleConnectionCoordinator.instance.autoConnectLastDevice(
+      timeout: const Duration(seconds: 8),
+      source: 'home_reconnect',
+      userInitiated: true,
+    );
   }
+
   void _showSnack(String msg) {
     if (!mounted) return;
     final theme = Theme.of(context);
@@ -180,16 +244,69 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _openLastControl() async {
+    if (_openingPage) return;
+    setState(() => _openingPage = true);
+    var modeSwitched = false;
+    try {
+      final mode = await ControlModePreference.load();
+      if (!mounted) return;
+      final page = switch (mode) {
+        LastControlMode.fourButton => const Gamepad4ButtonPage(),
+        LastControlMode.eightButton => const GamepadModeEdit(),
+        LastControlMode.joystick => const JoystickPage(),
+      };
+      modeSwitched =
+          await Navigator.of(
+            context,
+          ).push<bool>(MaterialPageRoute(builder: (_) => page)) ??
+          false;
+    } finally {
+      if (!modeSwitched) {
+        await OrientationUtils.request(AppOrientation.portrait);
+      }
+      if (mounted) {
+        setState(() => _openingPage = false);
+      }
+    }
+  }
+
+  Future<void> _openNavItem(_NavItem item) =>
+      item.onTap?.call() ?? _openPage(item.page!);
+
+  Future<void> _openFacebookPage(bool isThai) async {
+    try {
+      final opened = await launchUrl(
+        _facebookPageUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) {
+        _showSnack(
+          isThai ? 'Unable to open Facebook.' : 'Unable to open Facebook.',
+        );
+      }
+    } catch (_) {
+      _showSnack(
+        isThai ? 'Unable to open Facebook.' : 'Unable to open Facebook.',
+      );
+    }
+  }
+
+  Color _contentTextColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? Theme.of(context).colorScheme.onSurface
+      : _HomePalette.deepPlum;
+
   Widget _rssiBars(BuildContext context, int rssi, {double size = 16}) {
     final level = rssi >= -55
         ? 4
         : rssi >= -65
-            ? 3
-            : rssi >= -75
-                ? 2
-                : rssi >= -85
-                    ? 1
-                    : 0;
+        ? 3
+        : rssi >= -75
+        ? 2
+        : rssi >= -85
+        ? 1
+        : 0;
     final active = _rssiColor(context, rssi);
     final inactive = active.withAlpha(60);
     final barWidth = (size / 6).clamp(2.0, 5.0).toDouble();
@@ -221,14 +338,15 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, isThai, _) {
         final items = _navItems(isThai);
+        final contentTopPadding =
+            MediaQuery.paddingOf(context).top + kToolbarHeight + 16;
 
         return Scaffold(
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
             title: const Text(
               'PB Controller',
@@ -237,76 +355,23 @@ class _HomePageState extends State<HomePage> {
             centerTitle: false,
             titleSpacing: 16,
             automaticallyImplyLeading: false,
-            actions: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withAlpha(132),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: scheme.outlineVariant.withAlpha(88),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(width: 6),
-                      _homeIcon('Translate-Language.png', size: 28),
-                      const SizedBox(width: 2),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 40),
-                        child: Center(
-                          child: SegmentedButton<bool>(
-                            segments: const [
-                              ButtonSegment(value: false, label: Text('EN')),
-                              ButtonSegment(value: true, label: Text('TH')),
-                            ],
-                            selected: {isThai},
-                            onSelectionChanged: (value) {
-                              LanguageController.setIsThai(value.first);
-                            },
-                            showSelectedIcon: false,
-                            style: SegmentedButton.styleFrom(
-                              visualDensity:
-                                  const VisualDensity(horizontal: -3, vertical: -3),
-                              padding: const EdgeInsets.symmetric(horizontal: 6),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              textStyle: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              minimumSize: const Size(0, 30),
-                              side: BorderSide(
-                                color: scheme.outlineVariant.withAlpha(88),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: IconButton(
-                  icon: _homeIcon('Theme-Palette.png', size: 22),
-                  onPressed: () => _showThemeSheet(context),
-                  tooltip: isThai ? 'ธีม' : 'Theme',
-                  padding: EdgeInsets.zero,
-                  splashRadius: 20,
-                ),
-              ),
-            ],
-            backgroundColor: scheme.surface,
-            surfaceTintColor: scheme.surfaceTint,
-            scrolledUnderElevation: 2,
+            actions: const [],
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+                ? SystemUiOverlayStyle.light
+                : SystemUiOverlayStyle.dark,
           ),
           body: Stack(
+            fit: StackFit.expand,
             children: [
+              const ColoredBox(color: _HomePalette.background),
+              Image.asset(
+                AppAssets.controlBackgroundPortrait,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+              ),
               RefreshIndicator(
                 onRefresh: _handleRefresh,
                 child: CustomScrollView(
@@ -314,7 +379,12 @@ class _HomePageState extends State<HomePage> {
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          contentTopPadding,
+                          16,
+                          12,
+                        ),
                         child: _buildConnectionCard(context, isThai),
                       ),
                     ),
@@ -350,159 +420,235 @@ class _HomePageState extends State<HomePage> {
   List<_NavItem> _navItems(bool isThai) {
     return [
       _NavItem(
-        title: isThai ? 'โหมดควบคุม' : 'Controller',
-        subtitle: isThai
-            ? 'ควบคุมทิศทางและจอยสติ๊ก'
-            : 'Direction control and joysticks in one place',
+        title: isThai ? 'Controller' : 'Controller',
         iconAsset: 'Controller-Gamepad.png',
-        accent: const Color(0xFF2563EB),
-        page: const ControllerHomePage(),
+        accent: _HomePalette.controller,
+        onTap: _openLastControl,
       ),
       _NavItem(
         title: isThai ? 'LineSonic' : 'LineSonic',
-        subtitle: isThai
-            ? 'ปรับ PID และอ่านเซนเซอร์ผ่าน BLE'
-            : 'Tune PID motion over BLE',
         iconAsset: 'LineSonic-PID Tuning.png',
-        accent: const Color(0xFF16A34A),
+        accent: _HomePalette.lineSonic,
         page: const LineSonicPage(),
       ),
       _NavItem(
-        title: isThai ? 'คู่มือการใช้งาน' : 'Guide',
-        subtitle: isThai
-            ? 'คู่มือและตัวอย่างโค้ด'
-            : 'How to use the app and starter code',
-        iconAsset: 'Guide-Manual.png',
-        accent: const Color(0xFFF59E0B),
-        page: const InfoPage(),
+        title: isThai ? 'Contact' : 'Contact',
+        subtitle: isThai ? 'Follow us on Facebook' : 'Follow us on Facebook',
+        icon: Icons.facebook,
+        accent: _HomePalette.guide,
+        onTap: () => _openFacebookPage(isThai),
       ),
     ];
   }
+
   Widget _buildConnectionCard(BuildContext context, bool isThai) {
-    final scheme = Theme.of(context).colorScheme;
-    final connected = _connected;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final presentation = _blePresentationState.value;
+    final connected = presentation.isConnected;
+    final tone = presentation.tone;
     final name = _connectedName();
     final rssi = _rssi;
     final rssiText = rssi != null ? '$rssi dBm' : '-- dBm';
 
-    final gradient = connected
+    final gradient = isDark
         ? LinearGradient(
             colors: [
-              scheme.primaryContainer.withAlpha(220),
-              scheme.primaryContainer.withAlpha(120),
+              Theme.of(context).colorScheme.primaryContainer.withAlpha(220),
+              Theme.of(context).colorScheme.primaryContainer.withAlpha(120),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           )
-        : LinearGradient(
-            colors: [
-              scheme.surfaceContainerHighest.withAlpha(200),
-              scheme.surfaceContainerHighest.withAlpha(120),
-            ],
+        : const LinearGradient(
+            colors: [_HomePalette.glass, Color(0xDDF6F0FF)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           );
 
     return Card(
-      elevation: 3,
-      shadowColor: Colors.black26,
+      color: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       child: Ink(
         decoration: BoxDecoration(
           gradient: gradient,
           borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: isDark
+                ? Theme.of(context).colorScheme.outlineVariant
+                : _HomePalette.glassBorder,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _HomePalette.scanPurple.withAlpha(isDark ? 38 : 48),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: connected
-                        ? scheme.primary.withAlpha(32)
-                        : scheme.outlineVariant.withAlpha(40),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: connected
-                      ? _homeIcon('Bluetooth Connected.png', size: 24)
-                      : _homeIcon('Bluetooth Disabled.png', size: 24),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isThai ? 'สถานะ BLE' : 'BLE Connection',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: isThai ? 15 : 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        connected
-                            ? name
-                            : (isThai ? 'ยังไม่เชื่อมต่อ' : 'No device'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (connected)
-                        Row(
-                          children: [
-                            _rssiBars(context, rssi ?? -100, size: 16),
-                            const SizedBox(width: 6),
-                            Text(
-                              rssiText,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-                if (!connected)
-                  FilledButton.icon(
-                    onPressed: _openBlePage,
-                    icon: _homeIcon('Search-Scan.png', size: 21),
-                    label: Text(isThai ? 'ค้นหา' : 'Scan devices'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 44),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      textStyle: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0,
-                      ),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: switch (tone) {
+                    BlePresentationTone.connected =>
+                      _HomePalette.scanCyan.withAlpha(isDark ? 48 : 60),
+                    BlePresentationTone.busy =>
+                      _HomePalette.scanPurple.withAlpha(isDark ? 44 : 36),
+                    BlePresentationTone.failure => _HomePalette.coral.withAlpha(
+                      isDark ? 44 : 36,
                     ),
-                  )
-                else
-                  Column(
-                    children: [
-                      _rssiBars(context, rssi ?? -100, size: 26),
-                      const SizedBox(height: 4),
-                      Text(
-                        isThai ? 'สัญญาณ' : 'RSSI',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: scheme.onSurfaceVariant,
-                        ),
+                    BlePresentationTone.neutral =>
+                      _HomePalette.scanPurple.withAlpha(isDark ? 44 : 36),
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: connected
+                    ? _homeIcon('Bluetooth Connected.png', size: 24)
+                    : presentation.kind == BlePresentationKind.bluetoothOff
+                    ? _homeIcon('Bluetooth Disabled.png', size: 24)
+                    : Icon(
+                        materialIconForBlePresentation(presentation.icon),
+                        size: 24,
+                        color: tone == BlePresentationTone.failure
+                            ? _HomePalette.coral
+                            : _HomePalette.scanPurple,
                       ),
-                    ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      container: true,
+                      liveRegion: true,
+                      label: connected
+                          ? '${presentation.semanticLabel}, $name'
+                          : presentation.semanticLabel,
+                      excludeSemantics: true,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isThai ? 'BLE Connection' : 'BLE Connection',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant
+                                  : _HomePalette.deepPlum.withAlpha(180),
+                              fontSize: isThai ? 15 : 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            connected
+                                ? '${presentation.label} · $name'
+                                : presentation.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: connected
+                                  ? _contentTextColor(context)
+                                  : tone == BlePresentationTone.failure
+                                  ? _HomePalette.coral
+                                  : _HomePalette.deepPlum,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (connected)
+                      Row(
+                        children: [
+                          _rssiBars(context, rssi ?? -100, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            rssiText,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant
+                                  : _HomePalette.deepPlum.withAlpha(170),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+              if (!connected)
+                Flexible(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [
+                          _HomePalette.scanPurple,
+                          _HomePalette.scanCyan,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _HomePalette.scanPurple.withAlpha(92),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: FilledButton.icon(
+                      onPressed: _openBlePage,
+                      icon: _homeIcon('Search-Scan.png', size: 21),
+                      label: Text(
+                        isThai ? 'Scan devices' : 'Scan devices',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        shadowColor: Colors.transparent,
+                        textStyle: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0,
+                        ),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
                   ),
+                )
+              else
+                Column(
+                  children: [
+                    _rssiBars(context, rssi ?? -100, size: 26),
+                    const SizedBox(height: 4),
+                    Text(
+                      isThai ? 'RSSI' : 'RSSI',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark
+                            ? Theme.of(context).colorScheme.onSurfaceVariant
+                            : _HomePalette.deepPlum.withAlpha(170),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -525,10 +671,10 @@ class _HomePageState extends State<HomePage> {
                 width: width,
                 child: _NavCard(
                   item: items[0],
-                  height: 160,
+                  height: 104,
                   wide: true,
                   enabled: !_openingPage,
-                  onTap: () => _openPage(items[0].page),
+                  onTap: () => _openNavItem(items[0]),
                 ),
               ),
               const SizedBox(height: 12),
@@ -536,10 +682,10 @@ class _HomePageState extends State<HomePage> {
                 width: width,
                 child: _NavCard(
                   item: items[1],
-                  height: 160,
+                  height: 104,
                   wide: true,
                   enabled: !_openingPage,
-                  onTap: () => _openPage(items[1].page),
+                  onTap: () => _openNavItem(items[1]),
                 ),
               ),
             ] else
@@ -549,9 +695,9 @@ class _HomePageState extends State<HomePage> {
                     width: half,
                     child: _NavCard(
                       item: items[0],
-                      height: 170,
+                      height: 112,
                       enabled: !_openingPage,
-                      onTap: () => _openPage(items[0].page),
+                      onTap: () => _openNavItem(items[0]),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -559,22 +705,23 @@ class _HomePageState extends State<HomePage> {
                     width: half,
                     child: _NavCard(
                       item: items[1],
-                      height: 170,
+                      height: 112,
                       enabled: !_openingPage,
-                      onTap: () => _openPage(items[1].page),
+                      onTap: () => _openNavItem(items[1]),
                     ),
                   ),
                 ],
               ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: width,
-              child: _NavCard(
-                item: items[2],
-                height: 120,
-                wide: true,
-                enabled: !_openingPage,
-                onTap: () => _openPage(items[2].page),
+            Align(
+              alignment: Alignment.center,
+              child: SizedBox(
+                width: width > 420 ? 420 : width,
+                child: _SecondaryNavAction(
+                  item: items[2],
+                  enabled: !_openingPage,
+                  onTap: () => _openNavItem(items[2]),
+                ),
               ),
             ),
           ],
@@ -584,12 +731,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRecentCard(BuildContext context, bool isThai) {
-    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasLast = _lastDeviceId != null && _lastDeviceId!.isNotEmpty;
 
     if (!hasLast) {
       return Card(
-        elevation: 1,
+        color: isDark ? null : _HomePalette.glass,
+        surfaceTintColor: isDark ? null : Colors.transparent,
+        elevation: isDark ? 1 : 0,
+        shadowColor: _HomePalette.scanPurple.withAlpha(34),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -599,11 +749,11 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  isThai ? 'ยังไม่มีอุปกรณ์ล่าสุด' : 'No recent device yet',
+                  isThai ? 'No recent device yet' : 'No recent device yet',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: scheme.onSurfaceVariant,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -615,7 +765,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Card(
-      elevation: 2,
+      color: isDark ? null : _HomePalette.glass,
+      surfaceTintColor: isDark ? null : Colors.transparent,
+      elevation: isDark ? 2 : 0,
+      shadowColor: _HomePalette.scanPurple.withAlpha(34),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -627,7 +780,7 @@ class _HomePageState extends State<HomePage> {
                 _homeIcon('Recent Activity-History.png', size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  isThai ? 'อุปกรณ์ที่เชื่อมต่อล่าสุด' : 'Recent Activity',
+                  isThai ? 'Recent Activity' : 'Recent Activity',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -638,10 +791,10 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 10),
             if (!hasLast)
               Text(
-                isThai
-                    ? 'ยังไม่มีประวัติการเชื่อมต่อ'
-                    : 'No recent device yet',
-                style: TextStyle(color: scheme.onSurfaceVariant),
+                isThai ? 'No recent device yet' : 'No recent device yet',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               )
             else
               Column(
@@ -663,7 +816,7 @@ class _HomePageState extends State<HomePage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: scheme.onSurfaceVariant,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -673,12 +826,12 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       FilledButton.tonal(
                         onPressed: () => _connectLastDevice(isThai),
-                        child: Text(isThai ? 'เชื่อมต่ออีกครั้ง' : 'Reconnect'),
+                        child: Text(isThai ? 'Reconnect' : 'Reconnect'),
                       ),
                       OutlinedButton.icon(
                         onPressed: _openBlePage,
                         icon: _homeIcon('Search-Scan.png', size: 36),
-                        label: Text(isThai ? 'ค้นหา' : 'Scan'),
+                        label: Text(isThai ? 'Scan' : 'Scan'),
                       ),
                     ],
                   ),
@@ -689,19 +842,19 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
   Widget _buildVersionInfo(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerRight,
       child: FutureBuilder<PackageInfo>(
         future: _infoFuture,
         builder: (context, snapshot) {
-          final version = snapshot.data?.version ?? '2.0.4';
+          final version = snapshot.data?.version ?? '2.1.0';
           return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Opacity(
-                opacity: 0.28,
+                opacity: 0.42,
                 child: ClipOval(
                   child: Image.asset(
                     AppAssets.cornerLogo,
@@ -716,7 +869,9 @@ class _HomePageState extends State<HomePage> {
                 'v$version',
                 style: TextStyle(
                   fontSize: 12,
-                  color: scheme.onSurfaceVariant,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : _HomePalette.deepPlum.withAlpha(176),
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -730,17 +885,21 @@ class _HomePageState extends State<HomePage> {
 
 class _NavItem {
   final String title;
-  final String subtitle;
-  final String iconAsset;
+  final String? subtitle;
+  final String? iconAsset;
+  final IconData? icon;
   final Color accent;
-  final Widget page;
+  final Widget? page;
+  final Future<void> Function()? onTap;
 
   const _NavItem({
     required this.title,
-    required this.subtitle,
-    required this.iconAsset,
+    this.subtitle,
+    this.iconAsset,
+    this.icon,
     required this.accent,
-    required this.page,
+    this.page,
+    this.onTap,
   });
 }
 
@@ -773,14 +932,13 @@ class _NavCardState extends State<_NavCard> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = widget.item.accent;
 
     final gradient = LinearGradient(
       colors: [
-        accent.withAlpha(32),
-        accent.withAlpha(14),
+        accent.withAlpha(isDark ? 52 : 72),
+        accent.withAlpha(isDark ? 24 : 32),
       ],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
@@ -794,9 +952,13 @@ class _NavCardState extends State<_NavCard> {
         opacity: widget.enabled ? 1.0 : 0.62,
         duration: const Duration(milliseconds: 120),
         child: Card(
-          elevation: 3,
-          shadowColor: accent.withAlpha(60),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          color: isDark ? null : _HomePalette.glass,
+          surfaceTintColor: isDark ? null : Colors.transparent,
+          elevation: isDark ? 3 : 0,
+          shadowColor: accent.withAlpha(isDark ? 60 : 92),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
             onTap: widget.enabled ? widget.onTap : null,
@@ -808,29 +970,34 @@ class _NavCardState extends State<_NavCard> {
               decoration: BoxDecoration(
                 gradient: gradient,
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark
+                      ? Theme.of(context).colorScheme.outlineVariant
+                      : accent.withAlpha(88),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withAlpha(_pressed ? 100 : 58),
+                    blurRadius: _pressed ? 18 : 14,
+                    offset: const Offset(0, 7),
+                  ),
+                ],
               ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final compact =
                       constraints.maxWidth < 150 || constraints.maxHeight < 150;
-                  final compactWide = widget.wide && constraints.maxHeight < 150;
+                  final compactWide =
+                      widget.wide && constraints.maxHeight < 150;
                   final padding = compact
                       ? (compactWide
-                          ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
-                          : const EdgeInsets.fromLTRB(6, 6, 6, 6))
+                            ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
+                            : const EdgeInsets.fromLTRB(6, 6, 6, 6))
                       : const EdgeInsets.fromLTRB(16, 14, 16, 14);
-                  final iconBox = compact
-                      ? (compactWide ? 36.0 : 30.0)
-                      : 44.0;
-                  final iconSize = compact
-                      ? (compactWide ? 24.0 : 18.0)
-                      : 28.0;
-                  final gapTop = compact
-                      ? (compactWide ? 6.0 : 2.0)
-                      : 12.0;
-                  final gapMid = compact
-                      ? (compactWide ? 2.0 : 0.0)
-                      : 6.0;
+                  final iconBox = compact ? (compactWide ? 36.0 : 30.0) : 44.0;
+                  final iconSize = compact ? (compactWide ? 24.0 : 18.0) : 28.0;
+                  final gapTop = compact ? (compactWide ? 6.0 : 2.0) : 12.0;
+                  final gapMid = compact ? (compactWide ? 2.0 : 0.0) : 6.0;
                   final defaultTitleSize = 16.0;
                   final defaultSubtitleSize = 12.0;
                   final titleSize = defaultTitleSize;
@@ -848,24 +1015,30 @@ class _NavCardState extends State<_NavCard> {
                               width: iconBox,
                               height: iconBox,
                               decoration: BoxDecoration(
-                                color: accent.withAlpha(40),
+                                color: accent.withAlpha(isDark ? 52 : 74),
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(6),
-                                child: Image.asset(
-                                  'assets/icons/HomeUnified/${widget.item.iconAsset}',
-                                  width: iconSize,
-                                  height: iconSize,
-                                  fit: BoxFit.contain,
-                                ),
+                                child: widget.item.iconAsset != null
+                                    ? Image.asset(
+                                        'assets/icons/HomeUnified/${widget.item.iconAsset}',
+                                        width: iconSize,
+                                        height: iconSize,
+                                        fit: BoxFit.contain,
+                                      )
+                                    : Icon(
+                                        widget.item.icon!,
+                                        size: iconSize,
+                                        color: accent,
+                                      ),
                               ),
                             ),
                             const Spacer(),
                             Icon(
                               Icons.chevron_right_rounded,
                               size: compact ? 18 : 22,
-                              color: accent.withAlpha(isDark ? 130 : 100),
+                              color: accent.withAlpha(isDark ? 176 : 196),
                             ),
                           ],
                         ),
@@ -877,19 +1050,28 @@ class _NavCardState extends State<_NavCard> {
                           style: TextStyle(
                             fontSize: titleSize,
                             fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? Theme.of(context).colorScheme.onSurface
+                                : _HomePalette.deepPlum,
                           ),
                         ),
-                        SizedBox(height: gapMid),
-                        Text(
-                          widget.item.subtitle,
-                          maxLines: subtitleLines,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: subtitleSize,
-                            height: compact ? 1.05 : 1.2,
-                            color: scheme.onSurfaceVariant,
+                        if (widget.item.subtitle != null) ...[
+                          SizedBox(height: gapMid),
+                          Text(
+                            widget.item.subtitle!,
+                            maxLines: subtitleLines,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: subtitleSize,
+                              height: compact ? 1.05 : 1.2,
+                              color: isDark
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant
+                                  : _HomePalette.deepPlum.withAlpha(182),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   );
@@ -903,35 +1085,99 @@ class _NavCardState extends State<_NavCard> {
   }
 }
 
-void _showThemeSheet(BuildContext context) {
-  final isThai = LanguageController.isThai.value;
-  showCupertinoModalPopup<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) {
-      return CupertinoActionSheet(
-        title: Text(isThai ? 'ธีม' : 'Theme'),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              ThemeController.setMode(ThemeMode.light);
-              Navigator.of(context).pop();
-            },
-            child: Text(isThai ? 'สว่าง' : 'Light'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              ThemeController.setMode(ThemeMode.dark);
-              Navigator.of(context).pop();
-            },
-            child: Text(isThai ? 'มืด' : 'Dark'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
+class _SecondaryNavAction extends StatelessWidget {
+  final _NavItem item;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _SecondaryNavAction({
+    required this.item,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final subtitle = item.subtitle;
+    final label = subtitle == null ? item.title : '${item.title}. $subtitle';
+
+    return Semantics(
+      key: const ValueKey('home-contact-action'),
+      button: true,
+      enabled: enabled,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: isDark
+            ? item.accent.withAlpha(24)
+            : _HomePalette.glass.withAlpha(190),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: item.accent.withAlpha(isDark ? 88 : 72)),
         ),
-      );
-    },
-  );
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: item.accent.withAlpha(isDark ? 44 : 48),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(item.icon, size: 22, color: item.accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? Theme.of(context).colorScheme.onSurface
+                              : _HomePalette.deepPlum,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 1),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark
+                                ? Theme.of(context).colorScheme.onSurfaceVariant
+                                : _HomePalette.deepPlum.withAlpha(176),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.open_in_new_rounded,
+                  size: 18,
+                  color: item.accent.withAlpha(isDark ? 184 : 204),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -1,16 +1,31 @@
-# app_contro
+# PB Controller
 
-A new Flutter project.
+Flutter controller app for PrinceBot over Bluetooth Low Energy (BLE). Supported
+release platforms are Android and iOS. Web, Windows, macOS, and Linux builds
+are intentionally not supported.
 
-## Getting Started
+## Android release signing
 
-This project is a starting point for a Flutter application.
+Release APK and App Bundle builds require a private Android keystore. The
+keystore and its credentials must never be committed.
 
-A few resources to get you started if this is your first Flutter project:
+1. Copy `android/key.properties.example` to `android/key.properties`.
+2. Set `storeFile`, `storePassword`, `keyAlias`, and `keyPassword` in the new
+   file. `storeFile` may be absolute or relative to the `android/` directory.
+3. Build the desired artifact:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+   ```sh
+   flutter build apk --release
+   flutter build appbundle --release
+   ```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The build stops with a setup error if the file, any required property, or the
+keystore path is missing. In CI, create `android/key.properties` from secret
+values before invoking either release build command.
+
+## iOS release signing
+
+Build and archive iOS releases on macOS with Xcode signing configured for the
+target Apple Developer team. CI must provide the signing certificate,
+provisioning profile, and App Store Connect credentials; none are stored in
+this repository.

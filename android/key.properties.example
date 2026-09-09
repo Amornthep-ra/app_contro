@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties. Do not commit android/key.properties.
+# storeFile may be an absolute path or a path relative to android/.
+storeFile=/absolute/path/to/your-release-key.jks
+storePassword=replace-with-keystore-password
+keyAlias=replace-with-key-alias
+keyPassword=replace-with-key-password

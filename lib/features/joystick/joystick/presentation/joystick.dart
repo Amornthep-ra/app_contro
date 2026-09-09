@@ -1,38 +1,42 @@
-﻿// lib/pages/joystick.dart
+// lib/pages/joystick.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'dart:io';
-import 'package:flutter/cupertino.dart' hide Text;
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../../../../core/ble/ble_manager.dart';
+import '../../../../core/ble/ble_connection_coordinator.dart';
 import '../joystick_controller.dart';
 import '../widgets/joystick_widget.dart';
 import '../joystick_view.dart';
 import '../../../../core/widgets/connection_status_badge.dart';
 import '../../../../core/utils/orientation_utils.dart';
 import '../joystick_theme.dart';
-import '../../../controller/controller_home_page.dart';
 import '../../../../core/ble/joystick_packet.dart';
+import '../../../../core/routes/app_routes.dart';
 import '../../../../core/ui/gamepad_assets.dart';
+import '../../../../core/ui/control_mode_preference.dart';
 import '../../../../core/ui/gamepad_components.dart';
-import '../../../../core/ui/gamepad_tutorial_overlay_components.dart';
+import '../../../../core/ui/app_assets.dart';
 import '../../../../core/widgets/gamepad_app_bar.dart';
 import '../../../../core/widgets/gamepad_appbar_controls.dart';
+import '../../../../core/widgets/control_preset_dialog.dart';
+import '../../../../core/widgets/cat_glass_popup.dart';
 import '../../../../core/ui/language_controller.dart';
 import '../../../gamepad/widgets/gamepad_telemetry_chip.dart';
 import '../../../gamepad/widgets/gamepad_edit_shared.dart';
+import '../../../gamepad/control_mode_settings_page.dart';
+import '../../../bluetooth/widgets/pairing_code_dialog.dart';
 
 const double kJoyMinSize = 0.6;
 const double kJoyMaxSize = 1.6;
 const double kJoyBtnMinSize = 0.6;
 const double kJoyBtnMaxSize = 1.6;
 const double _gridStep = 0.05;
-
 const String kJoyLeftId = 'joy_left';
 const String kJoyRightId = 'joy_right';
 const String kJoyYOnlyId = 'joy_y_only';
@@ -42,15 +46,16 @@ const String kBtnCrossId = 'btn_cross';
 const String kBtnSquareId = 'btn_square';
 const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
-
 double _snapToGrid(double value) {
   if (_gridStep <= 0) return value;
   return (value / _gridStep).round() * _gridStep;
 }
 
 class JoystickPage extends StatefulWidget {
-  const JoystickPage({super.key});
+  const JoystickPage({super.key, this.acquireControl});
 
+  // Optional transport seam for exercising delayed Start completion in tests.
+  final Future<int?> Function()? acquireControl;
   @override
   State<JoystickPage> createState() => _JoystickPageState();
 }
@@ -61,19 +66,16 @@ class _JoystickPageState extends State<JoystickPage> {
   static const Color _jrAccent = Color(0xFF38BDF8);
   final JoystickController _controller = JoystickController();
   Timer? _timer;
-
   static const _prefsLayout = 'joy_dual_layout';
   static const _prefsActive = 'joy_dual_active';
   static const double _baseJoyRatio = 0.45;
-  static const _prefsTutorialSeen = 'joy_tutorial_seen';
-  static const _prefsTutorialPromptSeen = 'joy_tutorial_prompt_seen';
   static const _prefsPreset1 = 'joy_preset_1';
   static const _prefsPreset2 = 'joy_preset_2';
   static const _prefsPreset3 = 'joy_preset_3';
-
+  static const _prefsPreset4 = 'joy_preset_4';
+  static const _prefsPreset5 = 'joy_preset_5';
   bool _editMode = false;
   bool _menuOpen = false;
-  Offset? _menuAnchor;
   String? _selectedId;
   Size? _panelSize;
   Map<String, _JoyLayout> _layout = {};
@@ -92,72 +94,36 @@ class _JoystickPageState extends State<JoystickPage> {
   Timer? _editWarningTimer;
   int _lastBoundaryWarningMs = 0;
   int _lastOverlapWarningMs = 0;
-
   bool _triangle = false;
   bool _cross = false;
   bool _square = false;
   bool _circle = false;
   int _lastButtonsKey = 0;
-
   double _smoothLX = 0.0, _smoothLY = 0.0;
   double _smoothRX = 0.0, _smoothRY = 0.0;
-
   double _lastLX = 0.0, _lastLY = 0.0;
   double _lastRX = 0.0, _lastRY = 0.0;
-
   static const double _deadZone = 0.05;
   static const double _smooth = 0.85;
   static const double _delta = 0.005;
   static const int _activeKeepaliveMs = 50;
   int _lastControlSendMs = 0;
-
-  int _debugTick = 0;
-
   double _lerp(double a, double b, double t) => a + (b - a) * t;
-
   String _fmt(double v) => v.toStringAsFixed(2);
-  String _leftDebug = "X:0.00 Y:0.00";
-  String _rightDebug = "X:0.00 Y:0.00";
-
-  bool _showTutorial = false;
-  bool _showTutorialPrompt = false;
-  int _tutorialStep = 0;
-  bool _tutorialThai = true;
+  final _leftDebug = ValueNotifier<String>("X:0.00 Y:0.00");
+  final _rightDebug = ValueNotifier<String>("X:0.00 Y:0.00");
+  String _debugValue(double x, double y) => "X:${_fmt(x)} Y:${_fmt(y)}";
+  bool _isThai = true;
   bool _showGrid = false;
   late final VoidCallback _langListener;
-  Rect? _tutorialTargetRect;
-  GlobalKey? _tutorialTargetKey;
-
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
-  final GlobalKey _tutorialStackKey = GlobalKey();
-  final GlobalKey _tutorialBackKey = GlobalKey();
-  final GlobalKey _tutorialCustomizeKey = GlobalKey();
-  final GlobalKey _tutorialDoneKey = GlobalKey();
-  final GlobalKey _tutorialItemsKey = GlobalKey();
-  final GlobalKey _tutorialAreaKey = GlobalKey();
-  final GlobalKey _tutorialBtKey = GlobalKey();
-  final GlobalKey _tutorialBlePanelKey = GlobalKey();
-  final GlobalKey _tutorialPresetPanelKey = GlobalKey();
-  final GlobalKey _tutorialPresetKey = GlobalKey();
-  final GlobalKey _tutorialHelpKey = GlobalKey();
-  final GlobalKey _tutorialCmdKey = GlobalKey();
-  final GlobalKey _tutorialJlKey = GlobalKey();
-  final GlobalKey _tutorialJrKey = GlobalKey();
-  final GlobalKey _tutorialEditBarKey = GlobalKey();
-  final GlobalKey _tutorialGridKey = GlobalKey();
-  final GlobalKey _tutorialSizeKey = GlobalKey();
-  final GlobalKey _tutorialLockKey = GlobalKey();
-  final GlobalKey _tutorialUndoKey = GlobalKey();
-  final GlobalKey _tutorialRedoKey = GlobalKey();
-  final GlobalKey _tutorialRemoveKey = GlobalKey();
-  final GlobalKey _tutorialResetKey = GlobalKey();
-  final ConnectionStatusBadgeController _bleBadgeController =
-      ConnectionStatusBadgeController();
-  bool _tutorialButtonsSheetOpened = false;
   StreamSubscription<bool>? _bleConnSub;
   int? _bleTrafficOwner;
-
+  bool _startInProgress = false;
+  bool _leavingControlPage = false;
+  bool _controlStarted = false;
+  bool _modeSwitchInProgress = false;
   void _resetInputState() {
     void apply() {
       _smoothLX = 0;
@@ -178,6 +144,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _setLeftDebug(0, 0);
       _setRightDebug(0, 0);
     }
+
     if (mounted) {
       setState(apply);
     } else {
@@ -185,12 +152,26 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
-  void _setLeftDebug(double x, double y) {
-    _leftDebug = "X:${_fmt(x)} Y:${_fmt(y)}";
+  bool _setLeftDebug(double x, double y) {
+    final next = _debugValue(x, y);
+    if (_leftDebug.value == next) return false;
+    _leftDebug.value = next;
+    return true;
   }
 
-  void _setRightDebug(double x, double y) {
-    _rightDebug = "X:${_fmt(x)} Y:${_fmt(y)}";
+  bool _setRightDebug(double x, double y) {
+    final next = _debugValue(x, y);
+    if (_rightDebug.value == next) return false;
+    _rightDebug.value = next;
+    return true;
+  }
+
+  void _updateLeftDebug(double x, double y) {
+    _setLeftDebug(x, y);
+  }
+
+  void _updateRightDebug(double x, double y) {
+    _setRightDebug(x, y);
   }
 
   void _sendBinary(
@@ -198,6 +179,12 @@ class _JoystickPageState extends State<JoystickPage> {
     Set<int>? buttons,
     bool force = false,
   }) {
+    if (!_controlStarted ||
+        _modeSwitchInProgress ||
+        _startInProgress ||
+        BleManager.instance.controlSuspendedForLifecycle) {
+      return;
+    }
     final owner = _bleTrafficOwner;
     if (owner == null) return;
     _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
@@ -216,9 +203,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _smoothLY = 0;
     _lastLX = 0;
     _lastLY = 0;
-
     _controller.setLeftJoystick(0, 0);
-
     _sendBinary(
       JoystickPacket(lx: 0, ly: 0, rx: _lastRX, ry: _lastRY),
       buttons: _pressedButtons(),
@@ -229,7 +214,6 @@ class _JoystickPageState extends State<JoystickPage> {
         buttons: _pressedButtons(),
       );
     });
-
     if (mounted) {
       setState(() => _setLeftDebug(0, 0));
     }
@@ -240,9 +224,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _smoothRY = 0;
     _lastRX = 0;
     _lastRY = 0;
-
     _controller.setRightJoystick(0, 0);
-
     _sendBinary(
       JoystickPacket(lx: _lastLX, ly: _lastLY, rx: 0, ry: 0),
       buttons: _pressedButtons(),
@@ -253,7 +235,6 @@ class _JoystickPageState extends State<JoystickPage> {
         buttons: _pressedButtons(),
       );
     });
-
     if (mounted) {
       setState(() => _setRightDebug(0, 0));
     }
@@ -264,31 +245,92 @@ class _JoystickPageState extends State<JoystickPage> {
     _timer = null;
   }
 
+  void _handleControlSuspended() {
+    if (!BleManager.instance.controlSuspendedForLifecycle || !_controlStarted) {
+      return;
+    }
+    _resetInputState();
+    if (mounted) setState(() => _controlStarted = false);
+  }
+
+  bool get _canStartControl =>
+      !_leavingControlPage && !_startInProgress && !_modeSwitchInProgress;
+  Future<void> _startControl() async {
+    if (_controlStarted || !_canStartControl) return;
+    setState(() => _startInProgress = true);
+    final owner =
+        await (widget.acquireControl?.call() ??
+            BleConnectionCoordinator.instance.acquireControlForStart(
+              ownerName: 'joystick',
+            ));
+    if (!mounted || _leavingControlPage || _modeSwitchInProgress) {
+      if (owner != null) {
+        await BleManager.instance.stopAndReleaseControl(owner: owner);
+      }
+      return;
+    }
+    if (owner == null) {
+      setState(() => _startInProgress = false);
+      if (requiresBlePairingCode(
+        BleConnectionCoordinator.instance.state.securityState,
+      )) {
+        final paired = await promptForBlePairingCode(
+          context: context,
+          isThai: LanguageController.isThai.value,
+        );
+        if (paired == true && mounted) {
+          await _startControl();
+        }
+        return;
+      }
+      showGamepadTopNotice(
+        context,
+        message: 'Unable to connect to the last BLE device.',
+        style: GamepadNoticeStyle.error,
+      );
+      return;
+    }
+    _bleTrafficOwner = owner;
+    _resetInputState();
+    if (!mounted) return;
+    setState(() {
+      _startInProgress = false;
+      _controlStarted = true;
+    });
+    _sendBinary(
+      JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+      buttons: const <int>{},
+      force: true,
+    );
+  }
+
+  Future<void> _stopControl() async {
+    if (!_controlStarted) return;
+    _resetInputState();
+    if (mounted) setState(() => _controlStarted = false);
+    await _releaseTrafficOwnershipForExit(emergency: true);
+  }
+
   Future<void> _sendZeroAndClear({bool updateUi = true, int? owner}) {
     _smoothLX = 0;
     _smoothLY = 0;
     _smoothRX = 0;
     _smoothRY = 0;
-
     _lastLX = 0;
     _lastLY = 0;
     _lastRX = 0;
     _lastRY = 0;
-
     _triangle = false;
     _cross = false;
     _square = false;
     _circle = false;
-
     _controller.setLeftJoystick(0, 0);
     _controller.setRightJoystick(0, 0);
-
     _lastButtonsKey = 0;
     final stopOwner = owner ?? _bleTrafficOwner;
     final stopFuture = stopOwner == null
         ? Future<void>.value()
         : BleManager.instance.sendControlStop(owner: stopOwner);
-
     if (updateUi && mounted) {
       setState(() {
         _setLeftDebug(0, 0);
@@ -301,79 +343,51 @@ class _JoystickPageState extends State<JoystickPage> {
   @override
   void initState() {
     super.initState();
-    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
-      BleTrafficMode.controlBinary,
-      ownerName: 'joystick',
+    unawaited(ControlModePreference.save(LastControlMode.joystick));
+    BleManager.instance.controlSuspendedListenable.addListener(
+      _handleControlSuspended,
     );
-    final trafficOwner = _bleTrafficOwner;
-    if (trafficOwner != null) {
-      BleManager.instance.enableControlReconnect(
-        owner: trafficOwner,
-        ownerName: 'joystick',
-      );
-    }
-    OrientationUtils.setLandscapeOnly();
-    _tutorialThai = LanguageController.isThai.value;
+    unawaited(OrientationUtils.request(AppOrientation.landscape));
+    _isThai = LanguageController.isThai.value;
     _langListener = () {
       final next = LanguageController.isThai.value;
-      if (next != _tutorialThai) {
-        setState(() => _tutorialThai = next);
+      if (next != _isThai) {
+        setState(() => _isThai = next);
       }
     };
     LanguageController.isThai.addListener(_langListener);
     _loadLayout();
-    _maybeStartTutorial();
-    if (trafficOwner != null) {
-      unawaited(
-        BleManager.instance.autoConnectLastDevice(
-          source: 'control_initial',
-          owner: trafficOwner,
-        ),
-      );
-    }
-
-    // ชั้น 3: reset input state เมื่อ BLE หลุด/reconnect
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
       _resetInputState();
-      if (connected) {
-        _sendBinary(
-          JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
-          buttons: _pressedButtons(),
-          force: true,
-        );
+      if (!connected) {
+        setState(() => _controlStarted = false);
+        unawaited(_releaseTrafficOwnershipForExit());
       }
     });
-
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
-      if (_editMode) return;
+      if (!_controlStarted || _editMode) return;
       final packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
       final buttonsChanged = buttonsKey != _lastButtonsKey;
-
       const zeroEps = 0.015;
-
       final nearZero =
           packet.lx.abs() < zeroEps &&
           packet.ly.abs() < zeroEps &&
           packet.rx.abs() < zeroEps &&
           packet.ry.abs() < zeroEps;
-
       if (nearZero &&
           (_lastLX != 0 || _lastLY != 0 || _lastRX != 0 || _lastRY != 0)) {
         _lastLX = 0;
         _lastLY = 0;
         _lastRX = 0;
         _lastRY = 0;
-
         _smoothLX = 0;
         _smoothLY = 0;
         _smoothRX = 0;
         _smoothRY = 0;
-
         _controller.setLeftJoystick(0, 0);
         _controller.setRightJoystick(0, 0);
-
         _lastButtonsKey = buttonsKey;
         _sendBinary(
           JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
@@ -385,7 +399,6 @@ class _JoystickPageState extends State<JoystickPage> {
             buttons: _pressedButtons(),
           );
         });
-
         if (mounted && !_menuOpen) {
           setState(() {
             _setLeftDebug(0, 0);
@@ -394,13 +407,11 @@ class _JoystickPageState extends State<JoystickPage> {
         }
         return;
       }
-
       final changed =
           (packet.lx - _lastLX).abs() > _delta ||
           (packet.ly - _lastLY).abs() > _delta ||
           (packet.rx - _lastRX).abs() > _delta ||
           (packet.ry - _lastRY).abs() > _delta;
-
       if (!changed && !buttonsChanged) {
         final active = !nearZero || buttonsKey != 0;
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -408,59 +419,95 @@ class _JoystickPageState extends State<JoystickPage> {
           return;
         }
       }
-
       _lastLX = packet.lx;
       _lastLY = packet.ly;
       _lastRX = packet.rx;
       _lastRY = packet.ry;
       _lastButtonsKey = buttonsKey;
-
       _sendBinary(packet, buttons: _pressedButtons());
-
-      _debugTick++;
-      if (!mounted) return;
-      if (_debugTick % 3 == 0 && !_menuOpen) {
-        setState(() {
-          _setLeftDebug(packet.lx, packet.ly);
-          _setRightDebug(packet.rx, packet.ry);
-        });
-      }
     });
+  }
+
+  Future<void> _switchToControlMode({
+    required String route,
+    required String source,
+  }) async {
+    if (_modeSwitchInProgress || _editMode) return;
+    final manager = BleManager.instance;
+    final owner = _bleTrafficOwner;
+    setState(() {
+      _modeSwitchInProgress = true;
+      _controlStarted = false;
+    });
+    _resetInputState();
+    _stopTimer();
+    unawaited(
+      ControlModePreference.save(
+        route == AppRoutes.gamepad4Button
+            ? LastControlMode.fourButton
+            : LastControlMode.eightButton,
+      ),
+    );
+    _bleTrafficOwner = null;
+    if (owner != null) {
+      manager.handoffControlForModeSwitch(owner: owner, source: source);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed<void, bool>(route, result: true);
+  }
+
+  Future<void> _openSettings() async {
+    if (_editMode || _modeSwitchInProgress) return;
+    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+      controlModeSettingsRoute(
+        mode: ControlMode.joystick,
+        onManageLayouts: _showPresetSheet,
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case ControlModeSettingsAction.editLayout:
+        _toggleEdit();
+      case ControlModeSettingsAction.selectFourButton:
+        await _switchToControlMode(
+          route: AppRoutes.gamepad4Button,
+          source: 'joystick_to_gamepad_4',
+        );
+      case ControlModeSettingsAction.selectEightButton:
+        await _switchToControlMode(
+          route: AppRoutes.gamepad8Button,
+          source: 'joystick_to_gamepad_8',
+        );
+      case ControlModeSettingsAction.selectJoystick:
+      case null:
+        break;
+    }
   }
 
   @override
   void dispose() {
+    _leavingControlPage = true;
     _stopTimer();
     _editWarningTimer?.cancel();
     _bleConnSub?.cancel();
-    final trafficOwner = _bleTrafficOwner;
-    _bleTrafficOwner = null;
-    if (trafficOwner != null) {
-      BleManager.instance.disableControlReconnect(trafficOwner);
-    }
-    unawaited(
-      _sendZeroAndClear(updateUi: false, owner: trafficOwner).whenComplete(() {
-        if (trafficOwner != null) {
-          BleManager.instance.releaseTrafficMode(trafficOwner);
-        }
-      }),
+    BleManager.instance.controlSuspendedListenable.removeListener(
+      _handleControlSuspended,
     );
+    unawaited(_releaseTrafficOwnershipForExit());
     LanguageController.isThai.removeListener(_langListener);
-    OrientationUtils.reset();
+    _leftDebug.dispose();
+    _rightDebug.dispose();
     super.dispose();
   }
 
   (double, double) _process(double rawX, double rawY, double sx, double sy) {
     double x = (rawX.abs() < _deadZone) ? 0 : rawX;
     double y = (rawY.abs() < _deadZone) ? 0 : rawY;
-
     final fx = _lerp(sx, x, _smooth);
     final fy = _lerp(sy, y, _smooth);
-
     const eps = 0.01;
     final snapX = (fx.abs() < eps) ? 0.0 : fx;
     final snapY = (fy.abs() < eps) ? 0.0 : fy;
-
     return (snapX, snapY);
   }
 
@@ -484,12 +531,9 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   String _cmdLabel() => _buttonsKey().toString();
-
   double _baseJoySize(Size panel) =>
       math.min(panel.width, panel.height) * _baseJoyRatio;
-
   double _baseBtnSize(Size panel) => _baseJoySize(panel) * 0.55;
-
   Map<String, _JoyLayout> _defaultLayout(Size panel, Set<String> active) {
     final out = <String, _JoyLayout>{};
     if (active.contains(kJoyLeftId)) {
@@ -504,7 +548,6 @@ class _JoystickPageState extends State<JoystickPage> {
     if (active.contains(kJoyXOnlyId)) {
       out[kJoyXOnlyId] = const _JoyLayout(0.75, 0.5, 1.0);
     }
-
     final buttonIds = <String>[
       if (active.contains(kBtnTriangleId)) 'R:triangle',
       if (active.contains(kBtnCrossId)) 'R:cross',
@@ -529,10 +572,7 @@ class _JoystickPageState extends State<JoystickPage> {
         if (joyId == null) return;
         final gamepadButtonPx = layout.size * panelMinSide;
         final mappedScale = gamepadButtonPx / joyBaseButtonSize;
-        final joySizeScale = (mappedScale * 0.75).clamp(
-          kJoyBtnMinSize,
-          1.2,
-        );
+        final joySizeScale = (mappedScale * 0.75).clamp(kJoyBtnMinSize, 1.2);
         final tightenedCx =
             rightClusterCenterX +
             ((layout.cx - rightClusterCenterX) * clusterTighten);
@@ -625,7 +665,6 @@ class _JoystickPageState extends State<JoystickPage> {
 
   bool _isLeftJoy(String id) => id == kJoyLeftId || id == kJoyYOnlyId;
   bool _isRightJoy(String id) => id == kJoyRightId || id == kJoyXOnlyId;
-
   void _selectJoystick(String id) {
     setState(() => _selectedId = id);
   }
@@ -667,7 +706,6 @@ class _JoystickPageState extends State<JoystickPage> {
       ..clear()
       ..addAll(snap.lockedIds);
     _selectedId = snap.selectedId;
-
     _layout.removeWhere((k, _) => !_activeIds.contains(k));
     _lockedIds.removeWhere((id) => !_layout.containsKey(id));
     if (_selectedId != null && !_layout.containsKey(_selectedId)) {
@@ -756,7 +794,6 @@ class _JoystickPageState extends State<JoystickPage> {
     });
     _resetLeftJoystick();
     _resetRightJoystick();
-
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayout);
     await prefs.remove(_prefsActive);
@@ -813,24 +850,30 @@ class _JoystickPageState extends State<JoystickPage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor =
-        Color.lerp(accent, isDark ? Colors.white : theme.colorScheme.onSurface, 0.4) ??
+        Color.lerp(
+          accent,
+          isDark ? Colors.white : theme.colorScheme.onSurface,
+          0.4,
+        ) ??
         Colors.white;
     final horizontalPadding = compact ? 10.0 : 12.0;
     final fontSize = compact ? 10.0 : 11.0;
-
     Widget content() {
       return GamepadGlassTopPill(
-        pillKey: Platform.isIOS ? null : _tutorialItemsKey,
+        pillKey: null,
         onTap: Platform.isIOS
             ? null
             : () {
                 gamepadBuzz();
                 _openButtonsMenu();
               },
-        padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 0),
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: 0,
+        ),
         child: Center(
           child: Text(
-            isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
+            isThai ? 'Buttons' : 'Buttons',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: fontSize,
@@ -845,9 +888,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
     if (Platform.isIOS) {
       return GestureDetector(
-        key: _tutorialItemsKey,
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) => _menuAnchor = d.globalPosition,
         onTap: () {
           gamepadBuzz();
           _openButtonsMenu();
@@ -855,7 +896,6 @@ class _JoystickPageState extends State<JoystickPage> {
         child: content(),
       );
     }
-
     return content();
   }
 
@@ -917,364 +957,6 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Future<void> _maybeStartTutorial() async {
-    final prefs = await SharedPreferences.getInstance();
-    final tutorialSeen = prefs.getBool(_prefsTutorialSeen) ?? false;
-    final promptSeen = prefs.getBool(_prefsTutorialPromptSeen) ?? false;
-    if (tutorialSeen || promptSeen || !mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _showTutorialPrompt = true;
-      });
-    });
-  }
-
-  Future<void> _dismissTutorialPrompt() async {
-    setState(() {
-      _showTutorialPrompt = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialPromptSeen, true);
-  }
-
-  Future<void> _startTutorialFromPrompt() async {
-    setState(() {
-      _showTutorialPrompt = false;
-      _showTutorial = true;
-      _tutorialStep = 0;
-      _tutorialThai = LanguageController.isThai.value;
-      _editMode = false;
-      _tutorialButtonsSheetOpened = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialPromptSeen, true);
-    _scheduleTutorialRectUpdate();
-  }
-
-  void _scheduleTutorialRectUpdate() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_showTutorial) return;
-      _updateTutorialRect();
-      _maybeOpenBleTutorialSheet();
-      _maybeOpenButtonsTutorialSheet();
-    });
-  }
-
-  void _maybeOpenBleTutorialSheet() {
-    // Joy now uses an inline BLE preview panel in tutorial mode (same flow as Gamepad).
-  }
-
-  void _maybeOpenButtonsTutorialSheet() {
-    if (!_showTutorial) return;
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) return;
-    final step = steps[_tutorialStep];
-    if (!step.openButtonsSheet) {
-      _tutorialButtonsSheetOpened = false;
-      return;
-    }
-    if (_tutorialButtonsSheetOpened) return;
-    _tutorialButtonsSheetOpened = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_showTutorial) return;
-      _openButtonsMenu(showTutorial: true);
-    });
-  }
-
-  List<_TutorialStep> _tutorialSteps() {
-    return [
-      const _TutorialStep(
-        titleTh: 'Joystick Mode',
-        bodyTh:
-            'ใช้จอยสติ๊กซ้ายและขวาร่วมกับปุ่มเสริม เพื่อควบคุมการเคลื่อนที่ได้ยืดหยุ่น',
-        titleEn: 'Joystick Mode',
-        bodyEn:
-            'Use the left and right joysticks, along with extra buttons, for flexible movement control.',
-      ),
-      _TutorialStep(
-        titleTh: 'Back',
-        bodyTh: 'ย้อนกลับไปยังหน้า Controller',
-        titleEn: 'Back',
-        bodyEn: 'Go back to the Controller page.',
-        targetKey: _tutorialBackKey,
-        requiresPlayMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ชุดคำสั่ง (CMD)',
-        bodyTh: 'แสดงรหัสคำสั่ง (Byte) ที่ส่งไปยังหุ่นยนต์แบบเรียลไทม์ตามปุ่มที่กด',
-        titleEn: 'Command Status (CMD)',
-        bodyEn: 'Displays real-time command bytes sent to the robot based on your input.',
-        targetKey: _tutorialCmdKey,
-      ),
-      _TutorialStep(
-        titleTh: 'JL',
-        bodyTh: 'JL แสดงค่าพิกัด X,Y ของจอยฝั่งซ้าย',
-        titleEn: 'JL',
-        bodyEn: 'JL shows left joystick X,Y values.',
-        targetKey: _tutorialJlKey,
-      ),
-      _TutorialStep(
-        titleTh: 'JR',
-        bodyTh: 'JR แสดงค่าพิกัด X,Y ของจอยฝั่งขวา',
-        titleEn: 'JR',
-        bodyEn: 'JR shows right joystick X,Y values.',
-        targetKey: _tutorialJrKey,
-      ),
-      _TutorialStep(
-        titleTh: 'สถานะ BLE',
-        bodyTh:
-            'ตรวจสอบการเชื่อมต่อ และแตะเพื่อเปิดเมนูจัดการอุปกรณ์ (ระบบจะเชื่อมต่ออุปกรณ์ล่าสุดให้เองอัตโนมัติ)',
-        titleEn: 'BLE Status',
-        bodyEn:
-            'View connection status and tap to manage devices. (Automatically reconnects to the last device).',
-        targetKey: _tutorialBtKey,
-      ),
-      _TutorialStep(
-        titleTh: 'หน้าจัดการ BLE',
-        bodyTh:
-            'หน้าสำหรับค้นหาและเชื่อมต่ออุปกรณ์ BLE พร้อมแสดงรายการที่ตรวจพบและสถานะสัญญาณ',
-        titleEn: 'BLE Management',
-        bodyEn:
-            'Scan and connect to BLE devices, view signal strength, and manage discovered devices.',
-        targetKey: _tutorialBlePanelKey,
-        openBleSheet: true,
-      ),
-      _TutorialStep(
-        titleTh: 'โหมดแก้ไข',
-        bodyTh: 'แตะเพื่อเข้าสู่โหมดการปรับแต่งเลย์เอาต์ปุ่ม',
-        titleEn: 'Edit Mode',
-        bodyEn: 'Enter layout customization mode.',
-        targetKey: _tutorialCustomizeKey,
-        requiresPlayMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'เลือกใช้งานปุ่ม',
-        bodyTh: 'เลือกปุ่มฝั่งซ้ายหรือขวาที่ต้องการแสดงบนหน้าจอ',
-        titleEn: 'Buttons',
-        bodyEn:
-            'Select which left or right buttons to display.',
-        targetKey: _tutorialItemsKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'เมนูเลือกปุ่ม',
-        bodyTh: 'แสดงรายการปุ่มทั้งหมดที่คุณสามารถเลือกใช้งานได้',
-        titleEn: 'Button Menu',
-        bodyEn:
-            'View all available buttons you can add to the layout.',
-        openButtonsSheet: true,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ลบปุ่ม',
-        bodyTh: 'นำปุ่มที่เลือกไว้ออกจากหน้าจอ',
-        titleEn: 'Delete',
-        bodyEn:
-            'Remove the selected button from the layout.',
-        targetKey: _tutorialRemoveKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'รีเซ็ต',
-        bodyTh: 'รีเซ็ตตำแหน่งและขนาดปุ่มทั้งหมดกลับเป็นค่าเริ่มต้น',
-        titleEn: 'Reset Layout',
-        bodyEn: 'Reset all button positions and sizes to defaults.',
-        targetKey: _tutorialResetKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ย้อน',
-        bodyTh: 'ย้อนการแก้ไขล่าสุด',
-        titleEn: 'Undo',
-        bodyEn: 'Undo latest edit action.',
-        targetKey: _tutorialUndoKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ทำซ้ำ',
-        bodyTh: 'ทำซ้ำการแก้ไขที่ย้อนกลับไป',
-        titleEn: 'Redo',
-        bodyEn: 'Redo the undone edit action.',
-        targetKey: _tutorialRedoKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'กริด',
-        bodyTh: 'เปิด/ปิดเส้นกริดเพื่อช่วยในการจัดวางปุ่มให้แม่นยำ',
-        titleEn: 'Grid',
-        bodyEn: 'Toggle grid lines for precise button alignment.',
-        targetKey: _tutorialGridKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ขนาด',
-        bodyTh: 'ย่อหรือขยายขนาดของปุ่มที่เลือกอยู่',
-        titleEn: 'Size',
-        bodyEn: 'Scale the selected button up or down.',
-        targetKey: _tutorialSizeKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ล็อก',
-        bodyTh: 'ล็อกตำแหน่งปุ่มเพื่อป้องกันการเคลื่อนย้ายโดยไม่ตั้งใจ',
-        titleEn: 'Lock',
-        bodyEn: 'Lock button position to prevent accidental moving.',
-        targetKey: _tutorialLockKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'เสร็จสิ้น',
-        bodyTh: 'บันทึกการตั้งค่าและออกจากโหมดแก้ไข',
-        titleEn: 'Done',
-        bodyEn: 'Save changes and exit edit mode.',
-        targetKey: _tutorialDoneKey,
-        requiresEditMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ค่าที่ตั้งไว้ (Preset)',
-        bodyTh:
-            'บันทึกหรือเรียกใช้รูปแบบปุ่มและค่าความเร็วที่คุณตั้งไว้',
-        titleEn: 'Presets',
-        bodyEn:
-            'Save or load your custom layouts and speed settings.',
-        targetKey: _tutorialPresetKey,
-        requiresPlayMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'หน้าจัดการพรีเซ็ต',
-        bodyTh: 'เลือกดูและจัดการรายการการตั้งค่าทั้งหมดที่บันทึกไว้',
-        titleEn: 'Preset Management',
-        bodyEn: 'View and manage all your saved configuration presets.',
-        targetKey: _tutorialPresetPanelKey,
-        requiresPlayMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'คำแนะนำการใช้งาน',
-        bodyTh: 'แตะที่นี่เพื่อดูคำแนะนำการใช้งานนี้อีกครั้งได้ทุกเมื่อ',
-        titleEn: 'Tutorial',
-        bodyEn: 'Tap here to replay this tutorial anytime.',
-        targetKey: _tutorialHelpKey,
-        requiresPlayMode: true,
-      ),
-    ];
-  }
-
-  Color _tutorialHighlightColor(_TutorialStep step) {
-    final key = step.targetKey;
-    if (key == _tutorialCustomizeKey) {
-      return step.requiresEditMode
-          ? const Color(0xFF22C55E)
-          : const Color(0xFF38BDF8);
-    }
-    if (key == _tutorialBackKey) return const Color(0xFF93C5FD);
-    if (key == _tutorialItemsKey) return const Color(0xFF14B8A6);
-    if (key == _tutorialRemoveKey) return const Color(0xFFEF4444);
-    if (key == _tutorialResetKey) return const Color(0xFFF59E0B);
-    if (key == _tutorialUndoKey || key == _tutorialRedoKey) {
-      return const Color(0xFFA78BFA);
-    }
-    if (key == _tutorialGridKey) return const Color(0xFF38BDF8);
-    if (key == _tutorialSizeKey) return const Color(0xFF34D399);
-    if (key == _tutorialLockKey) return const Color(0xFFFBBF24);
-    if (key == _tutorialEditBarKey) return const Color(0xFF7DD3FC);
-    if (key == _tutorialPresetKey) return const Color(0xFFEAB308);
-    if (key == _tutorialPresetPanelKey) return const Color(0xFF7DD3FC);
-    if (key == _tutorialCmdKey) return _cmdAccent;
-    if (key == _tutorialJlKey) return _jlAccent;
-    if (key == _tutorialJrKey) return _jrAccent;
-    if (key == _tutorialBtKey) return const Color(0xFF60A5FA);
-    if (key == _tutorialBlePanelKey) return const Color(0xFF7DD3FC);
-    return const Color(0xFFEC4899);
-  }
-
-  void _goTutorialStep(int nextStep) {
-    final steps = _tutorialSteps();
-    if (nextStep < 0 || nextStep >= steps.length) return;
-    final step = steps[nextStep];
-    final nextEditMode = step.requiresEditMode
-        ? true
-        : (step.requiresPlayMode ? false : _editMode);
-    setState(() {
-      _editMode = nextEditMode;
-      _tutorialStep = nextStep;
-      if (!step.openButtonsSheet) {
-        _tutorialButtonsSheetOpened = false;
-      }
-    });
-    _scheduleTutorialRectUpdate();
-  }
-
-  Future<void> _finishTutorial() async {
-    setState(() {
-      _showTutorial = false;
-      _tutorialStep = 0;
-      _editMode = false;
-      _tutorialButtonsSheetOpened = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialSeen, true);
-  }
-
-  Future<void> _restartTutorial() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialSeen, false);
-    if (!mounted) return;
-    setState(() {
-      _showTutorial = true;
-      _tutorialStep = 0;
-      _tutorialThai = LanguageController.isThai.value;
-      _editMode = false;
-      _tutorialButtonsSheetOpened = false;
-    });
-    _scheduleTutorialRectUpdate();
-  }
-
-  void _updateTutorialRect() {
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      setState(() {
-        _tutorialTargetRect = null;
-        _tutorialTargetKey = null;
-      });
-      return;
-    }
-    final key = steps[_tutorialStep].targetKey;
-    final stackBox =
-        _tutorialStackKey.currentContext?.findRenderObject() as RenderBox?;
-    final targetBox = key?.currentContext?.findRenderObject() as RenderBox?;
-    if (key == null || stackBox == null || targetBox == null) {
-      setState(() {
-        _tutorialTargetRect = null;
-        _tutorialTargetKey = key;
-      });
-      return;
-    }
-    final rect = _targetRectInStack(stackBox, targetBox);
-    setState(() {
-      _tutorialTargetRect = rect;
-      _tutorialTargetKey = key;
-    });
-  }
-
-  Rect _targetRectInStack(RenderBox stackBox, RenderBox targetBox) {
-    final transform = targetBox.getTransformTo(stackBox);
-    final rect = Offset.zero & targetBox.size;
-    final corners = <Offset>[
-      rect.topLeft,
-      rect.topRight,
-      rect.bottomLeft,
-      rect.bottomRight,
-    ].map((point) => MatrixUtils.transformPoint(transform, point)).toList();
-
-    final left = corners.map((p) => p.dx).reduce(math.min);
-    final right = corners.map((p) => p.dx).reduce(math.max);
-    final top = corners.map((p) => p.dy).reduce(math.min);
-    final bottom = corners.map((p) => p.dy).reduce(math.max);
-
-    return Rect.fromLTRB(left, top, right, bottom);
-  }
-
   String _presetKey(int slot) {
     switch (slot) {
       case 1:
@@ -1283,34 +965,34 @@ class _JoystickPageState extends State<JoystickPage> {
         return _prefsPreset2;
       case 3:
         return _prefsPreset3;
+      case 4:
+        return _prefsPreset4;
+      case 5:
+        return _prefsPreset5;
       default:
-        return _prefsPreset1;
+        throw ArgumentError.value(slot, 'slot', 'Unsupported preset slot');
     }
   }
 
   String _defaultPresetName(int slot, bool isThai) =>
-      isThai ? 'ค่าที่ตั้งไว้ $slot' : 'Preset $slot';
-
-  static final RegExp _presetAllowedPattern = RegExp(
-    r'^[A-Za-z0-9ก-ฮ\u0E30-\u0E3A\u0E40-\u0E4E _-]+$',
-  );
-  static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9ก-ฮ]');
-
+      isThai ? 'Preset $slot' : 'Preset $slot';
+  static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
+  static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
   String? _validatePresetName(String raw, bool isThai) {
     final value = raw.trim();
     if (value.isEmpty) {
       return isThai
-          ? 'กรุณาตั้งชื่อโดยใช้ตัวอักษรหรือเลข'
+          ? 'Enter a preset name using letters or numbers.'
           : 'Enter a preset name using letters or numbers.';
     }
     if (!_presetAllowedPattern.hasMatch(value)) {
       return isThai
-          ? 'ใช้ได้เฉพาะตัวอักษร ตัวเลข เว้นวรรค - และ _'
+          ? 'Only letters, numbers, spaces, - and _ are allowed.'
           : 'Only letters, numbers, spaces, - and _ are allowed.';
     }
     if (!_presetRequiredChars.hasMatch(value)) {
       return isThai
-          ? 'กรุณาใช้ตัวอักษรหรือเลขอย่างน้อย 1 ตัว และไม่ใช้สัญลักษณ์ล้วน'
+          ? 'Use at least one letter or number. Symbols alone are not allowed.'
           : 'Use at least one letter or number. Symbols alone are not allowed.';
     }
     return null;
@@ -1329,74 +1011,14 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<String?> _promptPresetName({
     required BuildContext context,
     String? currentName,
-  }) async {
+  }) {
     final isThai = LanguageController.isThai.value;
-    final controller = TextEditingController(text: currentName ?? '');
-    final focusNode = FocusNode();
-    String? errorText = _validatePresetName(controller.text, isThai);
-    var closing = false;
-    final result = await showDialog<String>(
+    return showCatPresetNameDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          void submit() {
-            if (closing) return;
-            final trimmed = controller.text.trim();
-            final validation = _validatePresetName(trimmed, isThai);
-            if (validation != null) {
-              setDialogState(() {
-                errorText = validation;
-              });
-              return;
-            }
-            closing = true;
-            FocusManager.instance.primaryFocus?.unfocus();
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (ctx.mounted && Navigator.of(ctx).canPop()) {
-                Navigator.of(ctx).pop(trimmed);
-              }
-            });
-          }
-
-          return AlertDialog(
-            title: Text(isThai ? 'ตั้งชื่อค่าที่ตั้งไว้' : 'Rename Preset'),
-            content: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              autofocus: true,
-              maxLength: 24,
-              decoration: InputDecoration(
-                hintText: isThai ? 'ชื่อค่าที่ตั้งไว้' : 'Preset name',
-                helperText: isThai
-                    ? 'ใช้ได้เฉพาะตัวอักษร ตัวเลข เว้นวรรค - และ _'
-                    : 'Letters, numbers, spaces, - and _ only',
-                errorText: errorText,
-              ),
-              onChanged: (value) {
-                if (closing) return;
-                setDialogState(() {
-                  errorText = _validatePresetName(value, isThai);
-                });
-              },
-              onSubmitted: (_) => submit(),
-            ),
-            actions: [
-              TextButton(
-                onPressed: closing ? null : () => Navigator.pop(ctx),
-                child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
-              ),
-              FilledButton(
-                onPressed: errorText != null || closing ? null : submit,
-                child: Text(isThai ? 'บันทึก' : 'Save'),
-              ),
-            ],
-          );
-        },
-      ),
+      isThai: isThai,
+      currentName: currentName,
+      validator: (value) => _validatePresetName(value, isThai),
     );
-    focusNode.dispose();
-    controller.dispose();
-    return result;
   }
 
   Future<void> _savePreset(int slot, {String? name}) async {
@@ -1438,474 +1060,102 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _showPresetSheet() async {
-    final rootTheme = Theme.of(context);
-    final rootIsDark = rootTheme.brightness == Brightness.dark;
     final isThai = LanguageController.isThai.value;
     final prefs = await SharedPreferences.getInstance();
-    final exists = <int, bool>{
-      1: (prefs.getString(_prefsPreset1) ?? '').isNotEmpty,
-      2: (prefs.getString(_prefsPreset2) ?? '').isNotEmpty,
-      3: (prefs.getString(_prefsPreset3) ?? '').isNotEmpty,
-    };
-    final customNames = <int, String?>{
-      1: _readPresetName(prefs.getString(_prefsPreset1) ?? ''),
-      2: _readPresetName(prefs.getString(_prefsPreset2) ?? ''),
-      3: _readPresetName(prefs.getString(_prefsPreset3) ?? ''),
-    };
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    ControlPresetSlot makeSlot(int slot) {
+      final raw = prefs.getString(_presetKey(slot)) ?? '';
+      return ControlPresetSlot(
+        slot: slot,
+        name: _readPresetName(raw) ?? _defaultPresetName(slot, isThai),
+        hasData: raw.isNotEmpty,
+      );
+    }
+
+    await showControlPresetDialog(
       context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.transparent,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      barrierColor: _opacity(Colors.black, rootIsDark ? 0.72 : 0.46),
-      builder: (context) {
-        final theme = Theme.of(context);
-        final cs = theme.colorScheme;
-        final isDark = theme.brightness == Brightness.dark;
-        final sheetBg = isDark
-            ? _opacity(const Color(0xFF0B1220), 0.92)
-            : _opacity(Colors.white, 0.97);
-        final sheetBorder = isDark
-            ? _opacity(const Color(0xFF60A5FA), 0.34)
-            : _opacity(const Color(0xFF3B82F6), 0.22);
-        final cardBg = isDark
-            ? _opacity(const Color(0xFF111A2E), 0.9)
-            : _opacity(const Color(0xFFF8FAFC), 0.96);
-        final cardBorder = isDark
-            ? _opacity(Colors.white, 0.12)
-            : _opacity(const Color(0xFF0F172A), 0.1);
-        final titleColor = isDark ? Colors.white : cs.onSurface;
-        final subtitleColor = isDark
-            ? Colors.white70
-            : cs.onSurface.withAlpha(170);
-
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            Widget actionButton({
-              required String label,
-              required IconData icon,
-              required Color accent,
-              required VoidCallback onTap,
-            }) {
-              return TextButton.icon(
-                onPressed: onTap,
-                icon: Icon(icon, size: 14),
-                label: Text(label),
-                style: TextButton.styleFrom(
-                  foregroundColor: accent,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  minimumSize: const Size(0, 32),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(999),
-                    side: BorderSide(color: _opacity(accent, 0.35)),
-                  ),
-                ),
-              );
-            }
-
-            Widget row(int slot) {
-              final hasData = exists[slot] ?? false;
-              final displayName =
-                  customNames[slot] ?? _defaultPresetName(slot, isThai);
-              return Container(
-                margin: const EdgeInsets.symmetric(vertical: 6),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: cardBorder),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: _opacity(const Color(0xFFF59E0B), 0.18),
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '$slot',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFFF59E0B),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: titleColor,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _opacity(
-                              hasData
-                                  ? const Color(0xFF22C55E)
-                                  : const Color(0xFF64748B),
-                              0.18,
-                            ),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            hasData
-                                ? (isThai ? 'มีข้อมูล' : 'Saved')
-                                : (isThai ? 'ว่าง' : 'Empty'),
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: hasData
-                                  ? const Color(0xFF22C55E)
-                                  : subtitleColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        if (hasData)
-                          actionButton(
-                            label: isThai ? 'โหลด' : 'Load',
-                            icon: Icons.download_rounded,
-                            accent: const Color(0xFF22C55E),
-                            onTap: () async {
-                              gamepadBuzz();
-                              await _loadPreset(slot);
-                              if (context.mounted) Navigator.pop(context);
-                            },
-                          ),
-                        if (hasData)
-                          actionButton(
-                            label: isThai ? 'ล้าง' : 'Clear',
-                            icon: Icons.delete_outline_rounded,
-                            accent: const Color(0xFFEF4444),
-                            onTap: () async {
-                              gamepadBuzz();
-                              await prefs.remove(_presetKey(slot));
-                              exists[slot] = false;
-                              customNames.remove(slot);
-                              if (context.mounted) {
-                                setSheetState(() {});
-                              }
-                            },
-                          ),
-                        actionButton(
-                          label: isThai ? 'บันทึก' : 'Save',
-                          icon: Icons.save_outlined,
-                          accent: const Color(0xFF3B82F6),
-                          onTap: () async {
-                            gamepadBuzz();
-                            final name = await _promptPresetName(
-                              context: context,
-                              currentName: customNames[slot],
-                            );
-                            if (name == null) return;
-                            await _savePreset(slot, name: name);
-                            exists[slot] = true;
-                            final trimmed = name.trim();
-                            if (trimmed.isEmpty) {
-                              customNames.remove(slot);
-                            } else {
-                              customNames[slot] = trimmed;
-                            }
-                            if (context.mounted) {
-                              setSheetState(() {});
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            final media = MediaQuery.of(context);
-            final maxSheetHeight = media.size.height * 0.7;
-            return Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: sheetBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: _opacity(Colors.black, isDark ? 0.28 : 0.12),
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxSheetHeight),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: _opacity(const Color(0xFFF59E0B), 0.18),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.bookmark_rounded,
-                              size: 16,
-                              color: Color(0xFFF59E0B),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              isThai ? 'ค่าที่ตั้งไว้' : 'Presets',
-                              style: TextStyle(
-                                color: titleColor,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 2),
-                        child: Text(
-                          isThai
-                              ? 'บันทึกและเรียกใช้งานรูปแบบจอยและปุ่มที่ตั้งค่าไว้'
-                              : 'Save and load your joystick and button layouts.',
-                          style: TextStyle(
-                            color: subtitleColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      row(1),
-                      row(2),
-                      row(3),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.tonalIcon(
-                          onPressed: () {
-                            gamepadBuzz();
-                            Navigator.pop(context);
-                          },
-                          icon: const Icon(Icons.close_rounded, size: 16),
-                          label: Text(isThai ? 'ปิด' : 'Close'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+      isThai: isThai,
+      slots: List<ControlPresetSlot>.generate(
+        controlPresetSlotCount,
+        (index) => makeSlot(index + 1),
+      ),
+      onSave: (slot) async {
+        gamepadBuzz();
+        final name = await _promptPresetName(
+          context: context,
+          currentName: slot.hasData ? slot.name : null,
+        );
+        if (name == null) return null;
+        await _savePreset(slot.slot, name: name);
+        final trimmed = name.trim();
+        return ControlPresetSlot(
+          slot: slot.slot,
+          name: trimmed.isEmpty
+              ? _defaultPresetName(slot.slot, isThai)
+              : trimmed,
+          hasData: true,
+        );
+      },
+      onLoad: (slot) async {
+        gamepadBuzz();
+        await _loadPreset(slot.slot);
+      },
+      onClear: (slot) async {
+        gamepadBuzz();
+        await prefs.remove(_presetKey(slot.slot));
+        return ControlPresetSlot(
+          slot: slot.slot,
+          name: _defaultPresetName(slot.slot, isThai),
+          hasData: false,
         );
       },
     );
   }
 
-  Future<void> _openButtonsMenu({bool showTutorial = false}) async {
-    if (Platform.isIOS) {
-      await _showEditMenuIOS(showTutorial: showTutorial);
-    } else {
-      await _showEditMenuAndroid(showTutorial: showTutorial);
-    }
+  Future<void> _openButtonsMenu() async {
+    await _showEditMenuAndroid();
   }
 
-  Future<void> _showEditMenuAndroid({bool showTutorial = false}) async {
+  Future<void> _showEditMenuAndroid() async {
     if (_menuOpen) return;
     _menuOpen = true;
     if (!mounted) {
       _menuOpen = false;
       return;
     }
-
     await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: showTutorial,
+      isScrollControlled: false,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black87,
+      barrierColor: const Color(0x6635206B),
       builder: (context) {
         final maxHeight = MediaQuery.of(context).size.height * 0.7;
         final theme = Theme.of(context);
         final isDark = theme.brightness == Brightness.dark;
         final scrollController = ScrollController();
-
         return SafeArea(
           top: false,
           child: StatefulBuilder(
             builder: (context, setSheetState) {
-              if (showTutorial) {
-                return _buildButtonsTutorialSheet(
-                  context: context,
-                  scrollController: scrollController,
-                  isDark: isDark,
-                  maxHeight: maxHeight,
-                  setSheetState: setSheetState,
-                );
-              }
-              return Container(
-                margin: const EdgeInsets.all(12),
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? _opacity(const Color(0xFF020817), 0.86)
-                      : _opacity(const Color(0xFFF8FAFC), 0.96),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _opacity(const Color(0xFF7DD3FC), isDark ? 0.46 : 0.26),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _opacity(Colors.black, isDark ? 0.30 : 0.14),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: CatGlassModalSurface(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxHeight),
+                    child: _buildButtonsSheetContent(
+                      context: context,
+                      scrollController: scrollController,
+                      isDark: isDark,
+                      setSheetState: setSheetState,
+                      showTutorial: false,
                     ),
-                  ],
-                ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: maxHeight),
-                  child: _buildButtonsSheetContent(
-                    context: context,
-                    scrollController: scrollController,
-                    isDark: isDark,
-                    setSheetState: setSheetState,
-                    showTutorial: false,
                   ),
                 ),
               );
             },
-          ),
-        );
-      },
-    );
-    _menuOpen = false;
-  }
-
-  Future<void> _showEditMenuIOS({bool showTutorial = false}) async {
-    if (_menuOpen) return;
-    _menuOpen = true;
-    if (!mounted) {
-      _menuOpen = false;
-      return;
-    }
-    final allowDismiss = ValueNotifier<bool>(false);
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (allowDismiss.value) return;
-      allowDismiss.value = true;
-    });
-    await showCupertinoModalPopup<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black87,
-      anchorPoint: _menuAnchor,
-      builder: (context) {
-        final theme = Theme.of(context);
-        final isDark = theme.brightness == Brightness.dark;
-        final maxHeight = MediaQuery.of(context).size.height * 0.7;
-        final scrollController = ScrollController();
-        return SizedBox.expand(
-          child: Stack(
-            alignment: Alignment.bottomCenter,
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: allowDismiss,
-                builder: (context, armed, child) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: armed ? () => Navigator.pop(context) : null,
-                    child: const SizedBox.expand(),
-                  );
-                },
-              ),
-              SafeArea(
-                top: false,
-                child: StatefulBuilder(
-                  builder: (context, setSheetState) {
-                    if (showTutorial) {
-                      return _buildButtonsTutorialSheet(
-                        context: context,
-                        scrollController: scrollController,
-                        isDark: isDark,
-                        maxHeight: maxHeight,
-                        setSheetState: setSheetState,
-                      );
-                    }
-                    return Container(
-                      margin: const EdgeInsets.all(12),
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? _opacity(const Color(0xFF020817), 0.86)
-                            : _opacity(const Color(0xFFF8FAFC), 0.96),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _opacity(
-                            const Color(0xFF7DD3FC),
-                            isDark ? 0.46 : 0.26,
-                          ),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _opacity(Colors.black, isDark ? 0.30 : 0.14),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(maxHeight: maxHeight),
-                          child: _buildButtonsSheetContent(
-                            context: context,
-                            scrollController: scrollController,
-                            isDark: isDark,
-                            setSheetState: setSheetState,
-                            showTutorial: false,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
           ),
         );
       },
@@ -1931,7 +1181,6 @@ class _JoystickPageState extends State<JoystickPage> {
       isDark ? Colors.white : const Color(0xFF0F172A),
       0.70,
     );
-
     Widget row(String id, String label, bool active) {
       final rowTextColor = _opacity(
         isDark ? Colors.white : const Color(0xFF0F172A),
@@ -2064,7 +1313,7 @@ class _JoystickPageState extends State<JoystickPage> {
                           ),
                           const SizedBox(width: 7),
                           Text(
-                            isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
+                            isThai ? 'Buttons' : 'Buttons',
                             style: TextStyle(
                               color: titleColor,
                               fontSize: 14.5,
@@ -2085,14 +1334,14 @@ class _JoystickPageState extends State<JoystickPage> {
                           0.72,
                         ),
                       ),
-                      child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
+                      child: Text(isThai ? 'Cancel' : 'Cancel'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
                   isThai
-                      ? 'แตะเพื่อเปิดหรือปิดจอยสติ๊กและปุ่มที่ต้องการใช้งาน รายการที่เปิดจะปรากฏบนพื้นที่ควบคุม'
+                      ? 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.'
                       : 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.',
                   style: TextStyle(
                     color: subtitleColor,
@@ -2103,30 +1352,62 @@ class _JoystickPageState extends State<JoystickPage> {
                 const SizedBox(height: 8),
               ],
               Text(
-                isThai ? 'จอยสติ๊ก' : 'Joysticks',
+                isThai ? 'Joysticks' : 'Joysticks',
                 style: TextStyle(
                   color: subtitleColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              row(kJoyLeftId, isThai ? 'จอยสติ๊กซ้าย' : 'Left Joystick', _activeIds.contains(kJoyLeftId)),
-              row(kJoyRightId, isThai ? 'จอยสติ๊กขวา' : 'Right Joystick', _activeIds.contains(kJoyRightId)),
-              row(kJoyYOnlyId, isThai ? 'จอยสติ๊กแกน Y' : 'Joystick (Y only)', _activeIds.contains(kJoyYOnlyId)),
-              row(kJoyXOnlyId, isThai ? 'จอยสติ๊กแกน X' : 'Joystick (X only)', _activeIds.contains(kJoyXOnlyId)),
+              row(
+                kJoyLeftId,
+                isThai ? 'Left Joystick' : 'Left Joystick',
+                _activeIds.contains(kJoyLeftId),
+              ),
+              row(
+                kJoyRightId,
+                isThai ? 'Right Joystick' : 'Right Joystick',
+                _activeIds.contains(kJoyRightId),
+              ),
+              row(
+                kJoyYOnlyId,
+                isThai ? 'Joystick (Y only)' : 'Joystick (Y only)',
+                _activeIds.contains(kJoyYOnlyId),
+              ),
+              row(
+                kJoyXOnlyId,
+                isThai ? 'Joystick (X only)' : 'Joystick (X only)',
+                _activeIds.contains(kJoyXOnlyId),
+              ),
               const SizedBox(height: 8),
               Text(
-                isThai ? 'ปุ่มกด' : 'Buttons',
+                isThai ? 'Buttons' : 'Buttons',
                 style: TextStyle(
                   color: subtitleColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              row(kBtnTriangleId, isThai ? 'สามเหลี่ยม' : 'Triangle', _activeIds.contains(kBtnTriangleId)),
-              row(kBtnCrossId, isThai ? 'กากบาท' : 'Cross', _activeIds.contains(kBtnCrossId)),
-              row(kBtnSquareId, isThai ? 'สี่เหลี่ยม' : 'Square', _activeIds.contains(kBtnSquareId)),
-              row(kBtnCircleId, isThai ? 'วงกลม' : 'Circle', _activeIds.contains(kBtnCircleId)),
+              row(
+                kBtnTriangleId,
+                isThai ? 'Triangle' : 'Triangle',
+                _activeIds.contains(kBtnTriangleId),
+              ),
+              row(
+                kBtnCrossId,
+                isThai ? 'Cross' : 'Cross',
+                _activeIds.contains(kBtnCrossId),
+              ),
+              row(
+                kBtnSquareId,
+                isThai ? 'Square' : 'Square',
+                _activeIds.contains(kBtnSquareId),
+              ),
+              row(
+                kBtnCircleId,
+                isThai ? 'Circle' : 'Circle',
+                _activeIds.contains(kBtnCircleId),
+              ),
               if (!showTutorial) const SizedBox(height: 4),
             ],
           ),
@@ -2135,924 +1416,29 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Widget _buildButtonsTutorialSheet({
-    required BuildContext context,
-    required ScrollController scrollController,
-    required bool isDark,
-    required double maxHeight,
-    required void Function(VoidCallback fn) setSheetState,
-  }) {
-    final steps = _tutorialSteps();
-    final step = steps[_tutorialStep];
-    final isFirst = _tutorialStep <= 0;
-    final isLast = _tutorialStep == steps.length - 1;
-
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Align(
-                alignment: Alignment.center,
-                child: _TutorialFloatingCard(
-                  title: _tutorialThai ? step.titleTh : step.titleEn,
-                  body: _tutorialThai ? step.bodyTh : step.bodyEn,
-                  isThai: _tutorialThai,
-                  isLast: isLast,
-                  showBack: !isFirst,
-                  maxWidth: 420,
-                  minHeight: null,
-                  compact: false,
-                  surfaceColor: const Color(0xFF1F2329),
-                  ctaColor: const Color(0xFF3B82F6),
-                  onSkip: () {
-                    Navigator.pop(context);
-                    _finishTutorial();
-                  },
-                  onBack: isFirst
-                      ? null
-                      : () {
-                          Navigator.pop(context);
-                          _goTutorialStep(_tutorialStep - 1);
-                        },
-                  onNext: () {
-                    Navigator.pop(context);
-                    if (isLast) {
-                      _finishTutorial();
-                    } else {
-                      _goTutorialStep(_tutorialStep + 1);
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? _opacity(const Color(0xFF020817), 0.86)
-                      : _opacity(const Color(0xFFF8FAFC), 0.96),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _opacity(const Color(0xFF7DD3FC), isDark ? 0.46 : 0.26),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _opacity(Colors.black, isDark ? 0.30 : 0.14),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: math.min(maxHeight * 0.62, 360),
-                    ),
-                    child: _buildButtonsSheetContent(
-                      context: context,
-                      scrollController: scrollController,
-                      isDark: isDark,
-                      setSheetState: setSheetState,
-                      showTutorial: true,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTutorialPromptOverlay() {
-    if (!_showTutorialPrompt || _showTutorial) return const SizedBox.shrink();
-    final isThai = LanguageController.isThai.value;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
-    final bodyColor = _opacity(titleColor, 0.72);
-    final cardColor = isDark ? const Color(0xFF182233) : const Color(0xFFF8FAFC);
-    final cardBorderColor = isDark
-        ? _opacity(const Color(0xFF93C5FD), 0.26)
-        : _opacity(const Color(0xFF1D4ED8), 0.16);
-
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-            child: Container(color: _opacity(Colors.black, isDark ? 0.54 : 0.45)),
-          ),
-          SafeArea(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: cardBorderColor),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _opacity(Colors.black, isDark ? 0.42 : 0.18),
-                          blurRadius: 20,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isThai
-                              ? 'ดูคำแนะนำการใช้งานหน้านี้ไหม?'
-                              : 'Would you like to view this page guide?',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: titleColor,
-                            decoration: TextDecoration.none,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          isThai
-                              ? 'ระบบจะแสดง Tutorial การใช้งานปุ่มและเครื่องมือในหน้า Joystick Mode Edit'
-                              : 'The app will show a tutorial for buttons and tools on the Joystick Mode Edit page.',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            height: 1.35,
-                            color: bodyColor,
-                            fontWeight: FontWeight.w500,
-                            decoration: TextDecoration.none,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  gamepadBuzz();
-                                  _dismissTutorialPrompt();
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(42),
-                                  side: BorderSide(
-                                    color: _opacity(
-                                      isDark
-                                          ? Colors.white
-                                          : const Color(0xFF0F172A),
-                                      0.28,
-                                    ),
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  isThai ? 'ข้าม' : 'Skip',
-                                  style: TextStyle(
-                                    color: _opacity(titleColor, 0.84),
-                                    fontWeight: FontWeight.w700,
-                                    decoration: TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  gamepadBuzz();
-                                  _startTutorialFromPrompt();
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(42),
-                                  backgroundColor: const Color(0xFF3B82F6),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  isThai ? 'ดู' : 'View',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    decoration: TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBlePreviewPanel() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      return const SizedBox.shrink();
-    }
-    final step = steps[_tutorialStep];
-    if (!step.openBleSheet) return const SizedBox.shrink();
-
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final panelWidth = math.min(screenWidth - 24, 560.0);
-    final maxPanelHeight = math.max(220.0, screenHeight * 0.58);
-    final listMaxHeight = math.min(180.0, maxPanelHeight * 0.48);
-    final connected = BleManager.instance.isConnected;
-    final titleColor = isDark
-        ? _opacity(Colors.white, 0.94)
-        : _opacity(theme.colorScheme.onSurface, 0.95);
-    final bodyColor = isDark
-        ? _opacity(Colors.white, 0.72)
-        : _opacity(theme.colorScheme.onSurface, 0.72);
-    final tileColor = isDark
-        ? _opacity(Colors.white, 0.05)
-        : _opacity(const Color(0xFF0F172A), 0.04);
-    final tileBorder = isDark
-        ? _opacity(Colors.white, 0.08)
-        : _opacity(const Color(0xFF0F172A), 0.12);
-    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF38BDF8);
-    final mockDevices = const [
-      ('PrinceBot-01', '64:B7:08:6F:D4:06', -45),
-    ];
-
-    return Positioned.fill(
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: SizedBox(
-              key: _tutorialBlePanelKey,
-              width: panelWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: panelWidth,
-                  maxHeight: maxPanelHeight,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? _opacity(const Color(0xFF020817), 0.78)
-                              : _opacity(const Color(0xFFF8FAFC), 0.96),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _opacity(
-                              const Color(0xFF7DD3FC),
-                              isDark ? 0.40 : 0.22,
-                            ),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, isDark ? 0.26 : 0.10),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 30,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: _opacity(accent, isDark ? 0.55 : 0.35),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 18,
-                                        height: 18,
-                                        decoration: BoxDecoration(
-                                          color: _opacity(accent, isDark ? 0.20 : 0.12),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.bluetooth_disabled_rounded,
-                                          size: 12,
-                                          color: accent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          isThai ? 'ยังไม่เชื่อมต่อ' : 'Not connected',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: titleColor,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                _blePreviewChip(
-                                  label: isThai ? 'ล่าสุด' : 'Last',
-                                  icon: Icons.history_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFF38BDF8),
-                                  textColor: titleColor,
-                                ),
-                                const SizedBox(width: 4),
-                                _blePreviewChip(
-                                  label: isThai ? 'ค้นหา' : 'Scan',
-                                  icon: Icons.search_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFF38BDF8),
-                                  textColor: titleColor,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(maxHeight: listMaxHeight),
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    for (final d in mockDevices) ...[
-                                      ListTile(
-                                        dense: true,
-                                        visualDensity: VisualDensity.compact,
-                                        contentPadding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 0,
-                                        ),
-                                        tileColor: tileColor,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          side: BorderSide(color: tileBorder),
-                                        ),
-                                        title: Text(
-                                          d.$1,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: titleColor,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          'MAC: ${d.$2} • RSSI: ${d.$3} dBm',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w400,
-                                            color: bodyColor,
-                                          ),
-                                        ),
-                                        trailing: Icon(
-                                          Icons.chevron_right_rounded,
-                                          color: _opacity(titleColor, 0.45),
-                                        ),
-                                        onTap: null,
-                                      ),
-                                      if (d != mockDevices.last)
-                                        const SizedBox(height: 6),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                _blePreviewChip(
-                                  label: isThai ? 'ลืมอุปกรณ์' : 'Forget',
-                                  icon: Icons.delete_outline_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFFFB7185),
-                                  textColor: const Color(0xFFEF4444),
-                                ),
-                                const SizedBox(width: 6),
-                                _blePreviewChip(
-                                  label: isThai ? 'ยกเลิก' : 'Cancel',
-                                  icon: Icons.close_rounded,
-                                  isDark: isDark,
-                                  accent: isDark
-                                      ? _opacity(Colors.white, 0.28)
-                                      : const Color(0xFF94A3B8),
-                                  textColor: bodyColor,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPresetPreviewPanel() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      return const SizedBox.shrink();
-    }
-    final step = steps[_tutorialStep];
-    if (step.titleEn != 'Preview Preset' &&
-        step.titleEn != 'Preset Management') {
-      return const SizedBox.shrink();
-    }
-
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final panelWidth = math.min(screenWidth - 24, 560.0);
-    final maxPanelHeight = math.max(230.0, screenHeight * 0.60);
-    final listMaxHeight = math.min(190.0, maxPanelHeight * 0.54);
-    final titleColor = _opacity(theme.colorScheme.onSurface, 0.95);
-    final subtitleColor = _opacity(theme.colorScheme.onSurface, 0.62);
-    const sheetBg = Color(0xFFF8FAFC);
-    final sheetBorder = _opacity(const Color(0xFFCBD5E1), 0.65);
-
-    Widget presetRow({
-      required int slot,
-      required String name,
-      required bool isEmpty,
-    }) {
-      const badge = Color(0xFFF59E0B);
-      final rowBg = _opacity(Colors.white, 0.88);
-      final rowBorder = _opacity(const Color(0xFFCBD5E1), 0.72);
-      final statusText = isEmpty
-          ? (isThai ? 'ว่าง' : 'Empty')
-          : (isThai ? 'พร้อมใช้' : 'Ready');
-      return Container(
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
-        decoration: BoxDecoration(
-          color: rowBg,
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: rowBorder),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: _opacity(badge, 0.16),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _opacity(badge, 0.40)),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$slot',
-                    style: const TextStyle(
-                      color: badge,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: titleColor,
-                      fontSize: 13.0,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _opacity(const Color(0xFFE2E8F0), 0.85),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: _opacity(const Color(0xFFCBD5E1), 0.85)),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(
-                      color: _opacity(const Color(0xFF64748B), 0.95),
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: _opacity(const Color(0xFFDBEAFE), 0.85),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _opacity(const Color(0xFF93C5FD), 0.85)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.save_outlined,
-                      size: 12.5,
-                      color: _opacity(const Color(0xFF2563EB), 0.95),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      isThai ? 'บันทึก' : 'Save',
-                      style: TextStyle(
-                        color: _opacity(const Color(0xFF2563EB), 0.95),
-                        fontSize: 11.2,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Positioned.fill(
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: SizedBox(
-              key: _tutorialPresetPanelKey,
-              width: panelWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: panelWidth,
-                  maxHeight: maxPanelHeight,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                        decoration: BoxDecoration(
-                          color: sheetBg,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: sheetBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, 0.14),
-                              blurRadius: 18,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 26,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 6),
-                                decoration: BoxDecoration(
-                                  color: _opacity(const Color(0xFF64748B), 0.52),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 22,
-                                  height: 22,
-                                  decoration: BoxDecoration(
-                                    color: _opacity(const Color(0xFFF59E0B), 0.16),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.bookmark_rounded,
-                                    size: 14,
-                                    color: Color(0xFFF59E0B),
-                                  ),
-                                ),
-                                const SizedBox(width: 7),
-                                Expanded(
-                                  child: Text(
-                                    isThai ? 'ค่าที่ตั้งไว้' : 'Presets',
-                                    style: TextStyle(
-                                      color: titleColor,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              isThai
-                                  ? 'บันทึกและเรียกใช้งานรูปแบบปุ่มพร้อมค่า DRV/TRN'
-                                  : 'Save and load button layouts with DRV/TRN values.',
-                              style: TextStyle(
-                                color: subtitleColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(maxHeight: listMaxHeight),
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    presetRow(
-                                      slot: 1,
-                                      name: isThai ? 'ค่าที่ตั้งไว้ 1' : 'Preset 1',
-                                      isEmpty: true,
-                                    ),
-                                    presetRow(
-                                      slot: 2,
-                                      name: isThai ? 'ค่าที่ตั้งไว้ 2' : 'Preset 2',
-                                      isEmpty: true,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _blePreviewChip({
-    required String label,
-    required IconData icon,
-    required bool isDark,
-    required Color accent,
-    required Color textColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: _opacity(accent, isDark ? 0.15 : 0.09),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _opacity(accent, 0.32)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: _opacity(textColor, 0.85)),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: _opacity(textColor, 0.86),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  Widget _buildTutorialOverlay() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    final step = steps[_tutorialStep];
-    if (step.openButtonsSheet) {
-      return const SizedBox.shrink();
-    }
-    final isLast = _tutorialStep == steps.length - 1;
-    final isPreviewBleStep = step.openBleSheet;
-    final isPreviewPresetStep =
-        step.titleEn == 'Preview Preset' || step.titleEn == 'Preset Management';
-    final rect = _tutorialTargetKey == step.targetKey ? _tutorialTargetRect : null;
-    final highlightColor = _tutorialHighlightColor(step);
-    final highlightRect = rect == null ? null : _tutorialHighlightRect(step, rect);
-    final highlightRadius = _tutorialHighlightRadius(step);
-    final screenSize = MediaQuery.of(context).size;
-    final scaledMedia = MediaQuery.of(context).copyWith(
-      textScaler: TextScaler.linear(1.0),
-    );
-    const double arrowSize = 72;
-    const double arrowGap = 4;
-    final bool arrowAbove =
-        highlightRect != null && highlightRect.top > (arrowSize + 24);
-    final double arrowLeft = highlightRect == null
-        ? 0
-        : (highlightRect.center.dx - (arrowSize / 2))
-            .clamp(8.0, screenSize.width - arrowSize - 8);
-    final double arrowTop = highlightRect == null
-        ? 0
-        : arrowAbove
-            ? (highlightRect.top - arrowSize - arrowGap)
-                .clamp(8.0, screenSize.height - arrowSize - 8)
-            : (highlightRect.bottom + arrowGap)
-                .clamp(8.0, screenSize.height - arrowSize - 8);
-    final tutorialCardAlignment =
-        (isPreviewBleStep || isPreviewPresetStep)
-            ? Alignment.topCenter
-            : Alignment.bottomCenter;
-    final tutorialCardPadding = (isPreviewBleStep || isPreviewPresetStep)
-        ? const EdgeInsets.fromLTRB(12, 2, 12, 12)
-        : const EdgeInsets.all(12);
-
-    return Positioned.fill(
-      child: MediaQuery(
-        data: scaledMedia,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-          GestureDetector(
-            onTap: () {},
-            behavior: HitTestBehavior.opaque,
-            child: CustomPaint(
-              painter: _TutorialMaskPainter(
-                holeRect: highlightRect,
-                radius: highlightRadius,
-                color: _opacity(
-                  Colors.black,
-                  Theme.of(context).brightness == Brightness.dark ? 0.58 : 0.46,
-                ),
-              ),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          if (highlightRect != null)
-            Positioned.fromRect(
-              rect: highlightRect,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(highlightRadius),
-                    border: Border.all(
-                      color: _opacity(highlightColor, 0.82),
-                      width: 2.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _opacity(highlightColor, 0.28),
-                        blurRadius: 18,
-                        spreadRadius: 1.2,
-                      ),
-                      BoxShadow(
-                        color: _opacity(Colors.white, 0.12),
-                        blurRadius: 10,
-                        spreadRadius: 0.2,
-                        blurStyle: BlurStyle.inner,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          if (highlightRect != null &&
-              !step.openBleSheet &&
-              !isPreviewPresetStep)
-            Positioned(
-              left: arrowLeft,
-              top: arrowTop,
-              child: IgnorePointer(
-                child: GamepadTutorialPointer(
-                  size: arrowSize,
-                  color: const Color(0xFF7DD3FC),
-                  direction: arrowAbove
-                      ? GamepadPointerDirection.down
-                      : GamepadPointerDirection.up,
-                ),
-              ),
-            ),
-          SafeArea(
-            child: Align(
-              alignment: tutorialCardAlignment,
-              child: Padding(
-                padding: tutorialCardPadding,
-                child: GamepadTutorialFloatingCard(
-                  title: _tutorialThai ? step.titleTh : step.titleEn,
-                  body: _tutorialThai ? step.bodyTh : step.bodyEn,
-                  isThai: _tutorialThai,
-                  isLast: isLast,
-                  showBack: _tutorialStep > 0,
-                  maxWidth: isPreviewBleStep
-                      ? 380
-                      : (isPreviewPresetStep ? 280 : 420),
-                  minHeight: isPreviewBleStep ? 130 : null,
-                  roomyCompact: isPreviewBleStep,
-                  compact: isPreviewBleStep || isPreviewPresetStep,
-                  surfaceColor: const Color(0xFF1F2329),
-                  ctaColor: const Color(0xFF3B82F6),
-                  onSkip: _finishTutorial,
-                  onBack: _tutorialStep > 0
-                      ? () => _goTutorialStep(_tutorialStep - 1)
-                      : null,
-                  onNext: isLast
-                      ? _finishTutorial
-                      : () => _goTutorialStep(_tutorialStep + 1),
-                ),
-              ),
-            ),
-          ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return const SizedBox.shrink();
-  }
-
   void _showSizeLimit(bool atMax) {
     final isThai = LanguageController.isThai.value;
     final msg = atMax
-        ? (isThai ? 'ถึงขนาดสูงสุดแล้ว' : 'Max size reached')
-        : (isThai ? 'ถึงขนาดต่ำสุดแล้ว' : 'Min size reached');
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(milliseconds: 900)),
+        ? (isThai ? 'Max size reached' : 'Max size reached')
+        : (isThai ? 'Min size reached' : 'Min size reached');
+    showGamepadTopNotice(
+      context,
+      message: msg,
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
   void _showSizeEdgeWarning() {
     final isThai = LanguageController.isThai.value;
     final msg = isThai
-        ? 'ปุ่มต้องอยู่ภายในขอบเขตปลอดภัย'
+        ? 'Buttons must stay inside the safe zone.'
         : 'Buttons must stay inside the safe zone.';
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(milliseconds: 900)),
+    showGamepadTopNotice(
+      context,
+      message: msg,
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -3061,17 +1447,13 @@ class _JoystickPageState extends State<JoystickPage> {
     if (now - _lastBoundaryWarningMs < 900) return;
     _lastBoundaryWarningMs = now;
     final isThai = LanguageController.isThai.value;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          isThai
-              ? 'ปุ่มต้องอยู่ภายในขอบเขตปลอดภัย'
-              : 'Buttons must stay inside the safe zone.',
-        ),
-        duration: const Duration(milliseconds: 900),
-      ),
+    showGamepadTopNotice(
+      context,
+      message: isThai
+          ? 'Buttons must stay inside the safe zone.'
+          : 'Buttons must stay inside the safe zone.',
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -3080,15 +1462,11 @@ class _JoystickPageState extends State<JoystickPage> {
     if (now - _lastOverlapWarningMs < 900) return;
     _lastOverlapWarningMs = now;
     final isThai = LanguageController.isThai.value;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          isThai ? 'ปุ่มห้ามซ้อนทับกัน' : 'Buttons cannot overlap.',
-        ),
-        duration: const Duration(milliseconds: 900),
-      ),
+    showGamepadTopNotice(
+      context,
+      message: isThai ? 'Buttons cannot overlap.' : 'Buttons cannot overlap.',
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -3115,7 +1493,6 @@ class _JoystickPageState extends State<JoystickPage> {
     if (panel == null) return;
     final current = _layout[id];
     if (current == null) return;
-
     final w = panel.width;
     final h = panel.height;
     final isButton = _isButtonId(id);
@@ -3132,7 +1509,6 @@ class _JoystickPageState extends State<JoystickPage> {
     _pushHistory();
     final sizePx = base * nextSize;
     final half = sizePx / 2;
-
     final rawCx = current.cx * w;
     final rawCy = current.cy * h;
     const safeEdgePad = 16.0;
@@ -3140,25 +1516,24 @@ class _JoystickPageState extends State<JoystickPage> {
     final maxX = w - safeEdgePad - half;
     final minY = safeEdgePad + half;
     final maxY = h - safeEdgePad - half;
-
     if (rawCx < minX || rawCx > maxX || rawCy < minY || rawCy > maxY) {
       HapticFeedback.vibrate();
       _showBoundaryWarning();
       _flashEditWarning(id);
       return;
     }
-
     double cx = rawCx.clamp(minX, maxX);
     double cy = rawCy.clamp(minY, maxY);
     final edgeAdjusted = (cx - rawCx).abs() > 0.01 || (cy - rawCy).abs() > 0.01;
-
     var collides = false;
     for (final entry in _layout.entries) {
       if (entry.key == id) continue;
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key) ? _baseBtnSize(panel) : _baseJoySize(panel);
+      final otherBase = _isButtonId(entry.key)
+          ? _baseBtnSize(panel)
+          : _baseJoySize(panel);
       final otherSizePx = otherBase * other.size;
       final minDist = (sizePx / 2) + (otherSizePx / 2);
       final dx = cx - ox;
@@ -3175,7 +1550,6 @@ class _JoystickPageState extends State<JoystickPage> {
       _flashEditWarning(id);
       return;
     }
-
     setState(() {
       final next = Map<String, _JoyLayout>.from(_layout);
       next[id] = _JoyLayout(cx / w, cy / h, nextSize);
@@ -3191,9 +1565,14 @@ class _JoystickPageState extends State<JoystickPage> {
   Widget _buildGridOverlay() {
     if (!_editMode || !_showGrid) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final minor = _opacity(isDark ? Colors.white : Colors.black, isDark ? 0.14 : 0.16);
-    final major = _opacity(isDark ? Colors.white : Colors.black, isDark ? 0.24 : 0.30);
-
+    final minor = _opacity(
+      isDark ? Colors.white : Colors.black,
+      isDark ? 0.14 : 0.16,
+    );
+    final major = _opacity(
+      isDark ? Colors.white : Colors.black,
+      isDark ? 0.24 : 0.30,
+    );
     return Positioned.fill(
       child: IgnorePointer(
         child: CustomPaint(
@@ -3220,29 +1599,49 @@ class _JoystickPageState extends State<JoystickPage> {
     if (id == kBtnCrossId) _cross = down;
     if (id == kBtnSquareId) _square = down;
     if (id == kBtnCircleId) _circle = down;
-
     _lastButtonsKey = _buttonsKey();
-    _sendBinary(
-      _controller.buildPacket(),
-      buttons: _pressedButtons(),
-    );
+    _sendBinary(_controller.buildPacket(), buttons: _pressedButtons());
     if (mounted) {
       setState(() {});
     }
   }
 
   Future<bool> _onBack() async {
-    OrientationUtils.reset();
-    unawaited(_sendZeroAndClear());
+    if (_leavingControlPage) return false;
+    _leavingControlPage = true;
     _stopTimer();
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const ControllerHomePage()),
-      (route) => false,
-    );
+    await _releaseTrafficOwnershipForExit();
+    if (!mounted) return false;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+    }
     return false;
   }
 
+  Future<void> _releaseTrafficOwnershipForExit({bool emergency = false}) async {
+    final owner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (owner == null) return;
+    final manager = BleManager.instance;
+    if (emergency) {
+      await manager.emergencyStopAndReleaseControl(
+        owner: owner,
+        source: 'joystick_emergency_stop',
+      );
+      return;
+    }
+    manager.disableControlReconnect(owner);
+    try {
+      await _sendZeroAndClear(updateUi: false, owner: owner);
+    } finally {
+      manager.releaseTrafficMode(owner);
+    }
+  }
+
+  // ignore: unused_element
   GamepadAppBarMetrics _metricsWithOverrides(
     GamepadAppBarMetrics base, {
     double? labelButtonWidth,
@@ -3275,7 +1674,6 @@ class _JoystickPageState extends State<JoystickPage> {
     final color = _guideSnap
         ? _opacity(const Color(0xFFFACC15), isDark ? 0.92 : 0.85)
         : _opacity(cs.primary, isDark ? 0.35 : 0.25);
-
     return Positioned.fill(
       child: IgnorePointer(
         child: CustomPaint(
@@ -3292,92 +1690,39 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Widget _buildAppBarActionsRow({
+  List<Widget> _buildAppBarActions({
     required bool isThai,
     required GamepadAppBarMetrics appBarMetrics,
     required double actionGap,
-    required _TutorialStep? activeTutorialStep,
-    required bool tutorialIsFirst,
-    required bool tutorialIsLast,
   }) {
-    final children = <Widget>[];
-
-    void addAction(Widget widget) {
-      if (children.isNotEmpty) {
-        children.add(SizedBox(width: actionGap));
-      }
-      children.add(widget);
-    }
-
-    addAction(
+    return [
       ConnectionStatusBadge(
-        key: _tutorialBtKey,
-        controller: _bleBadgeController,
         appBarMetrics: appBarMetrics,
-        showTutorial: false,
-        tutorialIsFirst: tutorialIsFirst,
-        tutorialIsLast: tutorialIsLast,
-        tutorialTitle: activeTutorialStep == null
-            ? null
-            : (_tutorialThai ? activeTutorialStep.titleTh : activeTutorialStep.titleEn),
-        tutorialBody: activeTutorialStep == null
-            ? null
-            : (_tutorialThai ? activeTutorialStep.bodyTh : activeTutorialStep.bodyEn),
-        onTutorialSkip: _finishTutorial,
-        onTutorialBack: tutorialIsFirst ? null : () => _goTutorialStep(_tutorialStep - 1),
-        onTutorialNext: tutorialIsLast ? null : () => _goTutorialStep(_tutorialStep + 1),
-        onTutorialFinish: _finishTutorial,
+        iconAsset: AppAssets.controlBle,
+        subdued: true,
+        onManagementBlocked: () => showGamepadTopNotice(
+          context,
+          message: _isThai
+              ? 'Use Emergency Stop before managing BLE.'
+              : 'Use Emergency Stop before managing BLE.',
+          style: GamepadNoticeStyle.ble,
+        ),
       ),
-    );
-
-    addAction(
       GamepadAppBarActionGroup(
         gap: actionGap,
         items: [
           GamepadAppBarActionItem(
-            key: _tutorialCustomizeKey,
-            label: isThai ? 'แก้ไข' : 'Edit',
-            icon: Icons.edit,
-            accent: const Color(0xFF38BDF8),
-            compactOnNarrow: false,
-            onTap: () {
-              gamepadBuzz();
-              _toggleEdit();
-            },
-          ),
-          GamepadAppBarActionItem(
-            key: _tutorialPresetKey,
-            label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
-            icon: Icons.folder_open,
-            accent: const Color(0xFFF59E0B),
-            onTap: () {
-              gamepadBuzz();
-              _showPresetSheet();
-            },
-          ),
-          GamepadAppBarActionItem(
-            key: _tutorialHelpKey,
-            label: isThai ? 'วิธีใช้งาน' : 'Tutorial',
-            icon: Icons.help_outline,
-            accent: const Color(0xFFEC4899),
+            label: isThai ? 'Settings' : 'Settings',
+            icon: Icons.settings_outlined,
+            iconAsset: AppAssets.controlSettings,
+            accent: const Color(0xFF94A3B8),
             iconOnly: true,
-            onTap: () {
-              gamepadBuzz();
-              _restartTutorial();
-            },
+            compact: true,
+            onTap: _openSettings,
           ),
         ],
       ),
-    );
-
-    return SizedBox(
-      height: appBarMetrics.controlHeight,
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerRight,
-        child: Row(mainAxisSize: MainAxisSize.min, children: children),
-      ),
-    );
+    ];
   }
 
   Widget _buildAppBarToolbarRow({
@@ -3386,67 +1731,262 @@ class _JoystickPageState extends State<JoystickPage> {
     required GamepadAppBarMetrics cmdMetrics,
     required GamepadAppBarMetrics axisMetrics,
     required double uniformGap,
-    required _TutorialStep? activeTutorialStep,
-    required bool tutorialIsFirst,
-    required bool tutorialIsLast,
   }) {
-    final children = <Widget>[
-      _buildAppBarBackButton(appBarMetrics),
-      SizedBox(width: uniformGap),
+    final telemetry = <Widget>[
       SizedBox(
-        key: _tutorialCmdKey,
         child: GamepadTelemetryChip(
           icon: Icons.flash_on,
           label: 'CMD',
           value: _cmdLabel(),
           metrics: cmdMetrics,
           accentColor: _cmdAccent,
+          iconAsset: AppAssets.controlCommand,
+          subdued: true,
         ),
       ),
-      SizedBox(width: uniformGap),
-      SizedBox(
-        key: _tutorialJlKey,
-        child: GamepadTelemetryChip(
+      ValueListenableBuilder<String>(
+        valueListenable: _leftDebug,
+        builder: (context, value, child) => GamepadTelemetryChip(
           icon: Icons.west,
           label: 'JL',
-          value: _leftDebug,
+          showLabel: false,
+          value: value,
           metrics: axisMetrics,
           accentColor: _jlAccent,
         ),
       ),
-      SizedBox(width: uniformGap),
-      SizedBox(
-        key: _tutorialJrKey,
-        child: GamepadTelemetryChip(
+      ValueListenableBuilder<String>(
+        valueListenable: _rightDebug,
+        builder: (context, value, child) => GamepadTelemetryChip(
           icon: Icons.east,
           label: 'JR',
-          value: _rightDebug,
+          showLabel: false,
+          value: value,
           metrics: axisMetrics,
           accentColor: _jrAccent,
         ),
       ),
-      SizedBox(width: uniformGap),
-      _buildAppBarActionsRow(
-        isThai: isThai,
-        appBarMetrics: appBarMetrics,
-        actionGap: uniformGap,
-        activeTutorialStep: activeTutorialStep,
-        tutorialIsFirst: tutorialIsFirst,
-        tutorialIsLast: tutorialIsLast,
-      ),
     ];
+    return GamepadCenteredToolbar(
+      textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
+      children: [
+        _buildAppBarBackButton(appBarMetrics),
+        ...telemetry,
+        ..._buildAppBarActions(
+          isThai: isThai,
+          appBarMetrics: appBarMetrics,
+          actionGap: uniformGap,
+        ),
+      ],
+    );
+  }
 
-    return SizedBox(
-      height: appBarMetrics.controlHeight,
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Row(mainAxisSize: MainAxisSize.min, children: children),
+  Widget _buildCenteredEditAppBar(bool isThai) {
+    final selectedId = _selectedId;
+    final hasSelection = selectedId != null;
+    final selectedLocked =
+        selectedId != null && _lockedIds.contains(selectedId);
+    final sizeEnabled = hasSelection && !selectedLocked;
+    VoidCallback withBuzz(VoidCallback action) {
+      return () {
+        gamepadBuzz();
+        action();
+      };
+    }
+
+    return GamepadCenteredToolbar(
+      textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
+      singleRow: true,
+      children: [
+        _toolIconPill(
+          icon: Icons.done_rounded,
+          label: 'Done',
+          accent: const Color(0xFF60A5FA),
+          onTap: withBuzz(_toggleEdit),
+        ),
+        _toolIconPill(
+          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          accent: const Color(0xFFFBBF24),
+          active: selectedLocked,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.remove,
+          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled
+              ? withBuzz(() => _adjustSelectedSize(-0.05))
+              : null,
+        ),
+        _toolIconPill(
+          icon: Icons.add,
+          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
+        ),
+        _toolIconPill(
+          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+          label: 'Grid',
+          accent: const Color(0xFF38BDF8),
+          active: _showGrid,
+          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
+        ),
+        _toolIconPill(
+          icon: Icons.undo_rounded,
+          label: 'Undo',
+          accent: const Color(0xFFA78BFA),
+          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.redo_rounded,
+          label: 'Redo',
+          accent: const Color(0xFFA78BFA),
+          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.restart_alt,
+          label: 'Reset',
+          accent: const Color(0xFFF59E0B),
+          onTap: withBuzz(_resetLayout),
+        ),
+        _toolIconPill(
+          icon: Icons.delete_outline,
+          label: isThai ? 'ลบ' : 'Delete',
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+      ],
+    );
+  }
+
+  // ignore: unused_element
+  PreferredSizeWidget _buildEditModeAppBar(bool isThai) {
+    final media = MediaQuery.of(context);
+    if (media.size.width >= 1000 && media.textScaler.scale(1) <= 1.3) {
+      return _buildExpandedEditModeAppBar(isThai);
+    }
+    final metrics = GamepadAppBarMetrics.forWidth(media.size.width);
+    final hasSelection = _selectedId != null;
+    final selectedLocked =
+        _selectedId != null && _lockedIds.contains(_selectedId);
+    final sizeEnabled = hasSelection && !selectedLocked;
+
+    VoidCallback withBuzz(VoidCallback action) {
+      return () {
+        gamepadBuzz();
+        action();
+      };
+    }
+
+    Widget compactAction({
+      required String label,
+      required IconData icon,
+      required VoidCallback? onTap,
+    }) {
+      return Tooltip(
+        message: label,
+        child: _actionPill(
+          label: label,
+          icon: icon,
+          accent: const Color(0xFFA78BFA),
+          iconOnly: true,
+          compact: true,
+          onTap: onTap,
+        ),
+      );
+    }
+
+    final more = GamepadEditMoreButton(
+      actions: [
+        GamepadOverflowAction(
+          label: isThai ? 'ลบ' : 'Delete',
+          icon: Icons.delete_outline,
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+        GamepadOverflowAction(
+          label: 'Reset',
+          icon: Icons.restart_alt,
+          accent: const Color(0xFFF59E0B),
+          onTap: withBuzz(_resetLayout),
+        ),
+        GamepadOverflowAction(
+          label: 'Grid',
+          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+          accent: const Color(0xFF38BDF8),
+          active: _showGrid,
+          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
+        ),
+        GamepadOverflowAction(
+          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          icon: Icons.remove,
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled
+              ? withBuzz(() => _adjustSelectedSize(-0.05))
+              : null,
+        ),
+        GamepadOverflowAction(
+          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          icon: Icons.add,
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
+        ),
+        GamepadOverflowAction(
+          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          accent: const Color(0xFFFBBF24),
+          active: selectedLocked,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+        ),
+      ],
+    );
+    final history = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        compactAction(
+          label: 'Undo',
+          icon: Icons.undo_rounded,
+          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
+        ),
+        SizedBox(width: metrics.controlGap),
+        compactAction(
+          label: 'Redo',
+          icon: Icons.redo_rounded,
+          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
+        ),
+        SizedBox(width: metrics.controlGap),
+        more,
+      ],
+    );
+    final done = _actionPill(
+      label: 'Done',
+      icon: Icons.edit,
+      accent: const Color(0xFF60A5FA),
+      compact: true,
+      onTap: withBuzz(_toggleEdit),
+    );
+    return GamepadUnifiedAppBar(
+      textScaleFactor: media.textScaler.scale(1),
+      useGlassBackground: false,
+      glassOpacity: 0.18,
+      toolbarContent: SizedBox(
+        width: math.max(0, media.size.width - 24),
+        height: metrics.tapTargetExtent,
+        child: Row(
+          children: [
+            _buildEditMenu(compact: true),
+            SizedBox(width: metrics.sectionGap),
+            Expanded(child: Center(child: history)),
+            SizedBox(width: metrics.sectionGap),
+            done,
+          ],
+        ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildEditModeAppBar(bool isThai) {
+  PreferredSizeWidget _buildExpandedEditModeAppBar(bool isThai) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -3454,10 +1994,10 @@ class _JoystickPageState extends State<JoystickPage> {
       MediaQuery.of(context).size.width,
     );
     final baseColor = isDark
-        ? _opacity(const Color(0xFF111827), 0.94)
+        ? _opacity(const Color(0xFF111827), 0.30)
         : _opacity(
             Color.lerp(const Color(0xFFF8FAFC), cs.surface, 0.55) ?? cs.surface,
-            0.97,
+            0.18,
           );
     final border = _opacity(
       isDark ? const Color(0xFF38BDF8) : cs.outline,
@@ -3470,8 +2010,7 @@ class _JoystickPageState extends State<JoystickPage> {
     );
     final middleChildren = <Widget>[
       _actionPill(
-        key: _tutorialRemoveKey,
-        label: isThai ? 'ลบ' : 'Delete',
+        label: isThai ? 'Delete' : 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
@@ -3483,8 +2022,7 @@ class _JoystickPageState extends State<JoystickPage> {
               },
       ),
       _actionPill(
-        key: _tutorialResetKey,
-        label: isThai ? 'รีเซ็ต' : 'Reset',
+        label: isThai ? 'Reset' : 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -3494,9 +2032,8 @@ class _JoystickPageState extends State<JoystickPage> {
         },
       ),
       _toolIconPill(
-        key: _tutorialUndoKey,
         icon: Icons.undo_rounded,
-        label: isThai ? 'ย้อน' : 'Undo',
+        label: isThai ? 'Undo' : 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: _undoStack.isNotEmpty
             ? () {
@@ -3506,9 +2043,8 @@ class _JoystickPageState extends State<JoystickPage> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialRedoKey,
         icon: Icons.redo_rounded,
-        label: isThai ? 'ทำซ้ำ' : 'Redo',
+        label: isThai ? 'Redo' : 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: _redoStack.isNotEmpty
             ? () {
@@ -3518,9 +2054,8 @@ class _JoystickPageState extends State<JoystickPage> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialGridKey,
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'กริด' : 'Grid',
+        label: isThai ? 'Grid' : 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () {
@@ -3529,16 +2064,17 @@ class _JoystickPageState extends State<JoystickPage> {
         },
       ),
       _sizeToolPill(
-        key: _tutorialSizeKey,
         isThai: isThai,
         enabled: _selectedId != null && !_lockedIds.contains(_selectedId),
       ),
       _toolIconPill(
-        key: _tutorialLockKey,
         icon: _selectedId != null && _lockedIds.contains(_selectedId)
             ? Icons.lock_rounded
             : Icons.lock_open_rounded,
-        label: isThai ? 'ล็อก' : 'Lock',
+        label: gamepadEditLockLabel(
+          isThai: isThai,
+          locked: _selectedId != null && _lockedIds.contains(_selectedId),
+        ),
         accent: const Color(0xFFFBBF24),
         active: _selectedId != null && _lockedIds.contains(_selectedId),
         onTap: _selectedId != null
@@ -3553,8 +2089,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _buildEditMenu(compact: true),
       ...middleChildren,
       _actionPill(
-        key: _tutorialDoneKey,
-        label: isThai ? 'เสร็จสิ้น' : 'Done',
+        label: isThai ? 'Done' : 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -3564,7 +2099,6 @@ class _JoystickPageState extends State<JoystickPage> {
         },
       ),
     ];
-
     return AppBar(
       automaticallyImplyLeading: false,
       toolbarHeight: GamepadAppBarMetrics.toolbarHeight,
@@ -3600,13 +2134,34 @@ class _JoystickPageState extends State<JoystickPage> {
         ),
       ),
       title: SizedBox(
-        key: _tutorialEditBarKey,
-        height: metrics.controlHeight,
+        height: metrics.tapTargetExtent,
         child: Padding(
           padding: metrics.contentPadding,
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: allChildren,
+            children: [
+              allChildren.first,
+              SizedBox(width: metrics.sectionGap),
+              Expanded(
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (
+                        int index = 1;
+                        index < allChildren.length - 1;
+                        index++
+                      ) ...[
+                        allChildren[index],
+                        if (index < allChildren.length - 2)
+                          SizedBox(width: metrics.controlGap),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: metrics.sectionGap),
+              allChildren.last,
+            ],
           ),
         ),
       ),
@@ -3615,7 +2170,6 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Widget _buildAppBarBackButton(GamepadAppBarMetrics metrics) {
     return GamepadAppBarBackButton(
-      buttonKey: _tutorialBackKey,
       metrics: metrics,
       onPressed: () {
         gamepadBuzz();
@@ -3626,46 +2180,13 @@ class _JoystickPageState extends State<JoystickPage> {
 
   @override
   Widget build(BuildContext context) {
-    final steps = _tutorialSteps();
-    final activeTutorialStep =
-        (_showTutorial && _tutorialStep >= 0 && _tutorialStep < steps.length)
-            ? steps[_tutorialStep]
-            : null;
-    final tutorialIsFirst = _tutorialStep <= 0;
-    final tutorialIsLast = _tutorialStep == steps.length - 1;
     final width = MediaQuery.of(context).size.width;
     final appBarMetrics = GamepadAppBarMetrics.forWidth(width);
-    final cmdMetrics = _metricsWithOverrides(
-      appBarMetrics,
-      labelButtonWidth: 86,
-      telemetryValueMaxWidth: 28,
-    );
-    final axisMetrics = _metricsWithOverrides(
-      appBarMetrics,
-      labelButtonWidth: width >= 1200 ? 172 : 156,
-      telemetryValueMaxWidth: width >= 1200 ? 144 : 132,
-    );
-    final presetMetrics = _metricsWithOverrides(
-      appBarMetrics,
-      labelButtonWidth: width >= 1200 ? 118 : 108,
-    );
+    final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
+    final cmdMetrics = appBarMetrics;
+    final axisMetrics = appBarMetrics;
     final isThai = LanguageController.isThai.value;
-    final backButtonWidth = appBarMetrics.iconButtonExtent;
-    final cmdWidth = cmdMetrics.labelButtonWidth;
-    final axisWidth = axisMetrics.labelButtonWidth;
-    final bleWidth = appBarMetrics.labelButtonWidth;
-    final centerBaseWidth = cmdWidth + axisWidth + axisWidth;
-    final rightButtonWidth =
-        bleWidth + 78.0 + presetMetrics.labelButtonWidth + appBarMetrics.iconButtonExtent;
-    final gapSlots = 7.0;
-    final availableWidth = math.max(0.0, width - 24.0);
-    final uniformGap = ((availableWidth -
-                    backButtonWidth -
-                    centerBaseWidth -
-                    rightButtonWidth) /
-                gapSlots)
-            .clamp(3.0, 10.0)
-            .toDouble();
+    const uniformGap = GamepadAppBarMetrics.uniformGap;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -3673,169 +2194,191 @@ class _JoystickPageState extends State<JoystickPage> {
         _onBack();
       },
       child: Stack(
-        key: _tutorialStackKey,
         children: [
           Scaffold(
-        extendBodyBehindAppBar: true,
-        appBar: _editMode
-            ? _buildEditModeAppBar(isThai)
-            : GamepadUnifiedAppBar(
-                toolbarPadding: const EdgeInsets.symmetric(horizontal: 12),
-                toolbarContent: _buildAppBarToolbarRow(
-                  isThai: isThai,
-                  appBarMetrics: appBarMetrics,
-                  cmdMetrics: cmdMetrics,
-                  axisMetrics: axisMetrics,
-                  uniformGap: uniformGap,
-                  activeTutorialStep: activeTutorialStep,
-                  tutorialIsFirst: tutorialIsFirst,
-                  tutorialIsLast: tutorialIsLast,
-                ),
-              ),
-        body: Stack(
-          children: [
-            SafeArea(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  _buildGridOverlay(),
-                  _buildAlignmentGuides(),
-                  Container(
-                    key: _tutorialAreaKey,
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final size = Size(c.maxWidth, c.maxHeight);
-                        _panelSize = size;
-                        final defaults = _defaultLayout(size, _activeIds);
-                        final effective = {
-                          ...defaults,
-                          ..._layout,
-                        };
-
-                        final base = _baseJoySize(size);
-                        final btnBase = _baseBtnSize(size);
-
-                        final widgets = <Widget>[];
-                        if (_activeIds.contains(kJoyLeftId)) {
-                          widgets.add(
-                            _buildJoystick(
-                              id: kJoyLeftId,
-                              size: size,
-                              baseSize: base,
-                              layout: effective[kJoyLeftId]!,
-                              allLayouts: effective,
-                              isLeft: true,
-                              axisLock: JoystickAxisLock.none,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kJoyYOnlyId)) {
-                          widgets.add(
-                            _buildJoystick(
-                              id: kJoyYOnlyId,
-                              size: size,
-                              baseSize: base,
-                              layout: effective[kJoyYOnlyId]!,
-                              allLayouts: effective,
-                              isLeft: true,
-                              axisLock: JoystickAxisLock.yOnly,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kJoyRightId)) {
-                          widgets.add(
-                            _buildJoystick(
-                              id: kJoyRightId,
-                              size: size,
-                              baseSize: base,
-                              layout: effective[kJoyRightId]!,
-                              allLayouts: effective,
-                              isLeft: false,
-                              axisLock: JoystickAxisLock.none,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kJoyXOnlyId)) {
-                          widgets.add(
-                            _buildJoystick(
-                              id: kJoyXOnlyId,
-                              size: size,
-                              baseSize: base,
-                              layout: effective[kJoyXOnlyId]!,
-                              allLayouts: effective,
-                              isLeft: false,
-                              axisLock: JoystickAxisLock.xOnly,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kBtnTriangleId)) {
-                          widgets.add(
-                            _buildButton(
-                              id: kBtnTriangleId,
-                              label: 'Triangle',
-                              asset: kGamepad8AssetTriangle,
-                              size: size,
-                              baseSize: btnBase,
-                              layout: effective[kBtnTriangleId]!,
-                              allLayouts: effective,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kBtnCrossId)) {
-                          widgets.add(
-                            _buildButton(
-                              id: kBtnCrossId,
-                              label: 'Cross',
-                              asset: kGamepad8AssetCross,
-                              size: size,
-                              baseSize: btnBase,
-                              layout: effective[kBtnCrossId]!,
-                              allLayouts: effective,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kBtnSquareId)) {
-                          widgets.add(
-                            _buildButton(
-                              id: kBtnSquareId,
-                              label: 'Square',
-                              asset: kGamepad8AssetSquare,
-                              size: size,
-                              baseSize: btnBase,
-                              layout: effective[kBtnSquareId]!,
-                              allLayouts: effective,
-                            ),
-                          );
-                        }
-                        if (_activeIds.contains(kBtnCircleId)) {
-                          widgets.add(
-                            _buildButton(
-                              id: kBtnCircleId,
-                              label: 'Circle',
-                              asset: kGamepad8AssetCircle,
-                              size: size,
-                              baseSize: btnBase,
-                              layout: effective[kBtnCircleId]!,
-                              allLayouts: effective,
-                            ),
-                          );
-                        }
-
-                        return Stack(children: widgets);
-                      },
-                    ),
-                  ),
-                  _buildEmptyState(),
-                ],
-              ),
+            extendBodyBehindAppBar: true,
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerFloat,
+            floatingActionButton: ValueListenableBuilder<bool>(
+              valueListenable: BleManager.instance.controlSuspendedListenable,
+              builder: (context, suspended, child) {
+                if (_editMode) return const SizedBox.shrink();
+                final isStarted = _controlStarted && !suspended;
+                return GamepadStartStopControlButton(
+                  heroTag: 'start_stop_joystick_control',
+                  isStarted: isStarted,
+                  isBusy: _startInProgress,
+                  onPressed: isStarted
+                      ? _stopControl
+                      : (_canStartControl ? _startControl : null),
+                );
+              },
             ),
-          ],
-        ),
-      ),
-          _buildBlePreviewPanel(),
-          _buildPresetPreviewPanel(),
-          _buildTutorialOverlay(),
-          _buildTutorialPromptOverlay(),
+            appBar: GamepadUnifiedAppBar(
+              controlLayout: _editMode
+                  ? null
+                  : GamepadControlLayout.measure(context, [
+                      '',
+                      'CMD 255',
+                      'X:-1.00 Y:-1.00',
+                      'X:-1.00 Y:-1.00',
+                      '@ble',
+                      '',
+                    ]),
+              textScaleFactor: textScaleFactor,
+              viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
+              toolbarItemCount: _editMode ? 9 : 6,
+              singleRowToolbar: _editMode,
+              useGlassBackground: false,
+              glassOpacity: 0.18,
+              toolbarPadding: const EdgeInsets.symmetric(horizontal: 12),
+              toolbarContent: _editMode
+                  ? _buildCenteredEditAppBar(isThai)
+                  : _buildAppBarToolbarRow(
+                      isThai: isThai,
+                      appBarMetrics: appBarMetrics,
+                      cmdMetrics: cmdMetrics,
+                      axisMetrics: axisMetrics,
+                      uniformGap: uniformGap,
+                    ),
+            ),
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: Image.asset(
+                    AppAssets.controlBackground,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+                SafeArea(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _buildGridOverlay(),
+                      _buildAlignmentGuides(),
+                      LayoutBuilder(
+                        builder: (context, c) {
+                          final size = Size(c.maxWidth, c.maxHeight);
+                          _panelSize = size;
+                          final defaults = _defaultLayout(size, _activeIds);
+                          final effective = {...defaults, ..._layout};
+                          final base = _baseJoySize(size);
+                          final btnBase = _baseBtnSize(size);
+                          final widgets = <Widget>[];
+                          if (_activeIds.contains(kJoyLeftId)) {
+                            widgets.add(
+                              _buildJoystick(
+                                id: kJoyLeftId,
+                                size: size,
+                                baseSize: base,
+                                layout: effective[kJoyLeftId]!,
+                                allLayouts: effective,
+                                isLeft: true,
+                                axisLock: JoystickAxisLock.none,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kJoyYOnlyId)) {
+                            widgets.add(
+                              _buildJoystick(
+                                id: kJoyYOnlyId,
+                                size: size,
+                                baseSize: base,
+                                layout: effective[kJoyYOnlyId]!,
+                                allLayouts: effective,
+                                isLeft: true,
+                                axisLock: JoystickAxisLock.yOnly,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kJoyRightId)) {
+                            widgets.add(
+                              _buildJoystick(
+                                id: kJoyRightId,
+                                size: size,
+                                baseSize: base,
+                                layout: effective[kJoyRightId]!,
+                                allLayouts: effective,
+                                isLeft: false,
+                                axisLock: JoystickAxisLock.none,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kJoyXOnlyId)) {
+                            widgets.add(
+                              _buildJoystick(
+                                id: kJoyXOnlyId,
+                                size: size,
+                                baseSize: base,
+                                layout: effective[kJoyXOnlyId]!,
+                                allLayouts: effective,
+                                isLeft: false,
+                                axisLock: JoystickAxisLock.xOnly,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kBtnTriangleId)) {
+                            widgets.add(
+                              _buildButton(
+                                id: kBtnTriangleId,
+                                label: 'Triangle',
+                                asset: kGamepad8AssetTriangle,
+                                size: size,
+                                baseSize: btnBase,
+                                layout: effective[kBtnTriangleId]!,
+                                allLayouts: effective,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kBtnCrossId)) {
+                            widgets.add(
+                              _buildButton(
+                                id: kBtnCrossId,
+                                label: 'Cross',
+                                asset: kGamepad8AssetCross,
+                                size: size,
+                                baseSize: btnBase,
+                                layout: effective[kBtnCrossId]!,
+                                allLayouts: effective,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kBtnSquareId)) {
+                            widgets.add(
+                              _buildButton(
+                                id: kBtnSquareId,
+                                label: 'Square',
+                                asset: kGamepad8AssetSquare,
+                                size: size,
+                                baseSize: btnBase,
+                                layout: effective[kBtnSquareId]!,
+                                allLayouts: effective,
+                              ),
+                            );
+                          }
+                          if (_activeIds.contains(kBtnCircleId)) {
+                            widgets.add(
+                              _buildButton(
+                                id: kBtnCircleId,
+                                label: 'Circle',
+                                asset: kGamepad8AssetCircle,
+                                size: size,
+                                baseSize: btnBase,
+                                layout: effective[kBtnCircleId]!,
+                                allLayouts: effective,
+                              ),
+                            );
+                          }
+                          return Stack(children: widgets);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -3856,7 +2399,6 @@ class _JoystickPageState extends State<JoystickPage> {
     final half = joySize / 2;
     final cx = (layout.cx * size.width).clamp(half, size.width - half);
     final cy = (layout.cy * size.height).clamp(half, size.height - half);
-
     final joyWidget = SizedBox(
       width: joySize,
       height: joySize,
@@ -3864,10 +2406,12 @@ class _JoystickPageState extends State<JoystickPage> {
         controller: _controller,
         isLeft: isLeft,
         axisLock: axisLock,
-        baseImage:
-            isLeft ? joystickTheme.leftBaseImage : joystickTheme.rightBaseImage,
-        knobImage:
-            isLeft ? joystickTheme.leftKnobImage : joystickTheme.rightKnobImage,
+        baseImage: isLeft
+            ? joystickTheme.leftBaseImage
+            : joystickTheme.rightBaseImage,
+        knobImage: isLeft
+            ? joystickTheme.leftKnobImage
+            : joystickTheme.rightKnobImage,
         onChanged: (x, y) {
           if (_editMode) return;
           if (isLeft) {
@@ -3879,6 +2423,7 @@ class _JoystickPageState extends State<JoystickPage> {
               _resetLeftJoystick();
               return;
             }
+            _updateLeftDebug(sx, sy);
           } else {
             final (sx, sy) = _process(x, y, _smoothRX, _smoothRY);
             _smoothRX = sx;
@@ -3888,19 +2433,14 @@ class _JoystickPageState extends State<JoystickPage> {
               _resetRightJoystick();
               return;
             }
+            _updateRightDebug(sx, sy);
           }
         },
       ),
     );
-
     if (!_editMode) {
-      return Positioned(
-        left: cx - half,
-        top: cy - half,
-        child: joyWidget,
-      );
+      return Positioned(left: cx - half, top: cy - half, child: joyWidget);
     }
-
     return _EditableJoystick(
       id: id,
       panelSize: size,
@@ -3964,15 +2504,9 @@ class _JoystickPageState extends State<JoystickPage> {
         onPressChanged: (down) => _onButtonChanged(id, down),
       ),
     );
-
     if (!_editMode) {
-      return Positioned(
-        left: cx - half,
-        top: cy - half,
-        child: btnWidget,
-      );
+      return Positioned(left: cx - half, top: cy - half, child: btnWidget);
     }
-
     return _EditableButtonItem(
       id: id,
       panelSize: size,
@@ -3983,6 +2517,7 @@ class _JoystickPageState extends State<JoystickPage> {
       selected: selected,
       dimmed: dimmed,
       locked: _lockedIds.contains(id),
+      asset: asset,
       onSelect: () => _selectJoystick(id),
       onChanged: (next) {
         setState(() => _layout[id] = next);
@@ -4010,132 +2545,24 @@ class _JoystickPageState extends State<JoystickPage> {
       child: btnWidget,
     );
   }
-
-  Rect _tutorialHighlightRect(_TutorialStep step, Rect rect) {
-    final key = step.targetKey;
-    if (key == _tutorialBackKey) {
-      return Rect.fromLTRB(
-        rect.left + 1.0,
-        rect.top - 1.0,
-        rect.right - 1.0,
-        rect.bottom + 1.0,
-      );
-    }
-    if (key == _tutorialCmdKey || key == _tutorialJlKey || key == _tutorialJrKey) {
-      return Rect.fromLTRB(
-        rect.left - 2.0,
-        rect.top - 1.0,
-        rect.right + 2.0,
-        rect.bottom + 1.0,
-      );
-    }
-    if (key == _tutorialBtKey) {
-      return Rect.fromLTRB(
-        rect.left - 2.0,
-        rect.top - 1.0,
-        rect.right + 2.0,
-        rect.bottom + 1.0,
-      );
-    }
-    if (key == _tutorialBlePanelKey) {
-      return Rect.fromLTRB(
-        rect.left - 4.0,
-        rect.top - 4.0,
-        rect.right + 4.0,
-        rect.bottom + 4.0,
-      );
-    }
-    if (key == _tutorialPresetPanelKey) {
-      return Rect.fromLTRB(
-        rect.left - 4.0,
-        rect.top - 4.0,
-        rect.right + 4.0,
-        rect.bottom + 4.0,
-      );
-    }
-    if (key == _tutorialCustomizeKey ||
-        key == _tutorialItemsKey ||
-        key == _tutorialRemoveKey ||
-        key == _tutorialResetKey ||
-        key == _tutorialUndoKey ||
-        key == _tutorialRedoKey ||
-        key == _tutorialGridKey ||
-        key == _tutorialSizeKey ||
-        key == _tutorialLockKey ||
-        key == _tutorialDoneKey ||
-        key == _tutorialPresetKey ||
-        key == _tutorialHelpKey) {
-      return Rect.fromLTRB(
-        rect.left - 2.0,
-        rect.top - 1.0,
-        rect.right + 2.0,
-        rect.bottom + 1.0,
-      );
-    }
-    if (key == _tutorialEditBarKey) {
-      return Rect.fromLTRB(
-        rect.left - 4.0,
-        rect.top - 3.0,
-        rect.right + 4.0,
-        rect.bottom + 3.0,
-      );
-    }
-    return Rect.fromLTRB(
-      rect.left - 2.0,
-      rect.top - 1.0,
-      rect.right + 2.0,
-      rect.bottom + 1.0,
-    );
-  }
-
-  double _tutorialHighlightRadius(_TutorialStep step) {
-    final key = step.targetKey;
-    if (key == _tutorialBackKey) return 999.0;
-    if (key == _tutorialEditBarKey) return 18.0;
-    if (key == _tutorialBlePanelKey) return 12.0;
-    if (key == _tutorialPresetPanelKey) return 12.0;
-    if (key == _tutorialCmdKey || key == _tutorialJlKey || key == _tutorialJrKey) {
-      return 999.0;
-    }
-    if (key == _tutorialBtKey ||
-        key == _tutorialCustomizeKey ||
-        key == _tutorialItemsKey ||
-        key == _tutorialRemoveKey ||
-        key == _tutorialResetKey ||
-        key == _tutorialUndoKey ||
-        key == _tutorialRedoKey ||
-        key == _tutorialGridKey ||
-        key == _tutorialSizeKey ||
-        key == _tutorialLockKey ||
-        key == _tutorialDoneKey ||
-        key == _tutorialPresetKey ||
-        key == _tutorialHelpKey) {
-      return 999.0;
-    }
-    return 12.0;
-  }
 }
 
 class _GridPainter extends CustomPainter {
   final double step;
   final Color minorColor;
   final Color majorColor;
-
   const _GridPainter({
     required this.step,
     required this.minorColor,
     required this.majorColor,
   });
-
   @override
   void paint(Canvas canvas, Size size) {
     if (step <= 0) return;
     final paint = Paint()..strokeWidth = 1;
-
     final dx = size.width * step;
     final dy = size.height * step;
     if (dx <= 0 || dy <= 0) return;
-
     const int majorEvery = 4;
     int ix = 1;
     for (double x = dx; x < size.width; x += dx, ix++) {
@@ -4157,170 +2584,12 @@ class _GridPainter extends CustomPainter {
   }
 }
 
-class _TutorialStep {
-  final String titleTh;
-  final String bodyTh;
-  final String titleEn;
-  final String bodyEn;
-  final GlobalKey? targetKey;
-  final bool requiresEditMode;
-  final bool requiresPlayMode;
-  final bool openButtonsSheet;
-  final bool openBleSheet;
-  const _TutorialStep({
-    required this.titleTh,
-    required this.bodyTh,
-    required this.titleEn,
-    required this.bodyEn,
-    this.targetKey,
-    this.requiresEditMode = false,
-    this.requiresPlayMode = false,
-    this.openButtonsSheet = false,
-    this.openBleSheet = false,
-  });
-}
-
-class _TutorialFloatingCard extends StatelessWidget {
-  final String title;
-  final String body;
-  final bool isThai;
-  final bool isLast;
-  final bool showBack;
-  final double maxWidth;
-  final double? minHeight;
-  final bool compact;
-  final Color surfaceColor;
-  final Color ctaColor;
-  final VoidCallback onSkip;
-  final VoidCallback? onBack;
-  final VoidCallback onNext;
-
-  const _TutorialFloatingCard({
-    required this.title,
-    required this.body,
-    required this.isThai,
-    required this.isLast,
-    required this.showBack,
-    this.maxWidth = 420,
-    this.minHeight,
-    this.compact = false,
-    required this.surfaceColor,
-    required this.ctaColor,
-    required this.onSkip,
-    required this.onBack,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    Color withOpacity(Color color, double opacity) =>
-        color.withAlpha((opacity * 255).round());
-    final double cardWidth =
-        math.min<double>(MediaQuery.of(context).size.width - 40, maxWidth);
-    final titleStyle = TextStyle(
-      color: Colors.white,
-      fontSize: compact ? (isThai ? 16.0 : 15.5) : (isThai ? 19.0 : 18.0),
-      fontWeight: FontWeight.w800,
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-      decoration: TextDecoration.none,
-      height: 1.15,
-    );
-    final bodyStyle = TextStyle(
-      color: const Color(0xFFD3DAE6),
-      fontSize: compact ? (isThai ? 12.5 : 12.0) : (isThai ? 14.5 : 14.0),
-      fontWeight: FontWeight.w500,
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-      decoration: TextDecoration.none,
-      height: 1.45,
-    );
-    final linkStyle = TextStyle(
-      color: const Color(0xFFB6BEC9),
-      fontSize: isThai ? 13.5 : 13.0,
-      fontWeight: FontWeight.w500,
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-      decoration: TextDecoration.none,
-    );
-    final ctaStyle = TextStyle(
-      color: Colors.white,
-      fontSize: isThai ? 13.5 : 13.0,
-      fontWeight: FontWeight.w700,
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-      decoration: TextDecoration.none,
-    );
-
-    return SizedBox(
-      width: cardWidth,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: withOpacity(Colors.white, 0.08), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: withOpacity(Colors.black, 0.34),
-              blurRadius: 28,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: minHeight ?? 0),
-          child: Padding(
-            padding: compact
-                ? const EdgeInsets.fromLTRB(14, 14, 14, 12)
-                : const EdgeInsets.fromLTRB(20, 20, 20, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: titleStyle),
-                SizedBox(height: compact ? 6 : 10),
-                Text(body, style: bodyStyle),
-                SizedBox(height: compact ? 10 : 18),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: onSkip,
-                      child: Text(isThai ? 'ข้าม' : 'Skip', style: linkStyle),
-                    ),
-                    const Spacer(),
-                    if (showBack) ...[
-                      TextButton(
-                        onPressed: onBack,
-                        child: Text(isThai ? 'ย้อนกลับ' : 'Back', style: linkStyle),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    ElevatedButton(
-                      onPressed: onNext,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: ctaColor,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: Text(
-                        isLast
-                            ? (isThai ? 'เสร็จสิ้น' : 'Finish')
-                            : (isThai ? 'ถัดไป' : 'Next'),
-                        style: ctaStyle,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 class _GuideState {
   final bool showVertical;
   final bool showHorizontal;
   final double? verticalX;
   final double? horizontalY;
   final bool snap;
-
   const _GuideState({
     required this.showVertical,
     required this.showHorizontal,
@@ -4328,13 +2597,12 @@ class _GuideState {
     required this.horizontalY,
     required this.snap,
   });
-
   const _GuideState.hidden()
-      : showVertical = false,
-        showHorizontal = false,
-        verticalX = null,
-        horizontalY = null,
-        snap = false;
+    : showVertical = false,
+      showHorizontal = false,
+      verticalX = null,
+      horizontalY = null,
+      snap = false;
 }
 
 class _JoyImagePressHoldButton extends StatefulWidget {
@@ -4342,24 +2610,21 @@ class _JoyImagePressHoldButton extends StatefulWidget {
   final String asset;
   final double diameter;
   final ValueChanged<bool>? onPressChanged;
-
   const _JoyImagePressHoldButton({
     required this.label,
     required this.asset,
     this.diameter = 120,
     this.onPressChanged,
   });
-
   @override
-  State<_JoyImagePressHoldButton> createState() => _JoyImagePressHoldButtonState();
+  State<_JoyImagePressHoldButton> createState() =>
+      _JoyImagePressHoldButtonState();
 }
 
 class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
   bool _pressed = false;
-
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
-
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);
@@ -4382,7 +2647,6 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
       theme.colorScheme.primary,
       theme.brightness == Brightness.dark ? 0.65 : 0.45,
     );
-
     return Listener(
       onPointerDown: (_) => _onDown(),
       onPointerUp: (_) => _onUpOrCancel(),
@@ -4414,16 +2678,48 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
               child: ColorFiltered(
                 colorFilter: _pressed
                     ? const ColorFilter.matrix([
-                        1, 0, 0, 0, 51,
-                        0, 1, 0, 0, 51,
-                        0, 0, 1, 0, 51,
-                        0, 0, 0, 1, 0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        51,
+                        0,
+                        1,
+                        0,
+                        0,
+                        51,
+                        0,
+                        0,
+                        1,
+                        0,
+                        51,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
                       ])
                     : const ColorFilter.matrix([
-                        1, 0, 0, 0, 0,
-                        0, 1, 0, 0, 0,
-                        0, 0, 1, 0, 0,
-                        0, 0, 0, 1, 0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
                       ]),
                 child: Image.asset(
                   widget.asset,
@@ -4458,46 +2754,11 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
   }
 }
 
-class _TutorialMaskPainter extends CustomPainter {
-  const _TutorialMaskPainter({
-    required this.holeRect,
-    required this.radius,
-    required this.color,
-  });
-
-  final Rect? holeRect;
-  final double radius;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final overlayPaint = Paint()..color = color;
-    canvas.saveLayer(Offset.zero & size, Paint());
-    canvas.drawRect(Offset.zero & size, overlayPaint);
-    if (holeRect != null) {
-      final clearPaint = Paint()..blendMode = BlendMode.clear;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(holeRect!, Radius.circular(radius)),
-        clearPaint,
-      );
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _TutorialMaskPainter oldDelegate) {
-    return oldDelegate.holeRect != holeRect ||
-        oldDelegate.radius != radius ||
-        oldDelegate.color != color;
-  }
-}
-
 class _EditSnapshot {
   final Map<String, _JoyLayout> layout;
   final Set<String> activeIds;
   final Set<String> lockedIds;
   final String? selectedId;
-
   const _EditSnapshot({
     required this.layout,
     required this.activeIds,
@@ -4510,9 +2771,7 @@ class _JoyLayout {
   final double cx;
   final double cy;
   final double size;
-
   const _JoyLayout(this.cx, this.cy, this.size);
-
   _JoyLayout copyWith({double? cx, double? cy, double? size}) {
     return _JoyLayout(cx ?? this.cx, cy ?? this.cy, size ?? this.size);
   }
@@ -4539,7 +2798,6 @@ class _EditableJoystick extends StatefulWidget {
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
   final Widget child;
-
   const _EditableJoystick({
     required this.id,
     required this.panelSize,
@@ -4560,7 +2818,6 @@ class _EditableJoystick extends StatefulWidget {
     this.externalWarning = false,
     required this.child,
   });
-
   @override
   State<_EditableJoystick> createState() => _EditableJoystickState();
 }
@@ -4575,10 +2832,6 @@ class _EditableJoystickState extends State<_EditableJoystick> {
   bool _dragging = false;
   bool _colliding = false;
   bool _nearEdgeWarning = false;
-
-  Color _opacity(Color color, double opacity) =>
-      color.withAlpha((opacity * 255).round());
-
   void _onScaleStart(ScaleStartDetails d) {
     if (widget.locked) return;
     if (!widget.selected) {
@@ -4603,22 +2856,20 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-
-    final nextSize =
-        (_startLayout.size * d.scale).clamp(kJoyMinSize, kJoyMaxSize);
+    final nextSize = (_startLayout.size * d.scale).clamp(
+      kJoyMinSize,
+      kJoyMaxSize,
+    );
     final sizePx = widget.baseSize * nextSize;
     final half = sizePx / 2;
-
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
-
     if (widget.snapToGrid) {
       double nx = _snapToGrid(cx / w);
       double ny = _snapToGrid(cy / h);
       cx = nx * w;
       cy = ny * h;
     }
-
     final normalizedCx = cx / w;
     final normalizedCy = cy / h;
     final dxCenter = (normalizedCx - 0.5).abs();
@@ -4627,10 +2878,8 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     final showH = dyCenter <= _guideShowThreshold;
     final snapV = dxCenter <= _guideSnapThreshold;
     final snapH = dyCenter <= _guideSnapThreshold;
-
     if (snapV) cx = w * 0.5;
     if (snapH) cy = h * 0.5;
-
     widget.onGuideChanged?.call(
       _GuideState(
         showVertical: showV,
@@ -4640,15 +2889,16 @@ class _EditableJoystickState extends State<_EditableJoystick> {
         snap: snapV || snapH,
       ),
     );
-
     final minX = _safeEdgePad + half;
     final maxX = w - _safeEdgePad - half;
     final minY = _safeEdgePad + half;
     final maxY = h - _safeEdgePad - half;
-    final attemptedOutOfBounds = cx < minX || cx > maxX || cy < minY || cy > maxY;
+    final attemptedOutOfBounds =
+        cx < minX || cx > maxX || cy < minY || cy > maxY;
     cx = cx.clamp(minX, maxX);
     cy = cy.clamp(minY, maxY);
-    final nearEdge = attemptedOutOfBounds ||
+    final nearEdge =
+        attemptedOutOfBounds ||
         ((cx - minX).abs() <= _edgeWarnThresholdPx) ||
         ((maxX - cx).abs() <= _edgeWarnThresholdPx) ||
         ((cy - minY).abs() <= _edgeWarnThresholdPx) ||
@@ -4659,14 +2909,15 @@ class _EditableJoystickState extends State<_EditableJoystick> {
         widget.onBoundaryWarning?.call();
       }
     }
-
     var collides = false;
     for (final entry in widget.allLayouts.entries) {
       if (entry.key == widget.id) continue;
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key) ? (_baseBtnSize(w, h)) : widget.baseSize;
+      final otherBase = _isButtonId(entry.key)
+          ? (_baseBtnSize(w, h))
+          : widget.baseSize;
       final otherSizePx = otherBase * other.size;
       final minDist = (sizePx / 2) + (otherSizePx / 2);
       final dxItem = cx - ox;
@@ -4688,12 +2939,10 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
 
   double _baseBtnSize(double w, double h) => math.min(w, h) * 0.45 * 0.55;
-
   bool _isButtonId(String id) {
     return id == kBtnTriangleId ||
         id == kBtnCrossId ||
@@ -4705,22 +2954,16 @@ class _EditableJoystickState extends State<_EditableJoystick> {
   Widget build(BuildContext context) {
     final joySize = widget.baseSize * widget.layout.size;
     final half = joySize / 2;
-    final cx = (widget.layout.cx * widget.panelSize.width)
-        .clamp(_safeEdgePad + half, widget.panelSize.width - _safeEdgePad - half);
-    final cy = (widget.layout.cy * widget.panelSize.height)
-        .clamp(_safeEdgePad + half, widget.panelSize.height - _safeEdgePad - half);
-    final dimOpacity = widget.dimmed ? 0.35 : 1.0;
-    final warningColor = const Color(0xFFEF4444);
-    final showWarning = _colliding || _nearEdgeWarning || widget.externalWarning;
-    final borderColor =
-        showWarning
-            ? warningColor
-            : (widget.selected ? const Color(0xFF00F0FF) : Colors.white70);
-    final borderWidth = widget.selected ? 3.0 : 2.0;
-    final glowColor = widget.selected
-        ? _opacity(const Color(0xFF00F0FF), 0.45)
-        : Colors.transparent;
-
+    final cx = (widget.layout.cx * widget.panelSize.width).clamp(
+      _safeEdgePad + half,
+      widget.panelSize.width - _safeEdgePad - half,
+    );
+    final cy = (widget.layout.cy * widget.panelSize.height).clamp(
+      _safeEdgePad + half,
+      widget.panelSize.height - _safeEdgePad - half,
+    );
+    final showWarning =
+        _colliding || _nearEdgeWarning || widget.externalWarning;
     return Positioned(
       left: cx - half,
       top: cy - half,
@@ -4741,27 +2984,22 @@ class _EditableJoystickState extends State<_EditableJoystick> {
                 widget.onEnd();
               },
         onTap: widget.onSelect,
-        child: Opacity(
-          opacity: dimOpacity,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: borderColor, width: borderWidth),
-              boxShadow: [
-                if (showWarning)
-                  BoxShadow(
-                    color: _opacity(warningColor, 0.46),
-                    blurRadius: 14,
-                    spreadRadius: 2,
-                  ),
-                BoxShadow(
-                  color: glowColor,
-                  blurRadius: 18,
-                  spreadRadius: 2,
-                ),
-              ],
+        child: SizedBox(
+          width: joySize,
+          height: joySize,
+          child: GamepadEditSelectionVisual(
+            selected: widget.selected,
+            dimmed: widget.dimmed,
+            warning: showWarning,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: widget.selected || showWarning
+                    ? null
+                    : Border.all(color: Colors.white70, width: 2),
+              ),
+              child: IgnorePointer(child: widget.child),
             ),
-            child: IgnorePointer(child: widget.child),
           ),
         ),
       ),
@@ -4779,6 +3017,7 @@ class _EditableButtonItem extends StatefulWidget {
   final bool selected;
   final bool dimmed;
   final bool locked;
+  final String asset;
   final VoidCallback onSelect;
   final ValueChanged<_JoyLayout> onChanged;
   final VoidCallback onEnd;
@@ -4788,7 +3027,6 @@ class _EditableButtonItem extends StatefulWidget {
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
   final Widget child;
-
   const _EditableButtonItem({
     required this.id,
     required this.panelSize,
@@ -4799,6 +3037,7 @@ class _EditableButtonItem extends StatefulWidget {
     required this.selected,
     required this.dimmed,
     required this.locked,
+    required this.asset,
     required this.onSelect,
     required this.onChanged,
     required this.onEnd,
@@ -4809,7 +3048,6 @@ class _EditableButtonItem extends StatefulWidget {
     this.externalWarning = false,
     required this.child,
   });
-
   @override
   State<_EditableButtonItem> createState() => _EditableButtonItemState();
 }
@@ -4823,7 +3061,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
   bool _dragging = false;
   bool _colliding = false;
   bool _nearEdgeWarning = false;
-
   void _onScaleStart(ScaleStartDetails d) {
     if (widget.locked) return;
     if (!widget.selected) {
@@ -4848,27 +3085,24 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-
-    final nextSize =
-        (_startLayout.size * d.scale).clamp(kJoyBtnMinSize, kJoyBtnMaxSize);
+    final nextSize = (_startLayout.size * d.scale).clamp(
+      kJoyBtnMinSize,
+      kJoyBtnMaxSize,
+    );
     final sizePx = widget.baseSize * nextSize;
     final half = sizePx / 2;
-
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
-
     if (widget.snapToGrid) {
       double nx = _snapToGrid(cx / w);
       double ny = _snapToGrid(cy / h);
       cx = nx * w;
       cy = ny * h;
     }
-
     double? snapX;
     double? snapY;
     var bestDx = _snapThresholdPx + 1;
     var bestDy = _snapThresholdPx + 1;
-
     final centerX = w / 2;
     final centerY = h / 2;
     final dxCenter = (cx - centerX).abs();
@@ -4881,7 +3115,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
       snapY = centerY;
       bestDy = dyCenter;
     }
-
     for (final entry in widget.allLayouts.entries) {
       if (entry.key == widget.id) continue;
       if (!_isButtonEditId(entry.key)) continue;
@@ -4899,10 +3132,8 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         bestDy = dyOther;
       }
     }
-
     if (snapX != null) cx = snapX;
     if (snapY != null) cy = snapY;
-
     widget.onGuideChanged?.call(
       _GuideState(
         showVertical: snapX != null,
@@ -4912,16 +3143,16 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         snap: snapX != null || snapY != null,
       ),
     );
-
     final minX = _safeEdgePad + half;
     final maxX = w - _safeEdgePad - half;
     final minY = _safeEdgePad + half;
     final maxY = h - _safeEdgePad - half;
-
-    final attemptedOutOfBounds = cx < minX || cx > maxX || cy < minY || cy > maxY;
+    final attemptedOutOfBounds =
+        cx < minX || cx > maxX || cy < minY || cy > maxY;
     cx = cx.clamp(minX, maxX);
     cy = cy.clamp(minY, maxY);
-    final nearEdge = attemptedOutOfBounds ||
+    final nearEdge =
+        attemptedOutOfBounds ||
         ((cx - minX).abs() <= _edgeWarnThresholdPx) ||
         ((maxX - cx).abs() <= _edgeWarnThresholdPx) ||
         ((cy - minY).abs() <= _edgeWarnThresholdPx) ||
@@ -4932,7 +3163,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onBoundaryWarning?.call();
       }
     }
-
     var collides = false;
     for (final entry in widget.allLayouts.entries) {
       if (entry.key == widget.id) continue;
@@ -4950,7 +3180,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         break;
       }
     }
-
     if (collides) {
       if (!_colliding) {
         HapticFeedback.vibrate();
@@ -4962,7 +3191,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
 
@@ -4970,60 +3198,19 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
   Widget build(BuildContext context) {
     final btnSize = widget.baseSize * widget.layout.size;
     final half = btnSize / 2;
-    final cx = (widget.layout.cx * widget.panelSize.width)
-        .clamp(_safeEdgePad + half, widget.panelSize.width - _safeEdgePad - half);
-    final cy = (widget.layout.cy * widget.panelSize.height)
-        .clamp(_safeEdgePad + half, widget.panelSize.height - _safeEdgePad - half);
+    final cx = (widget.layout.cx * widget.panelSize.width).clamp(
+      _safeEdgePad + half,
+      widget.panelSize.width - _safeEdgePad - half,
+    );
+    final cy = (widget.layout.cy * widget.panelSize.height).clamp(
+      _safeEdgePad + half,
+      widget.panelSize.height - _safeEdgePad - half,
+    );
     final buttonContent = SizedBox(
       width: btnSize,
       height: btnSize,
-      child: ClipOval(
-        child: AnimatedScale(
-          scale: widget.selected ? 0.95 : 1.0,
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOutBack,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 50),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: widget.selected
-                  ? [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.primary.withAlpha(
-                          ((Theme.of(context).brightness == Brightness.dark
-                                      ? 0.65
-                                      : 0.45) *
-                                  255)
-                              .round(),
-                        ),
-                        blurRadius: 18,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : const [],
-            ),
-            child: ColorFiltered(
-              colorFilter: widget.selected
-                  ? const ColorFilter.matrix([
-                      1, 0, 0, 0, 51,
-                      0, 1, 0, 0, 51,
-                      0, 0, 1, 0, 51,
-                      0, 0, 0, 1, 0,
-                    ])
-                  : const ColorFilter.matrix([
-                      1, 0, 0, 0, 0,
-                      0, 1, 0, 0, 0,
-                      0, 0, 1, 0, 0,
-                      0, 0, 0, 1, 0,
-                    ]),
-              child: IgnorePointer(child: widget.child),
-            ),
-          ),
-        ),
-      ),
+      child: IgnorePointer(child: widget.child),
     );
-
     return GamepadEditableButtonFrame(
       left: cx - half,
       top: cy - half,
@@ -5032,9 +3219,18 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
       locked: widget.locked,
       selected: widget.selected,
       dimmed: widget.dimmed,
-      colliding: _colliding || _nearEdgeWarning || widget.externalWarning,
-      dragging: _dragging || widget.externalWarning,
-      selectedScale: 1.0,
+      warning:
+          (_colliding && _dragging) ||
+          _nearEdgeWarning ||
+          widget.externalWarning,
+      selectionMask: Padding(
+        padding: const EdgeInsets.all(2),
+        child: Image.asset(
+          widget.asset,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      ),
       onScaleStart: _onScaleStart,
       onScaleUpdate: _onScaleUpdate,
       onScaleEnd: (_) {
@@ -5049,7 +3245,6 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onEnd();
       },
       onTap: widget.onSelect,
-      selectedShadows: const [],
       child: buttonContent,
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class GamepadButtonLayout {
@@ -9,11 +10,7 @@ class GamepadButtonLayout {
   const GamepadButtonLayout(this.cx, this.cy, this.size);
 
   GamepadButtonLayout copyWith({double? cx, double? cy, double? size}) {
-    return GamepadButtonLayout(
-      cx ?? this.cx,
-      cy ?? this.cy,
-      size ?? this.size,
-    );
+    return GamepadButtonLayout(cx ?? this.cx, cy ?? this.cy, size ?? this.size);
   }
 
   Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
@@ -213,7 +210,10 @@ class GamepadDashedCirclePainter extends CustomPainter {
       ..strokeWidth = strokeWidth;
 
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.max(0.0, math.min(size.width, size.height) / 2 - strokeWidth);
+    final radius = math.max(
+      0.0,
+      math.min(size.width, size.height) / 2 - strokeWidth,
+    );
     final circumference = 2 * math.pi * radius;
     final dashWithGap = dashLength + gapLength;
     final count = math.max(1, (circumference / dashWithGap).floor());
@@ -285,6 +285,218 @@ class GamepadEditAlignmentGuidesPainter extends CustomPainter {
   }
 }
 
+class GamepadEditAlphaGlowLayer extends StatelessWidget {
+  final Widget mask;
+  final Color color;
+  final double blurSigma;
+  final double opacity;
+
+  const GamepadEditAlphaGlowLayer({
+    super.key,
+    required this.mask,
+    required this.color,
+    required this.blurSigma,
+    required this.opacity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: opacity,
+      child: ImageFiltered(
+        imageFilter: ImageFilter.blur(
+          sigmaX: blurSigma,
+          sigmaY: blurSigma,
+          tileMode: TileMode.decal,
+        ),
+        child: ColorFiltered(
+          colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+          child: mask,
+        ),
+      ),
+    );
+  }
+}
+
+class GamepadEditSelectionVisual extends StatelessWidget {
+  static const selectionColor = Color(0xFF00F0FF);
+  static const warningColor = Color(0xFFEF4444);
+  static const dimmedOpacity = 0.65;
+  static const selectedScale = 1.03;
+  static const haloBorderWidth = 2.5;
+  static const outerGlowBlur = 7.0;
+  static const outerGlowOpacity = 0.35;
+  static const innerGlowBlur = 2.0;
+  static const innerGlowOpacity = 0.80;
+  static const animationDuration = Duration(milliseconds: 120);
+  static const haloKey = ValueKey<String>('gamepad-edit-selection-halo');
+  static const alphaGlowKey = ValueKey<String>(
+    'gamepad-edit-selection-alpha-glow',
+  );
+
+  final bool selected;
+  final bool dimmed;
+  final bool warning;
+  final Widget? selectionMask;
+  final Widget child;
+
+  const GamepadEditSelectionVisual({
+    super.key,
+    required this.selected,
+    required this.dimmed,
+    required this.warning,
+    this.selectionMask,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final showHalo = selected || warning;
+    final haloColor = warning ? warningColor : selectionColor;
+    final fallbackShadows = !showHalo
+        ? const <BoxShadow>[]
+        : warning
+        ? [
+            BoxShadow(
+              color: warningColor.withValues(alpha: 0.46),
+              blurRadius: 14,
+              spreadRadius: 2,
+            ),
+          ]
+        : [
+            BoxShadow(
+              color: selectionColor.withValues(alpha: 0.28),
+              blurRadius: 12,
+            ),
+          ];
+
+    return AnimatedOpacity(
+      duration: animationDuration,
+      curve: Curves.easeOutCubic,
+      opacity: dimmed ? dimmedOpacity : 1,
+      child: AnimatedScale(
+        duration: animationDuration,
+        curve: Curves.easeOutCubic,
+        scale: selected ? selectedScale : 1,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            if (selectionMask != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedSwitcher(
+                    duration: animationDuration,
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeOutCubic,
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: showHalo
+                        ? Stack(
+                            key: ValueKey<int>(haloColor.toARGB32()),
+                            fit: StackFit.expand,
+                            children: [
+                              GamepadEditAlphaGlowLayer(
+                                key: alphaGlowKey,
+                                mask: selectionMask!,
+                                color: haloColor,
+                                blurSigma: outerGlowBlur,
+                                opacity: outerGlowOpacity,
+                              ),
+                              GamepadEditAlphaGlowLayer(
+                                mask: selectionMask!,
+                                color: haloColor,
+                                blurSigma: innerGlowBlur,
+                                opacity: innerGlowOpacity,
+                              ),
+                            ],
+                          )
+                        : const SizedBox.shrink(
+                            key: ValueKey<String>('no-alpha-glow'),
+                          ),
+                  ),
+                ),
+              )
+            else
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedContainer(
+                    key: haloKey,
+                    duration: animationDuration,
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: showHalo
+                          ? Border.all(
+                              color: haloColor,
+                              width: warning ? 3 : haloBorderWidth,
+                            )
+                          : null,
+                      boxShadow: fallbackShadows,
+                    ),
+                  ),
+                ),
+              ),
+            ColorFiltered(
+              colorFilter: selected
+                  ? const ColorFilter.matrix([
+                      1,
+                      0,
+                      0,
+                      0,
+                      16,
+                      0,
+                      1,
+                      0,
+                      0,
+                      16,
+                      0,
+                      0,
+                      1,
+                      0,
+                      16,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                    ])
+                  : const ColorFilter.matrix([
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                    ]),
+              child: child,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String gamepadEditLockLabel({required bool isThai, required bool locked}) {
+  if (locked) return isThai ? 'Unlock' : 'Unlock';
+  return isThai ? 'Lock' : 'Lock';
+}
+
 class GamepadEditButtonShell extends StatelessWidget {
   final double left;
   final double top;
@@ -350,14 +562,12 @@ class GamepadEditableButtonFrame extends StatelessWidget {
   final bool locked;
   final bool selected;
   final bool dimmed;
-  final bool colliding;
-  final bool dragging;
-  final double selectedScale;
+  final bool warning;
+  final Widget? selectionMask;
   final GestureScaleStartCallback? onScaleStart;
   final GestureScaleUpdateCallback? onScaleUpdate;
   final GestureScaleEndCallback? onScaleEnd;
   final VoidCallback? onTap;
-  final List<BoxShadow> selectedShadows;
   final Widget child;
 
   const GamepadEditableButtonFrame({
@@ -369,76 +579,49 @@ class GamepadEditableButtonFrame extends StatelessWidget {
     required this.locked,
     required this.selected,
     required this.dimmed,
-    required this.colliding,
-    required this.dragging,
-    required this.selectedScale,
+    required this.warning,
+    this.selectionMask,
     required this.onScaleStart,
     required this.onScaleUpdate,
     required this.onScaleEnd,
     required this.onTap,
-    required this.selectedShadows,
     required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    Widget content = AnimatedOpacity(
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-      opacity: dimmed ? 0.34 : 1.0,
-      child: child,
-    );
-
-    if (colliding && dragging) {
-      final warnColor = Colors.redAccent.withValues(alpha: 0.55);
-      content = SizedBox(
-        width: width,
-        height: height,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: warnColor, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: warnColor,
-                      blurRadius: 10,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            content,
-          ],
-        ),
-      );
-    }
-
-    return GamepadEditButtonShell(
+    return Positioned(
       left: left,
       top: top,
-      locked: locked,
-      selected: selected,
-      selectedScale: selectedScale,
-      onScaleStart: onScaleStart,
-      onScaleUpdate: onScaleUpdate,
-      onScaleEnd: onScaleEnd,
-      onTap: onTap,
-      selectedShadows: selectedShadows,
-      child: content,
+      child: GestureDetector(
+        onScaleStart: locked ? null : onScaleStart,
+        onScaleUpdate: locked ? null : onScaleUpdate,
+        onScaleEnd: locked ? null : onScaleEnd,
+        onTap: onTap,
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: GamepadEditSelectionVisual(
+            selected: selected,
+            dimmed: dimmed,
+            warning: warning,
+            selectionMask: selectionMask,
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 }
 
-class GamepadEditablePanel<T extends GamepadButtonLayout> extends StatefulWidget {
+class GamepadEditablePanel<T extends GamepadButtonLayout>
+    extends StatefulWidget {
   final List<String> ids;
   final Map<String, T> layout;
   final ValueChanged<Map<String, T>> onLayoutChanged;
   final ValueChanged<Size> onPanelSize;
-  final Map<String, T> Function(Size size, List<String> ids) defaultLayoutBuilder;
+  final Map<String, T> Function(Size size, List<String> ids)
+  defaultLayoutBuilder;
   final String? selectedId;
   final bool dimOthersWhenSelected;
   final List<String> Function(List<String> ids, Map<String, T> layout)?
@@ -468,7 +651,8 @@ class GamepadEditablePanel<T extends GamepadButtonLayout> extends StatefulWidget
   });
 
   @override
-  State<GamepadEditablePanel<T>> createState() => _GamepadEditablePanelState<T>();
+  State<GamepadEditablePanel<T>> createState() =>
+      _GamepadEditablePanelState<T>();
 }
 
 class _GamepadEditablePanelState<T extends GamepadButtonLayout>

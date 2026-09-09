@@ -30,6 +30,7 @@ class JoystickView extends StatefulWidget {
 class _JoystickViewState extends State<JoystickView>
     with SingleTickerProviderStateMixin {
   Offset _knob = Offset.zero;
+  Offset _resetStart = Offset.zero;
   late AnimationController _resetCtrl;
 
   Size _lastSize = Size.zero;
@@ -44,26 +45,26 @@ class _JoystickViewState extends State<JoystickView>
   }) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: _opacity(const Color(0xFF0F172A), isDark ? 0.46 : 0.24),
+        color: _opacity(isDark ? const Color(0xFF2D223F) : Colors.white, 0.78),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: _opacity(accent, isDark ? 0.34 : 0.24),
           width: 1,
         ),
       ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isDark
-                  ? _opacity(Colors.white, 0.96)
-                  : _opacity(const Color(0xFF0F172A), 0.92),
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isDark
+                ? _opacity(Colors.white, 0.96)
+                : _opacity(const Color(0xFF544268), 0.92),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
           ),
+        ),
       ),
     );
   }
@@ -74,13 +75,16 @@ class _JoystickViewState extends State<JoystickView>
 
     _resetCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 120),
+      duration: const Duration(milliseconds: 100),
     );
 
     _resetCtrl.addListener(() {
       setState(() {
-        _knob = Offset.lerp(_knob, Offset.zero, _resetCtrl.value)!;
-        _emitCurrent();
+        _knob = Offset.lerp(
+          _resetStart,
+          Offset.zero,
+          Curves.easeOutCubic.transform(_resetCtrl.value),
+        )!;
       });
     });
   }
@@ -96,6 +100,7 @@ class _JoystickViewState extends State<JoystickView>
   void _onPanEnd(DragEndDetails d) => _onRelease();
 
   void _onDrag(Offset localPos) {
+    _resetCtrl.stop();
     if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
 
     final side = _lastSize.shortestSide;
@@ -124,19 +129,16 @@ class _JoystickViewState extends State<JoystickView>
     _emitWith(maxDist);
   }
 
-  void _onRelease() => _resetCtrl.forward(from: 0);
-
-  void _emitCurrent() {
-    if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
-
-    final side = _lastSize.shortestSide;
-    final radius = side / 2;
-    final knobSizePx = side * (joystickTheme.knobSize / joystickTheme.size);
-    final knobRadius = knobSizePx / 2;
-    final maxDist = radius - knobRadius;
-    if (maxDist <= 0) return;
-
-    _emitWith(maxDist);
+  void _onRelease() {
+    _resetStart = _knob;
+    // Control stops immediately; the return animation is visual only.
+    if (widget.isLeft) {
+      widget.controller.setLeftJoystick(0, 0);
+    } else {
+      widget.controller.setRightJoystick(0, 0);
+    }
+    widget.onChanged?.call(0, 0);
+    _resetCtrl.forward(from: 0);
   }
 
   void _emitWith(double maxDist) {
@@ -159,25 +161,24 @@ class _JoystickViewState extends State<JoystickView>
 
   @override
   Widget build(BuildContext context) {
-    final themeB = Theme.of(context).brightness;
-    final platformB = MediaQuery.of(context).platformBrightness;
-    final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     const minOpacityLight = 0.22;
     const minOpacityDark = 0.30;
     final minOpacity = isDark ? minOpacityDark : minOpacityLight;
-    final effectiveOpacity =
-        joystickTheme.bgOpacity < minOpacity ? minOpacity : joystickTheme.bgOpacity;
+    final effectiveOpacity = joystickTheme.bgOpacity < minOpacity
+        ? minOpacity
+        : joystickTheme.bgOpacity;
 
     final bgColor = _opacity(joystickTheme.bgColor, effectiveOpacity);
 
-    final borderOpacity = isDark ? 0.95 : 0.60;
-    final borderColor = _opacity(joystickTheme.borderColor, borderOpacity);
-
-    final knobFallbackColor =
-        _opacity(joystickTheme.knobColorStart, joystickTheme.knobOpacity);
-    final knobAccent =
-        widget.isLeft ? const Color(0xFF3BCBFF) : const Color(0xFFB06CFF);
+    final knobFallbackColor = _opacity(
+      joystickTheme.knobColorStart,
+      joystickTheme.knobOpacity,
+    );
+    final knobAccent = widget.isLeft
+        ? const Color(0xFF9875D7)
+        : const Color(0xFFDB88B2);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -194,9 +195,12 @@ class _JoystickViewState extends State<JoystickView>
           width: size,
           height: size,
           child: GestureDetector(
+            onPanDown: (details) => _onDrag(details.localPosition),
             onPanStart: _onPanStart,
             onPanUpdate: _onPanUpdate,
             onPanEnd: _onPanEnd,
+            onPanCancel: _onRelease,
+            behavior: HitTestBehavior.opaque,
             child: Stack(
               clipBehavior: Clip.none,
               fit: StackFit.expand,
@@ -205,60 +209,77 @@ class _JoystickViewState extends State<JoystickView>
                   Positioned.fill(
                     child: Padding(
                       padding: EdgeInsets.all(size * 0.01),
-                      child: Image.asset(widget.baseImage!, fit: BoxFit.contain),
+                      child: Image.asset(
+                        widget.baseImage!,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
                 Positioned.fill(
-                  child: CustomPaint(
-                    painter: _JoystickPainter(
-                      widget.controller,
-                      knob: _knob,
-                      knobSize: knobSizePx,
-                      hideKnob: widget.knobImage != null,
-                      hideBackground: widget.baseImage != null,
-                      bgColor: bgColor,
-                      borderColor: borderColor,
-                      borderWidth: joystickTheme.borderWidth,
-                      knobColor: knobFallbackColor,
-                      isDark: isDark,
-                      axisLock: widget.axisLock,
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: _JoystickPainter(
+                        widget.controller,
+                        knob: Offset.zero,
+                        knobSize: knobSizePx,
+                        hideKnob: true,
+                        hideBackground: widget.baseImage != null,
+                        bgColor: bgColor,
+                        borderColor: knobAccent,
+                        borderWidth: joystickTheme.borderWidth,
+                        knobColor: knobFallbackColor,
+                        isDark: isDark,
+                        axisLock: widget.axisLock,
+                      ),
                     ),
                   ),
                 ),
                 Positioned(
-                  top: -24,
-                  left: (size / 2) - 16,
-                  child: _axisBadge(
-                    label: 'Y-',
-                    accent: knobAccent,
-                    isDark: isDark,
+                  top: -8,
+                  left: size / 2,
+                  child: FractionalTranslation(
+                    translation: const Offset(-0.5, -1),
+                    child: _axisBadge(
+                      label: 'Y-',
+                      accent: knobAccent,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
                 Positioned(
-                  bottom: -24,
-                  left: (size / 2) - 16,
-                  child: _axisBadge(
-                    label: 'Y+',
-                    accent: knobAccent,
-                    isDark: isDark,
+                  top: size + 8,
+                  left: size / 2,
+                  child: FractionalTranslation(
+                    translation: const Offset(-0.5, 0),
+                    child: _axisBadge(
+                      label: 'Y+',
+                      accent: knobAccent,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
                 Positioned(
-                  left: -28,
-                  top: (size / 2) - 10,
-                  child: _axisBadge(
-                    label: 'X-',
-                    accent: knobAccent,
-                    isDark: isDark,
+                  left: -8,
+                  top: size / 2,
+                  child: FractionalTranslation(
+                    translation: const Offset(-1, -0.5),
+                    child: _axisBadge(
+                      label: 'X-',
+                      accent: knobAccent,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
                 Positioned(
-                  right: -28,
-                  top: (size / 2) - 10,
-                  child: _axisBadge(
-                    label: 'X+',
-                    accent: knobAccent,
-                    isDark: isDark,
+                  left: size + 8,
+                  top: size / 2,
+                  child: FractionalTranslation(
+                    translation: const Offset(0, -0.5),
+                    child: _axisBadge(
+                      label: 'X+',
+                      accent: knobAccent,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -274,9 +295,9 @@ class _JoystickViewState extends State<JoystickView>
                           center: const Alignment(-0.22, -0.26),
                           radius: 1.0,
                           colors: [
-                            _opacity(Colors.white, isDark ? 0.92 : 0.98),
-                            _opacity(knobAccent, isDark ? 0.34 : 0.24),
-                            _opacity(const Color(0xFFD6DEEB), isDark ? 0.24 : 0.38),
+                            const Color(0xFFFFFCFF),
+                            Color.lerp(Colors.white, knobAccent, 0.18)!,
+                            Color.lerp(Colors.white, knobAccent, 0.42)!,
                           ],
                           stops: const [0.0, 0.52, 1.0],
                         ),
@@ -297,23 +318,36 @@ class _JoystickViewState extends State<JoystickView>
                           ),
                         ],
                       ),
-                      child: Center(
-                        child: Container(
-                          width: knobSizePx * 0.28,
-                          height: knobSizePx * 0.28,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _opacity(knobAccent, isDark ? 0.92 : 0.78),
-                            boxShadow: [
-                              BoxShadow(
-                                color: _opacity(knobAccent, isDark ? 0.50 : 0.32),
-                                blurRadius: 10,
-                                spreadRadius: 1,
+                      child: widget.knobImage != null
+                          ? ClipOval(
+                              child: Image.asset(
+                                widget.knobImage!,
+                                fit: BoxFit.cover,
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
+                            )
+                          : Center(
+                              child: Container(
+                                width: knobSizePx * 0.28,
+                                height: knobSizePx * 0.28,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _opacity(
+                                    knobAccent,
+                                    isDark ? 0.92 : 0.78,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _opacity(
+                                        knobAccent,
+                                        isDark ? 0.50 : 0.32,
+                                      ),
+                                      blurRadius: 10,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -326,11 +360,7 @@ class _JoystickViewState extends State<JoystickView>
   }
 }
 
-enum JoystickAxisLock {
-  none,
-  xOnly,
-  yOnly,
-}
+enum JoystickAxisLock { none, xOnly, yOnly }
 
 class _JoystickPainter extends CustomPainter {
   final JoystickController controller;
@@ -360,12 +390,12 @@ class _JoystickPainter extends CustomPainter {
     required this.axisLock,
   });
 
-  static const double _darkBorderMul = 5.0;
-  static const double _lightBorderMul = 2.6;
+  static const double _darkBorderMul = 1.0;
+  static const double _lightBorderMul = 1.0;
 
-  static const double _blurExtraW = 14.0;
-  static const double _blurSigma = 18.0;
-  static const double _shadowSigma = 20.0;
+  static const double _blurExtraW = 1.0;
+  static const double _blurSigma = 2.0;
+  static const double _shadowSigma = 4.0;
 
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
@@ -397,15 +427,11 @@ class _JoystickPainter extends CustomPainter {
         center: const Alignment(-0.18, -0.22),
         radius: 1.05,
         colors: isDark
-            ? const [
-                Color(0xFF384254),
-                Color(0xFF1C2330),
-                Color(0xFF0B111B),
-              ]
+            ? const [Color(0xFF40314F), Color(0xFF2B2038), Color(0xFF22192D)]
             : [
-                _opacity(const Color(0xFFF7FBFF), 0.98),
-                _opacity(const Color(0xFFDCE6F7), 0.95),
-                _opacity(const Color(0xFFBCCBEB), 0.90),
+                _opacity(const Color(0xFFFFFCFF), 0.98),
+                _opacity(const Color(0xFFF4ECFA), 0.95),
+                _opacity(const Color(0xFFE5D7F0), 0.90),
               ],
         stops: const [0.0, 0.58, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: rBig));
@@ -419,11 +445,7 @@ class _JoystickPainter extends CustomPainter {
         center: const Alignment(0, 0),
         radius: 0.9,
         colors: isDark
-            ? const [
-                Color(0xFF202938),
-                Color(0xFF141B26),
-                Color(0x00000000),
-              ]
+            ? const [Color(0xFF382B45), Color(0xFF2B2038), Color(0x00000000)]
             : [
                 _opacity(const Color(0xFFF5F8FF), 0.35),
                 _opacity(const Color(0xFFD4DCF0), 0.16),
@@ -440,11 +462,7 @@ class _JoystickPainter extends CustomPainter {
         center: const Alignment(0, 0),
         radius: 0.72,
         colors: isDark
-            ? const [
-                Color(0x2AFFFFFF),
-                Color(0x14131B26),
-                Color(0x66090D14),
-              ]
+            ? const [Color(0x2AFFFFFF), Color(0x14131B26), Color(0x66090D14)]
             : [
                 _opacity(Colors.white, 0.68),
                 _opacity(const Color(0xFFC3CCD8), 0.22),
@@ -461,16 +479,8 @@ class _JoystickPainter extends CustomPainter {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: isDark
-            ? const [
-                Color(0xFF8B7CFF),
-                Color(0xFF57C7FF),
-                Color(0xFF7AF0D2),
-              ]
-            : const [
-                Color(0xFF7E6BFF),
-                Color(0xFF3DBBFF),
-                Color(0xFF42E6C8),
-              ],
+            ? const [Color(0xFFBE9FE4), Color(0xFFC7AFDD), Color(0xFFDCA9C8)]
+            : const [Color(0xFFAA86D0), Color(0xFFC6A5DC), Color(0xFFD7A7C3)],
       ).createShader(Rect.fromCircle(center: center, radius: rBig))
       ..isAntiAlias = true;
     canvas.drawCircle(center, rBig - (mainBorderW / 2), rimStroke);
@@ -482,9 +492,9 @@ class _JoystickPainter extends CustomPainter {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          _opacity(const Color(0xFF7C8CFF), isDark ? 0.42 : 0.28),
-          _opacity(const Color(0xFF49C6FF), isDark ? 0.38 : 0.24),
-          _opacity(const Color(0xFF52E6D4), isDark ? 0.34 : 0.22),
+          _opacity(const Color(0xFFAA86D0), isDark ? 0.42 : 0.28),
+          _opacity(const Color(0xFFC6A5DC), isDark ? 0.38 : 0.24),
+          _opacity(const Color(0xFFD7A7C3), isDark ? 0.34 : 0.22),
         ],
       ).createShader(Rect.fromCircle(center: center, radius: rBig))
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _blurSigma)
@@ -602,10 +612,7 @@ class _JoystickPainter extends CustomPainter {
     final paintKnobBorder = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = joystickTheme.knobBorderWidth
-      ..color = _opacity(
-        joystickTheme.knobBorderColor,
-        isDark ? 0.9 : 0.6,
-      )
+      ..color = _opacity(joystickTheme.knobBorderColor, isDark ? 0.9 : 0.6)
       ..isAntiAlias = true;
 
     canvas.drawCircle(center + knob, knobSize / 2, paintKnobBorder);
@@ -625,5 +632,3 @@ class _JoystickPainter extends CustomPainter {
         oldDelegate.axisLock != axisLock;
   }
 }
-
-

@@ -42,6 +42,12 @@ class JoystickPacket {
   }
 
   Uint8List toBinaryPacket(Set<int> pressedButtons) {
+    return toLegacyBinaryPacket(pressedButtons);
+  }
+
+  /// Six-byte control payload shared by PB Control Protocol v2 packets.
+  /// The legacy packet builder keeps its original envelope for test tooling.
+  Uint8List toControlPayload(Set<int> pressedButtons) {
     int axisToInt8(double v) {
       final clamped = _clamp(v);
       return (clamped * 100).round();
@@ -65,16 +71,23 @@ class JoystickPacket {
       }
     }
 
+    return Uint8List.fromList([
+      lxInt & 0xFF,
+      lyInt & 0xFF,
+      rxInt & 0xFF,
+      ryInt & 0xFF,
+      btnLow & 0xFF,
+      btnHigh & 0xFF,
+    ]);
+  }
+
+  Uint8List toLegacyBinaryPacket(Set<int> pressedButtons) {
+    final payload = toControlPayload(pressedButtons);
     final pkt = Uint8List(10);
     pkt[0] = 0xAA;
     pkt[1] = 0x55;
     pkt[2] = 0x01;
-    pkt[3] = lxInt & 0xFF;
-    pkt[4] = lyInt & 0xFF;
-    pkt[5] = rxInt & 0xFF;
-    pkt[6] = ryInt & 0xFF;
-    pkt[7] = btnLow & 0xFF;
-    pkt[8] = btnHigh & 0xFF;
+    pkt.setRange(3, 9, payload);
 
     int cs = 0;
     for (int i = 2; i <= 8; i++) {

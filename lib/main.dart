@@ -1,27 +1,21 @@
 // lib/main.dart
+import 'dart:async';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'core/routes/app_routes.dart';
 import 'core/ui/gamepad_skin.dart';
-import 'core/ui/theme_controller.dart';
 import 'core/ui/language_controller.dart';
+import 'core/ble/ble_manager.dart';
+import 'core/ble/ble_connection_coordinator.dart';
+import 'core/utils/orientation_utils.dart';
 
-TextStyle? _withFonts(
-  TextStyle? style,
-  String family,
-  List<String> fallback,
-) {
+TextStyle? _withFonts(TextStyle? style, String family, List<String> fallback) {
   if (style == null) return null;
-  return style.copyWith(
-    fontFamily: family,
-    fontFamilyFallback: fallback,
-  );
+  return style.copyWith(fontFamily: family, fontFamilyFallback: fallback);
 }
 
-TextTheme _applyFonts(
-  TextTheme base,
-  String family,
-  List<String> fallback,
-) {
+TextTheme _applyFonts(TextTheme base, String family, List<String> fallback) {
   return base.copyWith(
     displayLarge: _withFonts(base.displayLarge, family, fallback),
     displayMedium: _withFonts(base.displayMedium, family, fallback),
@@ -43,154 +37,94 @@ TextTheme _applyFonts(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ThemeController.init();
+  await OrientationUtils.request(AppOrientation.portrait);
+  final preferences = await SharedPreferences.getInstance();
+  await preferences.remove('app_theme_mode');
   await LanguageController.init();
+  await BleConnectionCoordinator.instance.initialize();
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    unawaited(BleManager.instance.handleAppLifecycleState(state));
+  }
 
   @override
   Widget build(BuildContext context) {
     const seed = Color(0xFF6750A4);
     const fontFamily = 'Roboto';
-    const fontFallback = ['Kanit'];
+    const fontFallback = <String>[];
     final lightScheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: Brightness.light,
     );
-    final darkScheme = ColorScheme.fromSeed(
-      seedColor: seed,
-      brightness: Brightness.dark,
-    );
-
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
       builder: (context, _, __) {
-        return ValueListenableBuilder<ThemeMode>(
-          valueListenable: ThemeController.mode,
-          builder: (context, mode, _) {
-            final lightTextTheme = _applyFonts(
-              ThemeData.light().textTheme.apply(
-                    bodyColor: lightScheme.onSurface,
-                    displayColor: lightScheme.onSurface,
-                  ),
-              fontFamily,
-              fontFallback,
-            );
-            final darkTextTheme = _applyFonts(
-              ThemeData.dark().textTheme.apply(
-                    bodyColor: darkScheme.onSurface,
-                    displayColor: darkScheme.onSurface,
-                  ),
-              fontFamily,
-              fontFallback,
-            );
+        final lightTextTheme = _applyFonts(
+          ThemeData.light().textTheme.apply(
+            bodyColor: lightScheme.onSurface,
+            displayColor: lightScheme.onSurface,
+          ),
+          fontFamily,
+          fontFallback,
+        );
 
-            return MaterialApp(
-              title: 'PrinceBot Controller',
-              debugShowCheckedModeBanner: false,
-              navigatorObservers: [LoggingNavigatorObserver()],
-              themeMode: mode,
-              theme: ThemeData(
-                colorScheme: lightScheme,
-                useMaterial3: true,
-                extensions: const <ThemeExtension<dynamic>>[
-                  GamepadSkin.light(),
-                ],
+        return MaterialApp(
+          title: 'PrinceBot Controller',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            colorScheme: lightScheme,
+            useMaterial3: true,
+            extensions: const <ThemeExtension<dynamic>>[GamepadSkin.light()],
+            fontFamily: fontFamily,
+            fontFamilyFallback: fontFallback,
+            textTheme: lightTextTheme,
+            iconTheme: IconThemeData(color: lightScheme.onSurface),
+            appBarTheme: AppBarTheme(
+              foregroundColor: lightScheme.onSurface,
+              iconTheme: IconThemeData(color: lightScheme.onSurface),
+              titleTextStyle: lightTextTheme.titleLarge?.copyWith(
+                color: lightScheme.onSurface,
                 fontFamily: fontFamily,
                 fontFamilyFallback: fontFallback,
-                textTheme: lightTextTheme,
-                iconTheme: IconThemeData(color: lightScheme.onSurface),
-                appBarTheme: AppBarTheme(
-                  foregroundColor: lightScheme.onSurface,
-                  iconTheme: IconThemeData(color: lightScheme.onSurface),
-                  titleTextStyle: lightTextTheme.titleLarge?.copyWith(
-                    color: lightScheme.onSurface,
-                    fontFamily: fontFamily,
-                    fontFamilyFallback: fontFallback,
-                  ),
-                ),
-                pageTransitionsTheme: const PageTransitionsTheme(
-                  builders: {
-                    TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-                  },
-                ),
               ),
-              darkTheme: ThemeData(
-                colorScheme: darkScheme,
-                useMaterial3: true,
-                extensions: const <ThemeExtension<dynamic>>[
-                  GamepadSkin.dark(),
-                ],
-                fontFamily: fontFamily,
-                fontFamilyFallback: fontFallback,
-                textTheme: darkTextTheme,
-                iconTheme: IconThemeData(color: darkScheme.onSurface),
-                appBarTheme: AppBarTheme(
-                  foregroundColor: darkScheme.onSurface,
-                  iconTheme: IconThemeData(color: darkScheme.onSurface),
-                  titleTextStyle: darkTextTheme.titleLarge?.copyWith(
-                    color: darkScheme.onSurface,
-                    fontFamily: fontFamily,
-                    fontFamilyFallback: fontFallback,
-                  ),
-                ),
-                pageTransitionsTheme: const PageTransitionsTheme(
-                  builders: {
-                    TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-                    TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-                  },
-                ),
-              ),
-              initialRoute: AppRoutes.home,
-              onGenerateRoute: AppRoutes.onGenerateRoute,
-            );
-          },
+            ),
+            pageTransitionsTheme: const PageTransitionsTheme(
+              builders: {
+                TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+              },
+            ),
+          ),
+          initialRoute: AppRoutes.home,
+          onGenerateRoute: AppRoutes.onGenerateRoute,
         );
       },
     );
   }
 }
-
-// TEMP: log route changes to find unexpected pops on iOS.
-class LoggingNavigatorObserver extends NavigatorObserver {
-  LoggingNavigatorObserver();
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    debugPrint('[nav] push ${route.settings.name ?? route.runtimeType}');
-    super.didPush(route, previousRoute);
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    debugPrint('[nav] pop ${route.settings.name ?? route.runtimeType}');
-    super.didPop(route, previousRoute);
-  }
-
-  @override
-  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    debugPrint('[nav] remove ${route.settings.name ?? route.runtimeType}');
-    super.didRemove(route, previousRoute);
-  }
-
-  @override
-  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    debugPrint(
-      '[nav] replace ${oldRoute?.settings.name ?? oldRoute?.runtimeType}'
-      ' -> ${newRoute?.settings.name ?? newRoute?.runtimeType}',
-    );
-    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
-  }
-}
-
-

@@ -1,0 +1,4 @@
+root = true
+
+[*.{dart,yaml,json,md,xml,html,kt,swift}]
+charset = utf-8

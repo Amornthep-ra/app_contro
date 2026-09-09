@@ -1,65 +1,70 @@
-﻿// lib/features/gamepad/gamepad_mode_edit.dart
+// lib/features/gamepad/gamepad_mode_edit.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:io';
 import 'dart:ui';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../../core/ble/ble_manager.dart';
+import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/joystick_packet.dart';
 import '../../core/ui/gamepad_assets.dart';
+import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
-import '../../core/ui/gamepad_skin.dart';
-import '../../core/ui/gamepad_tutorial_overlay_components.dart';
+import '../../core/ui/app_assets.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
+import '../../core/widgets/control_preset_dialog.dart';
+import '../../core/widgets/cat_glass_popup.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/language_controller.dart';
+import '../../core/routes/app_routes.dart';
+import 'control_mode_settings_page.dart';
+import 'widgets/gamepad_edit_shared.dart';
 import 'widgets/gamepad_telemetry_chip.dart';
+import '../bluetooth/widgets/pairing_code_dialog.dart';
 
 const String kIdle = '0';
-
 const String kCmdUp = 'F';
 const String kCmdDown = 'B';
 const String kCmdLeft = 'L';
 const String kCmdRight = 'R';
-
 const String kCmdTriangle = 'T';
 const String kCmdCross = 'X';
 const String kCmdSquare = 'S';
 const String kCmdCircle = 'C';
-
 const int kLoopHz = 60;
 const int kLoopMs = 1000 ~/ kLoopHz;
 const int kMinActiveMs = 150;
 const int kMinIdleMs = 150;
-
 const int kMaxSendHz = 40;
 const int kMaxSendMs = 1000 ~/ kMaxSendHz;
-
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;
 const double _gridStep = 0.05;
-
 const double speedRowGap = 6.0;
-const double _speedPanelTopGap = 6.0;
-const Set<String> _defaultLeftActiveIds = {'L:up', 'L:down', 'L:left', 'L:right'};
+const Set<String> _defaultLeftActiveIds = {
+  'L:up',
+  'L:down',
+  'L:left',
+  'L:right',
+};
 const Set<String> _defaultRightActiveIds = {
   'R:triangle',
   'R:cross',
   'R:square',
   'R:circle',
 };
-
+const Set<String> _supportedEightButtonIds = {
+  ..._defaultLeftActiveIds,
+  ..._defaultRightActiveIds,
+};
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());
-
 double _snapToGrid(double value) {
   if (_gridStep <= 0) return value;
   return (value / _gridStep).round() * _gridStep;
@@ -67,26 +72,19 @@ double _snapToGrid(double value) {
 
 TapCfg cfgSpeedLow(BuildContext ctx) {
   final theme = Theme.of(ctx);
-  final platformB = MediaQuery.of(ctx).platformBrightness;
-  final isDark =
-      theme.brightness == Brightness.dark || platformB == Brightness.dark;
-
+  final isDark = theme.brightness == Brightness.dark;
   final c = Colors.green;
   final grad = [lighten(c, .18), darken(c, .06)];
-
   final border = isDark
       ? lighten(const Color(0xFF00FF9D), .10)
       : lighten(c, .24);
-
   final glow = isDark
       ? _opacity(const Color(0xFF00FFB2), .55)
       : _opacity(Colors.black, .22);
-
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
       ? _opacity(Colors.white, .85)
       : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
-
   return TapCfg(
     width: 100,
     height: 80,
@@ -110,24 +108,17 @@ TapCfg cfgSpeedLow(BuildContext ctx) {
 
 TapCfg cfgSpeedMid(BuildContext ctx) {
   final theme = Theme.of(ctx);
-  final platformB = MediaQuery.of(ctx).platformBrightness;
-  final isDark =
-      theme.brightness == Brightness.dark || platformB == Brightness.dark;
-
+  final isDark = theme.brightness == Brightness.dark;
   final c = Colors.yellow;
   final grad = [lighten(c, .18), darken(c, .06)];
-
   final border = isDark
       ? lighten(const Color(0xFFFFD36A), .06)
       : lighten(c, .24);
-
   final glow = isDark
       ? _opacity(const Color(0xFFFFD54F), .55)
       : _opacity(Colors.black, .22);
-
   final textOn = Colors.black;
   final textOff = _opacity(Colors.black, .85);
-
   return TapCfg(
     width: 100,
     height: 80,
@@ -151,26 +142,19 @@ TapCfg cfgSpeedMid(BuildContext ctx) {
 
 TapCfg cfgSpeedHigh(BuildContext ctx) {
   final theme = Theme.of(ctx);
-  final platformB = MediaQuery.of(ctx).platformBrightness;
-  final isDark =
-      theme.brightness == Brightness.dark || platformB == Brightness.dark;
-
+  final isDark = theme.brightness == Brightness.dark;
   final c = Colors.red;
   final grad = [lighten(c, .18), darken(c, .06)];
-
   final border = isDark
       ? lighten(const Color(0xFFFF6B6B), .06)
       : lighten(c, .24);
-
   final glow = isDark
       ? _opacity(const Color(0xFFFF5A5A), .60)
       : _opacity(Colors.black, .22);
-
   final textOn = isDark ? Colors.white : const Color.fromARGB(255, 0, 0, 0);
   final textOff = isDark
       ? _opacity(Colors.white, .85)
       : _opacity(const Color.fromARGB(255, 0, 0, 0), .85);
-
   return TapCfg(
     width: 100,
     height: 80,
@@ -194,7 +178,6 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
 
 class GamepadModeEdit extends StatefulWidget {
   const GamepadModeEdit({super.key});
-
   @override
   State<GamepadModeEdit> createState() => _GamepadModeEditState();
 }
@@ -207,65 +190,32 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   static const _prefsActiveRight = 'gp8_active_right';
   static const _prefsDriveSpeed = 'gp8_drive_speed';
   static const _prefsTurnSpeed = 'gp8_turn_speed';
-  static const _prefsTutorialSeen = 'gp8_tutorial_seen';
-  static const _prefsTutorialPromptSeen = 'gp8_tutorial_prompt_seen';
   static const _prefsPreset1 = 'gp8_preset_1';
   static const _prefsPreset2 = 'gp8_preset_2';
   static const _prefsPreset3 = 'gp8_preset_3';
-
+  static const _prefsPreset4 = 'gp8_preset_4';
+  static const _prefsPreset5 = 'gp8_preset_5';
   bool _up = false;
   bool _down = false;
   bool _left = false;
   bool _right = false;
-
   bool _triangle = false;
   bool _cross = false;
   bool _square = false;
   bool _circle = false;
-
   String _command = kIdle;
-
   String _moveCmd = kIdle;
   String _actionCmd = '';
-
   int _driveSpeed = 50;
   int _turnSpeed = 50;
+  bool _speedPanelEditingDrive = true;
   bool _speedPanelOpen = false;
-  bool _showTutorial = false;
-  bool _showTutorialPrompt = false;
-  int _tutorialStep = 0;
-  bool _tutorialThai = true;
+  bool _isThai = true;
   late final VoidCallback _langListener;
-  Rect? _tutorialTargetRect;
-  GlobalKey? _tutorialTargetKey;
-  final GlobalKey _tutorialStackKey = GlobalKey();
-  final GlobalKey _tutorialBackKey = GlobalKey();
-  final GlobalKey _tutorialCustomizeKey = GlobalKey();
-  final GlobalKey _tutorialDoneKey = GlobalKey();
-  final GlobalKey _tutorialButtonsKey = GlobalKey();
-  final GlobalKey _tutorialSpeedKey = GlobalKey();
-  final GlobalKey _tutorialSpeedPanelKey = GlobalKey();
-  final GlobalKey _tutorialBtKey = GlobalKey();
-  final GlobalKey _tutorialPresetKey = GlobalKey();
-  final GlobalKey _tutorialHelpKey = GlobalKey();
-  final GlobalKey _tutorialCmdKey = GlobalKey();
-  final GlobalKey _tutorialDrvKey = GlobalKey();
-  final GlobalKey _tutorialTrnKey = GlobalKey();
-  final GlobalKey _tutorialDeleteKey = GlobalKey();
-  final GlobalKey _tutorialResetKey = GlobalKey();
-  final GlobalKey _tutorialUndoKey = GlobalKey();
-  final GlobalKey _tutorialRedoKey = GlobalKey();
-  final GlobalKey _tutorialGridKey = GlobalKey();
-  final GlobalKey _tutorialSizeKey = GlobalKey();
-  final GlobalKey _tutorialLockKey = GlobalKey();
-  final GlobalKey _tutorialBlePanelKey = GlobalKey();
-  final GlobalKey _tutorialButtonsPanelKey = GlobalKey();
-
   bool _editMode = false;
   bool _showGrid = false;
   final Set<String> _lockedIds = {};
   bool _menuOpen = false;
-  Offset? _menuAnchor;
   Map<String, _ButtonLayout> _layoutAll = {};
   Set<String> _leftActive = Set<String>.from(_defaultLeftActiveIds);
   Set<String> _rightActive = Set<String>.from(_defaultRightActiveIds);
@@ -280,13 +230,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   final List<_EditSnapshot> _undoStack = [];
   final List<_EditSnapshot> _redoStack = [];
   static const int _maxHistory = 30;
-
   Timer? _tick;
   String _lastPacketKey = '';
   int _lastSendMs = 0;
   StreamSubscription<bool>? _bleConnSub;
   int? _bleTrafficOwner;
-
+  bool _startInProgress = false;
+  bool _controlStarted = false;
+  bool _modeSwitchInProgress = false;
   void _resetInputState() {
     void apply() {
       _up = false;
@@ -304,6 +255,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _lastPacketKey = '';
       _lastSendMs = 0;
     }
+
     if (mounted) {
       setState(apply);
     } else {
@@ -313,22 +265,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Set<int> _buildPressedButtons() {
     final btns = <int>{};
-
     if (_up && !_down) btns.add(kBleBtnUp);
     if (_down && !_up) btns.add(kBleBtnDown);
     if (_left && !_right) btns.add(kBleBtnLeft);
     if (_right && !_left) btns.add(kBleBtnRight);
-
     if (_triangle) btns.add(kBleBtnTriangle);
     if (_cross) btns.add(kBleBtnCross);
     if (_square) btns.add(kBleBtnSquare);
     if (_circle) btns.add(kBleBtnCircle);
-
     return btns;
   }
 
   String _packetKey() => '$_command|$_driveSpeed|$_turnSpeed';
-
   int _buttonsByte() {
     final btns = _buildPressedButtons();
     int v = 0;
@@ -340,33 +288,29 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   String _commandByteLabel() => _buttonsByte().toString();
-
-  String _driveSpeedLabel() => _driveSpeed.toString();
-  String _turnSpeedLabel() => _turnSpeed.toString();
-
   void _sendBinary({bool force = false}) {
+    if (!_controlStarted ||
+        _startInProgress ||
+        _modeSwitchInProgress ||
+        BleManager.instance.controlSuspendedForLifecycle) {
+      return;
+    }
     if (!BleManager.instance.isConnected) return;
     final owner = _bleTrafficOwner;
     if (owner == null) return;
-
     final now = DateTime.now().millisecondsSinceEpoch;
     final key = _packetKey();
-
     if (!force) {
       if ((now - _lastSendMs) < kMaxSendMs) return;
-
       final changed = key != _lastPacketKey;
       final active = _command != kIdle;
       final minInterval = active ? kMinActiveMs : kMinIdleMs;
-
       if (!changed && (now - _lastSendMs) < minInterval) {
         return;
       }
     }
-
     _lastPacketKey = key;
     _lastSendMs = now;
-
     unawaited(
       BleManager.instance.sendJoystickBinary(
         packet: JoystickPacket(
@@ -382,80 +326,215 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _bleTrafficOwner = BleManager.instance.claimTrafficMode(
-      BleTrafficMode.controlBinary,
-      ownerName: 'gamepad_8',
-    );
-    final trafficOwner = _bleTrafficOwner;
-    if (trafficOwner != null) {
-      BleManager.instance.enableControlReconnect(
-        owner: trafficOwner,
-        ownerName: 'gamepad_8',
-      );
-      unawaited(
-        BleManager.instance.autoConnectLastDevice(
-          source: 'control_initial',
-          owner: trafficOwner,
-        ),
-      );
-    }
-    OrientationUtils.setLandscapeOnly();
-    _tutorialThai = LanguageController.isThai.value;
-    _langListener = () {
-      final next = LanguageController.isThai.value;
-      if (next != _tutorialThai) {
-        setState(() => _tutorialThai = next);
-      }
-    };
-    LanguageController.isThai.addListener(_langListener);
-    _loadLayouts();
-    _loadSpeedPrefs();
-    _maybeStartTutorial();
-
-    // ชั้น 3: reset input state เมื่อ BLE หลุด/reconnect
-    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
-      if (!mounted) return;
-      _resetInputState();
-      if (connected) {
-        _sendBinary(force: true);
-      }
-    });
-
+  void _startControlLoop() {
+    if (_tick != null) return;
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
       (_) => _sendLoop(),
     );
   }
 
+  void _stopControlLoop() {
+    _tick?.cancel();
+    _tick = null;
+  }
+
+  void _handleControlSuspended() {
+    if (!BleManager.instance.controlSuspendedForLifecycle || !_controlStarted) {
+      return;
+    }
+    _stopControlLoop();
+    _resetInputState();
+    if (mounted) setState(() => _controlStarted = false);
+  }
+
+  bool get _canStartControl => !_startInProgress && !_modeSwitchInProgress;
+  Future<void> _startControl() async {
+    if (_controlStarted || !_canStartControl) return;
+    setState(() => _startInProgress = true);
+    final owner = await BleConnectionCoordinator.instance
+        .acquireControlForStart(ownerName: 'gamepad_8');
+    if (!mounted) return;
+    if (owner == null) {
+      setState(() => _startInProgress = false);
+      if (requiresBlePairingCode(
+        BleConnectionCoordinator.instance.state.securityState,
+      )) {
+        final paired = await promptForBlePairingCode(
+          context: context,
+          isThai: LanguageController.isThai.value,
+        );
+        if (paired == true && mounted) {
+          await _startControl();
+        }
+        return;
+      }
+      showGamepadTopNotice(
+        context,
+        message: 'Unable to connect to the last BLE device.',
+        style: GamepadNoticeStyle.error,
+      );
+      return;
+    }
+    _bleTrafficOwner = owner;
+    _resetInputState();
+    if (!mounted) return;
+    setState(() {
+      _startInProgress = false;
+      _controlStarted = true;
+    });
+    _startControlLoop();
+    _sendBinary(force: true);
+  }
+
+  Future<void> _stopControl() async {
+    if (!_controlStarted) return;
+    _stopControlLoop();
+    _resetInputState();
+    if (mounted) setState(() => _controlStarted = false);
+    await _releaseTrafficOwnershipForExit(emergency: true);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ControlModePreference.save(LastControlMode.eightButton));
+    BleManager.instance.controlSuspendedListenable.addListener(
+      _handleControlSuspended,
+    );
+    unawaited(OrientationUtils.request(AppOrientation.landscape));
+    _isThai = LanguageController.isThai.value;
+    _langListener = () {
+      final next = LanguageController.isThai.value;
+      if (next != _isThai) {
+        setState(() => _isThai = next);
+      }
+    };
+    LanguageController.isThai.addListener(_langListener);
+    unawaited(_loadSpeedPrefs());
+    _loadLayouts();
+    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!mounted) return;
+      _resetInputState();
+      if (!connected) {
+        _stopControlLoop();
+        setState(() => _controlStarted = false);
+        unawaited(_releaseTrafficOwnershipForExit());
+      }
+    });
+  }
+
+  Future<void> _switchToPreset() async {
+    if (_modeSwitchInProgress || _editMode) return;
+    final manager = BleManager.instance;
+    final owner = _bleTrafficOwner;
+    setState(() {
+      _modeSwitchInProgress = true;
+      _controlStarted = false;
+      _speedPanelOpen = false;
+    });
+    _resetInputState();
+    _stopControlLoop();
+    unawaited(ControlModePreference.save(LastControlMode.fourButton));
+    _bleTrafficOwner = null;
+    if (owner != null) {
+      manager.handoffControlForModeSwitch(
+        owner: owner,
+        source: 'gamepad_precision_to_preset',
+      );
+    }
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pushReplacementNamed<void, bool>(AppRoutes.gamepad4Button, result: true);
+  }
+
+  Future<void> _switchToJoystick() async {
+    if (_modeSwitchInProgress || _editMode) return;
+    final manager = BleManager.instance;
+    final owner = _bleTrafficOwner;
+    setState(() {
+      _modeSwitchInProgress = true;
+      _controlStarted = false;
+      _speedPanelOpen = false;
+    });
+    _resetInputState();
+    _stopControlLoop();
+    unawaited(ControlModePreference.save(LastControlMode.joystick));
+    _bleTrafficOwner = null;
+    if (owner != null) {
+      manager.handoffControlForModeSwitch(
+        owner: owner,
+        source: 'gamepad_8_to_joystick',
+      );
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      AppRoutes.dualJoystickMode1,
+      result: true,
+    );
+  }
+
+  Future<void> _openSettings() async {
+    if (_editMode) return;
+    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+      controlModeSettingsRoute(
+        mode: ControlMode.eightButton,
+        onManageLayouts: _showPresetSheet,
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case ControlModeSettingsAction.editLayout:
+        _toggleEdit();
+      case ControlModeSettingsAction.selectFourButton:
+        await _switchToPreset();
+      case ControlModeSettingsAction.selectJoystick:
+        await _switchToJoystick();
+      case ControlModeSettingsAction.selectEightButton:
+      case null:
+        break;
+    }
+  }
+
   @override
   void dispose() {
     _editWarningTimer?.cancel();
-    _tick?.cancel();
+    _stopControlLoop();
     _bleConnSub?.cancel();
+    BleManager.instance.controlSuspendedListenable.removeListener(
+      _handleControlSuspended,
+    );
     LanguageController.isThai.removeListener(_langListener);
-
-    final trafficOwner = _bleTrafficOwner;
-    _bleTrafficOwner = null;
-    if (trafficOwner != null) {
-      BleManager.instance.disableControlReconnect(trafficOwner);
-    }
-    if (BleManager.instance.isConnected && trafficOwner != null) {
-      unawaited(
-        BleManager.instance
-            .sendControlStop(owner: trafficOwner)
-            .whenComplete(() {
-              BleManager.instance.releaseTrafficMode(trafficOwner);
-            }),
-      );
-    } else if (trafficOwner != null) {
-      BleManager.instance.releaseTrafficMode(trafficOwner);
-    }
-
-    OrientationUtils.reset();
+    unawaited(_releaseTrafficOwnershipForExit());
     super.dispose();
+  }
+
+  Future<void> _releaseTrafficOwnershipForExit({bool emergency = false}) async {
+    final owner = _bleTrafficOwner;
+    _bleTrafficOwner = null;
+    if (owner == null) return;
+    final manager = BleManager.instance;
+    if (emergency) {
+      await manager.emergencyStopAndReleaseControl(
+        owner: owner,
+        source: 'gamepad_8_emergency_stop',
+      );
+      return;
+    }
+    manager.disableControlReconnect(owner);
+    try {
+      if (manager.isConnected) {
+        await manager.sendControlStop(owner: owner);
+      }
+    } finally {
+      manager.releaseTrafficMode(owner);
+    }
+  }
+
+  Future<void> _exitControlPage() async {
+    await _releaseTrafficOwnershipForExit();
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _loadSpeedPrefs() async {
@@ -478,356 +557,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   void _setDriveSpeed(int value) {
     if (_driveSpeed == value) return;
     setState(() => _driveSpeed = value);
-    _saveSpeedPrefs();
+    unawaited(_saveSpeedPrefs());
+    _sendBinary(force: true);
   }
 
   void _setTurnSpeed(int value) {
     if (_turnSpeed == value) return;
     setState(() => _turnSpeed = value);
-    _saveSpeedPrefs();
-  }
-
-  Future<void> _resetSpeedPrefs() async {
-    setState(() {
-      _driveSpeed = 50;
-      _turnSpeed = 50;
-    });
-    await _saveSpeedPrefs();
+    unawaited(_saveSpeedPrefs());
     _sendBinary(force: true);
-  }
-
-  Future<void> _maybeStartTutorial() async {
-    final prefs = await SharedPreferences.getInstance();
-    final tutorialSeen = prefs.getBool(_prefsTutorialSeen) ?? false;
-    final promptSeen = prefs.getBool(_prefsTutorialPromptSeen) ?? false;
-    if (tutorialSeen || promptSeen || !mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _showTutorialPrompt = true;
-      });
-    });
-  }
-
-  Future<void> _dismissTutorialPrompt() async {
-    setState(() {
-      _showTutorialPrompt = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialPromptSeen, true);
-  }
-
-  Future<void> _startTutorialFromPrompt() async {
-    setState(() {
-      _showTutorialPrompt = false;
-      _showTutorial = true;
-      _tutorialStep = 0;
-      _tutorialThai = LanguageController.isThai.value;
-      _speedPanelOpen = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialPromptSeen, true);
-    _scheduleTutorialRectUpdate();
-  }
-
-  void _scheduleTutorialRectUpdate() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_showTutorial) return;
-      final changed = _syncTutorialPreviewPanels();
-      if (changed) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_showTutorial) return;
-          _updateTutorialRect();
-        });
-        return;
-      }
-      _updateTutorialRect();
-    });
-  }
-
-  bool _syncTutorialPreviewPanels() {
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) return false;
-    final step = steps[_tutorialStep];
-    final shouldOpenSpeedPanel = step.openSpeedPanel;
-    var changed = false;
-
-    if (_speedPanelOpen != shouldOpenSpeedPanel) {
-      setState(() => _speedPanelOpen = shouldOpenSpeedPanel);
-      changed = true;
-    }
-
-    return changed;
-  }
-
-  List<_TutorialStep> _tutorialSteps() {
-    return [
-      const _TutorialStep(
-        titleTh: 'Gamepad Mode Edit',
-        bodyTh: 'ภาพรวมการปรับปุ่ม ค่าควบคุม และเครื่องมือทั้งหมดในหน้านี้',
-        titleEn: 'Gamepad Mode Edit',
-        bodyEn: 'Overview of button layout, control settings, and tools on this page.',
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'Back',
-        bodyTh: 'ย้อนกลับไปยังหน้า Controller',
-        titleEn: 'Back',
-        bodyEn: 'Go back to the Controller page.',
-        targetKey: _tutorialBackKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'SPD',
-        bodyTh: 'ปุ่มเปิดแผงปรับความเร็ว (SPD)',
-        titleEn: 'SPD',
-        bodyEn: 'Tap to open the SPD tuning panel.',
-        targetKey: _tutorialSpeedKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'แผงปรับความเร็ว (SPD)',
-        bodyTh: 'ปรับระดับความเร็วการขับเคลื่อน (DRV) และการเลี้ยว (TRN) ได้ตั้งแต่ 0-100% พร้อมปุ่มรีเซ็ตค่า',
-        titleEn: 'SPD Tuning Panel',
-        bodyEn: 'Adjust Drive (DRV) and Turn (TRN) speed from 0-100% with a quick reset option.',
-        targetKey: _tutorialSpeedPanelKey,
-        openSpeedPanel: true,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'ชุดคำสั่ง (CMD)',
-        bodyTh: 'แสดงรหัสคำสั่ง (Byte) ที่ส่งไปยังหุ่นยนต์แบบเรียลไทม์ตามปุ่มที่กด',
-        titleEn: 'Command Status (CMD)',
-        bodyEn: 'Displays real-time command bytes sent to the robot based on your input.',
-        targetKey: _tutorialCmdKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'ความเร็วหลัก (DRV)',
-        bodyTh: 'ปรับความเร็วในการเคลื่อนที่หลัก ซึ่งนำไปประยุกต์ใช้ได้กับทุกทิศทาง',
-        titleEn: 'Main Speed (DRV)',
-        bodyEn: 'Adjust your primary movement speed for any direction.',
-        targetKey: _tutorialDrvKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'ความเร็วเสริม (TRN)',
-        bodyTh: 'ปรับความเร็วในการเลี้ยว หมุนตัว หรือใช้เป็นความเร็วเสริมในฟังก์ชันอื่นๆ',
-        titleEn: 'Extra Speed (TRN)',
-        bodyEn: 'Control turning, rotation, or other secondary speed functions.',
-        targetKey: _tutorialTrnKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'สถานะ BLE',
-        bodyTh: 'ตรวจสอบการเชื่อมต่อ และแตะเพื่อเปิดเมนูจัดการอุปกรณ์ (ระบบจะเชื่อมต่ออุปกรณ์ล่าสุดให้เองอัตโนมัติ)',
-        titleEn: 'BLE Status',
-        bodyEn: 'View connection status and tap to manage devices. (Automatically reconnects to the last device).',
-        targetKey: _tutorialBtKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'หน้าจัดการ BLE',
-        bodyTh: 'หน้าสำหรับค้นหาและเชื่อมต่ออุปกรณ์ BLE พร้อมแสดงรายการที่ตรวจพบและสถานะสัญญาณ',
-        titleEn: 'BLE Management',
-        bodyEn: 'Scan and connect to BLE devices, view signal strength, and manage discovered devices.',
-        targetKey: _tutorialBlePanelKey,
-        openBleSheet: true,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'โหมดแก้ไข',
-        bodyTh: 'แตะเพื่อเข้าสู่โหมดการปรับแต่งเลย์เอาต์ปุ่ม',
-        titleEn: 'Edit Mode',
-        bodyEn: 'Enter layout customization mode.',
-        targetKey: _tutorialCustomizeKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'เลือกใช้งานปุ่ม',
-        bodyTh: 'เลือกปุ่มฝั่งซ้ายหรือขวาที่ต้องการแสดงบนหน้าจอ',
-        titleEn: 'Buttons',
-        bodyEn: 'Select which left or right buttons to display.',
-        targetKey: _tutorialButtonsKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'เมนูเลือกปุ่ม',
-        bodyTh: 'แสดงรายการปุ่มทั้งหมดที่คุณสามารถเลือกใช้งานได้',
-        titleEn: 'Button Menu',
-        bodyEn: 'View all available buttons you can add to the layout.',
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ลบปุ่ม',
-        bodyTh: 'นำปุ่มที่เลือกไว้ออกจากหน้าจอ',
-        titleEn: 'Delete',
-        bodyEn: 'Remove the selected button from the layout.',
-        targetKey: _tutorialDeleteKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'รีเซ็ต',
-        bodyTh: 'รีเซ็ตตำแหน่งและขนาดปุ่มทั้งหมดกลับเป็นค่าเริ่มต้น',
-        titleEn: 'Reset Layout',
-        bodyEn: 'Reset all button positions and sizes to defaults.',
-        targetKey: _tutorialResetKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ย้อน',
-        bodyTh: 'ย้อนการแก้ไขล่าสุด',
-        titleEn: 'Undo',
-        bodyEn: 'Undo latest edit action.',
-        targetKey: _tutorialUndoKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ทำซ้ำ',
-        bodyTh: 'ทำซ้ำการแก้ไขที่ย้อนกลับไป',
-        titleEn: 'Redo',
-        bodyEn: 'Redo the undone edit action.',
-        targetKey: _tutorialRedoKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'กริด',
-        bodyTh: 'เปิด/ปิดเส้นกริดเพื่อช่วยในการจัดวางปุ่มให้แม่นยำ',
-        titleEn: 'Grid',
-        bodyEn: 'Toggle grid lines for precise button alignment.',
-        targetKey: _tutorialGridKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ขนาด',
-        bodyTh: 'ย่อหรือขยายขนาดของปุ่มที่เลือกอยู่',
-        titleEn: 'Size',
-        bodyEn: 'Scale the selected button up or down.',
-        targetKey: _tutorialSizeKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ล็อก',
-        bodyTh: 'ล็อกตำแหน่งปุ่มเพื่อป้องกันการเคลื่อนย้ายโดยไม่ตั้งใจ',
-        titleEn: 'Lock',
-        bodyEn: 'Lock button position to prevent accidental moving.',
-        targetKey: _tutorialLockKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'เสร็จสิ้น',
-        bodyTh: 'บันทึกการตั้งค่าและออกจากโหมดแก้ไข',
-        titleEn: 'Done',
-        bodyEn: 'Save changes and exit edit mode.',
-        targetKey: _tutorialDoneKey,
-        editMode: true,
-      ),
-      _TutorialStep(
-        titleTh: 'ค่าที่ตั้งไว้ (Preset)',
-        bodyTh: 'บันทึกหรือเรียกใช้รูปแบบปุ่มและค่าความเร็วที่คุณตั้งไว้',
-        titleEn: 'Presets',
-        bodyEn: 'Save or load your custom layouts and speed settings.',
-        targetKey: _tutorialPresetKey,
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'หน้าจัดการพรีเซ็ต',
-        bodyTh: 'เลือกดูและจัดการรายการการตั้งค่าทั้งหมดที่บันทึกไว้',
-        titleEn: 'Preset Management',
-        bodyEn: 'View and manage all your saved configuration presets.',
-        editMode: false,
-      ),
-      _TutorialStep(
-        titleTh: 'คำแนะนำการใช้งาน',
-        bodyTh: 'แตะที่นี่เพื่อดูคำแนะนำการใช้งานนี้อีกครั้งได้ทุกเมื่อ',
-        titleEn: 'Tutorial',
-        bodyEn: 'Tap here to replay this tutorial anytime.',
-        targetKey: _tutorialHelpKey,
-        editMode: false,
-      ),
-    ];
-  }
-
-  void _goTutorialStep(int nextStep) {
-    final steps = _tutorialSteps();
-    if (nextStep < 0 || nextStep >= steps.length) return;
-    final step = steps[nextStep];
-    setState(() {
-      if (step.editMode != null) {
-        _editMode = step.editMode!;
-      }
-      _tutorialStep = nextStep;
-    });
-    _scheduleTutorialRectUpdate();
-  }
-
-  Future<void> _finishTutorial() async {
-    setState(() {
-      _showTutorial = false;
-      _tutorialStep = 0;
-      _editMode = false;
-      _speedPanelOpen = false;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialSeen, true);
-  }
-
-  Future<void> _restartTutorial() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsTutorialSeen, false);
-    if (!mounted) return;
-    setState(() {
-      _showTutorial = true;
-      _tutorialStep = 0;
-      _tutorialThai = LanguageController.isThai.value;
-      _speedPanelOpen = false;
-    });
-    _scheduleTutorialRectUpdate();
-  }
-
-  void _updateTutorialRect() {
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      setState(() {
-        _tutorialTargetRect = null;
-        _tutorialTargetKey = null;
-      });
-      return;
-    }
-    final key = steps[_tutorialStep].targetKey;
-    final stackBox =
-        _tutorialStackKey.currentContext?.findRenderObject() as RenderBox?;
-    final targetBox = key?.currentContext?.findRenderObject() as RenderBox?;
-    if (key == null || stackBox == null || targetBox == null) {
-      setState(() {
-        _tutorialTargetRect = null;
-        _tutorialTargetKey = key;
-      });
-      return;
-    }
-    final rect = _targetRectInStack(stackBox, targetBox);
-    setState(() {
-      _tutorialTargetRect = rect;
-      _tutorialTargetKey = key;
-    });
-  }
-
-  Rect _targetRectInStack(RenderBox stackBox, RenderBox targetBox) {
-    final transform = targetBox.getTransformTo(stackBox);
-    final rect = Offset.zero & targetBox.size;
-    final corners = <Offset>[
-      rect.topLeft,
-      rect.topRight,
-      rect.bottomLeft,
-      rect.bottomRight,
-    ].map((point) => MatrixUtils.transformPoint(transform, point)).toList();
-
-    final left = corners.map((p) => p.dx).reduce(math.min);
-    final right = corners.map((p) => p.dx).reduce(math.max);
-    final top = corners.map((p) => p.dy).reduce(math.min);
-    final bottom = corners.map((p) => p.dy).reduce(math.max);
-
-    return Rect.fromLTRB(left, top, right, bottom);
   }
 
   String _presetKey(int slot) {
@@ -838,34 +576,34 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         return _prefsPreset2;
       case 3:
         return _prefsPreset3;
+      case 4:
+        return _prefsPreset4;
+      case 5:
+        return _prefsPreset5;
       default:
-        return _prefsPreset1;
+        throw ArgumentError.value(slot, 'slot', 'Unsupported preset slot');
     }
   }
 
   String _defaultPresetName(int slot, bool isThai) =>
-      isThai ? 'ค่าที่ตั้งไว้ $slot' : 'Preset $slot';
-
-  static final RegExp _presetAllowedPattern = RegExp(
-    r'^[A-Za-z0-9ก-ฮ\u0E30-\u0E3A\u0E40-\u0E4E _-]+$',
-  );
-  static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9ก-ฮ]');
-
+      isThai ? 'Preset $slot' : 'Preset $slot';
+  static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
+  static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
   String? _validatePresetName(String raw, bool isThai) {
     final value = raw.trim();
     if (value.isEmpty) {
       return isThai
-          ? 'กรุณาตั้งชื่อโดยใช้ตัวอักษรหรือเลข'
+          ? 'Enter a preset name using letters or numbers.'
           : 'Enter a preset name using letters or numbers.';
     }
     if (!_presetAllowedPattern.hasMatch(value)) {
       return isThai
-          ? 'ใช้ได้เฉพาะตัวอักษร ตัวเลข เว้นวรรค - และ _'
+          ? 'Only letters, numbers, spaces, - and _ are allowed.'
           : 'Only letters, numbers, spaces, - and _ are allowed.';
     }
     if (!_presetRequiredChars.hasMatch(value)) {
       return isThai
-          ? 'กรุณาใช้ตัวอักษรหรือเลขอย่างน้อย 1 ตัว และไม่ใช้สัญลักษณ์ล้วน'
+          ? 'Use at least one letter or number. Symbols alone are not allowed.'
           : 'Use at least one letter or number. Symbols alone are not allowed.';
     }
     return null;
@@ -884,74 +622,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Future<String?> _promptPresetName({
     required BuildContext context,
     String? currentName,
-  }) async {
+  }) {
     final isThai = LanguageController.isThai.value;
-    final controller = TextEditingController(text: currentName ?? '');
-    final focusNode = FocusNode();
-    String? errorText = _validatePresetName(controller.text, isThai);
-    var closing = false;
-    final result = await showDialog<String>(
+    return showCatPresetNameDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          void submit() {
-            if (closing) return;
-            final trimmed = controller.text.trim();
-            final validation = _validatePresetName(trimmed, isThai);
-            if (validation != null) {
-              setDialogState(() {
-                errorText = validation;
-              });
-              return;
-            }
-            closing = true;
-            FocusManager.instance.primaryFocus?.unfocus();
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (ctx.mounted && Navigator.of(ctx).canPop()) {
-                Navigator.of(ctx).pop(trimmed);
-              }
-            });
-          }
-
-          return AlertDialog(
-            title: Text(isThai ? 'ตั้งชื่อค่าที่ตั้งไว้' : 'Rename Preset'),
-            content: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              autofocus: true,
-              maxLength: 24,
-              decoration: InputDecoration(
-                hintText: isThai ? 'ชื่อค่าที่ตั้งไว้' : 'Preset name',
-                helperText: isThai
-                    ? 'ใช้ได้เฉพาะตัวอักษร ตัวเลข เว้นวรรค - และ _'
-                    : 'Letters, numbers, spaces, - and _ only',
-                errorText: errorText,
-              ),
-              onChanged: (value) {
-                if (closing) return;
-                setDialogState(() {
-                  errorText = _validatePresetName(value, isThai);
-                });
-              },
-              onSubmitted: (_) => submit(),
-            ),
-            actions: [
-              TextButton(
-                onPressed: closing ? null : () => Navigator.pop(ctx),
-                child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
-              ),
-              FilledButton(
-                onPressed: errorText != null || closing ? null : submit,
-                child: Text(isThai ? 'บันทึก' : 'Save'),
-              ),
-            ],
-          );
-        },
-      ),
+      isThai: isThai,
+      currentName: currentName,
+      validator: (value) => _validatePresetName(value, isThai),
     );
-    focusNode.dispose();
-    controller.dispose();
-    return result;
   }
 
   Future<void> _savePreset(int slot, {String? name}) async {
@@ -994,7 +672,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       if (drive is num) _driveSpeed = drive.round().clamp(0, 100);
       if (turn is num) _turnSpeed = turn.round().clamp(0, 100);
       setState(() {});
-
       _saveLayout(_prefsLayoutAll, _layoutAll);
       _saveActive(_prefsActiveLeft, _leftActive);
       _saveActive(_prefsActiveRight, _rightActive);
@@ -1004,301 +681,53 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _showPresetSheet() async {
-    final rootTheme = Theme.of(context);
-    final rootIsDark = rootTheme.brightness == Brightness.dark;
     final isThai = LanguageController.isThai.value;
     final prefs = await SharedPreferences.getInstance();
-    final exists = <int, bool>{
-      1: (prefs.getString(_prefsPreset1) ?? '').isNotEmpty,
-      2: (prefs.getString(_prefsPreset2) ?? '').isNotEmpty,
-      3: (prefs.getString(_prefsPreset3) ?? '').isNotEmpty,
-    };
-    final customNames = <int, String?>{
-      1: _readPresetName(prefs.getString(_prefsPreset1) ?? ''),
-      2: _readPresetName(prefs.getString(_prefsPreset2) ?? ''),
-      3: _readPresetName(prefs.getString(_prefsPreset3) ?? ''),
-    };
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    ControlPresetSlot makeSlot(int slot) {
+      final raw = prefs.getString(_presetKey(slot)) ?? '';
+      return ControlPresetSlot(
+        slot: slot,
+        name: _readPresetName(raw) ?? _defaultPresetName(slot, isThai),
+        hasData: raw.isNotEmpty,
+      );
+    }
+
+    await showControlPresetDialog(
       context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.transparent,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      barrierColor: _opacity(Colors.black, rootIsDark ? 0.72 : 0.46),
-      builder: (context) {
-        final theme = Theme.of(context);
-        final cs = theme.colorScheme;
-        final isDark = theme.brightness == Brightness.dark;
-        final sheetBg = isDark
-            ? _opacity(const Color(0xFF0B1220), 0.92)
-            : _opacity(Colors.white, 0.97);
-        final sheetBorder = isDark
-            ? _opacity(const Color(0xFF60A5FA), 0.34)
-            : _opacity(const Color(0xFF3B82F6), 0.22);
-        final cardBg = isDark
-            ? _opacity(const Color(0xFF111A2E), 0.9)
-            : _opacity(const Color(0xFFF8FAFC), 0.96);
-        final cardBorder = isDark
-            ? _opacity(Colors.white, 0.12)
-            : _opacity(const Color(0xFF0F172A), 0.1);
-        final titleColor = isDark ? Colors.white : cs.onSurface;
-        final subtitleColor = isDark
-            ? Colors.white70
-            : cs.onSurface.withAlpha(170);
-
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            Widget actionButton({
-              required String label,
-              required IconData icon,
-              required Color accent,
-              required VoidCallback onTap,
-            }) {
-              return TextButton.icon(
-                onPressed: onTap,
-                icon: Icon(icon, size: 14),
-                label: Text(label),
-                style: TextButton.styleFrom(
-                  foregroundColor: accent,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  minimumSize: const Size(0, 32),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(999),
-                    side: BorderSide(color: _opacity(accent, 0.35)),
-                  ),
-                ),
-              );
-            }
-
-            Widget row(int slot) {
-              final hasData = exists[slot] ?? false;
-              final displayName =
-                  customNames[slot] ?? _defaultPresetName(slot, isThai);
-              return Container(
-                margin: const EdgeInsets.symmetric(vertical: 6),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: cardBorder),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: _opacity(const Color(0xFFF59E0B), 0.18),
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '$slot',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFFF59E0B),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: titleColor,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _opacity(
-                              hasData
-                                  ? const Color(0xFF22C55E)
-                                  : const Color(0xFF64748B),
-                              0.18,
-                            ),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            hasData
-                                ? (isThai ? 'มีข้อมูล' : 'Saved')
-                                : (isThai ? 'ว่าง' : 'Empty'),
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: hasData
-                                  ? const Color(0xFF22C55E)
-                                  : subtitleColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        if (hasData)
-                          actionButton(
-                            label: isThai ? 'โหลด' : 'Load',
-                            icon: Icons.download_rounded,
-                            accent: const Color(0xFF22C55E),
-                            onTap: () async {
-                              gamepadBuzz();
-                              await _loadPreset(slot);
-                              if (context.mounted) Navigator.pop(context);
-                            },
-                          ),
-                        if (hasData)
-                          actionButton(
-                            label: isThai ? 'ล้าง' : 'Clear',
-                            icon: Icons.delete_outline_rounded,
-                            accent: const Color(0xFFEF4444),
-                            onTap: () async {
-                              gamepadBuzz();
-                              await prefs.remove(_presetKey(slot));
-                              exists[slot] = false;
-                              customNames.remove(slot);
-                              if (context.mounted) {
-                                setSheetState(() {});
-                              }
-                            },
-                          ),
-                        actionButton(
-                          label: isThai ? 'บันทึก' : 'Save',
-                          icon: Icons.save_outlined,
-                          accent: const Color(0xFF3B82F6),
-                          onTap: () async {
-                            gamepadBuzz();
-                            final name = await _promptPresetName(
-                              context: context,
-                              currentName: customNames[slot],
-                            );
-                            if (name == null) return;
-                            await _savePreset(slot, name: name);
-                            exists[slot] = true;
-                            final trimmed = name.trim();
-                            if (trimmed.isEmpty) {
-                              customNames.remove(slot);
-                            } else {
-                              customNames[slot] = trimmed;
-                            }
-                            if (context.mounted) {
-                              setSheetState(() {});
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            final media = MediaQuery.of(context);
-            final maxSheetHeight = media.size.height * 0.7;
-            return Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: sheetBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: _opacity(Colors.black, isDark ? 0.28 : 0.12),
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxSheetHeight),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: _opacity(const Color(0xFFF59E0B), 0.18),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.bookmark_rounded,
-                              size: 16,
-                              color: Color(0xFFF59E0B),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              isThai ? 'ค่าที่ตั้งไว้' : 'Presets',
-                              style: TextStyle(
-                                color: titleColor,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 2),
-                        child: Text(
-                          isThai
-                              ? 'บันทึกและเรียกใช้งานรูปแบบปุ่มพร้อมค่า DRV/TRN'
-                              : 'Save and load button layouts with DRV/TRN values.',
-                          style: TextStyle(
-                            color: subtitleColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      row(1),
-                      row(2),
-                      row(3),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.tonalIcon(
-                          onPressed: () {
-                            gamepadBuzz();
-                            Navigator.pop(context);
-                          },
-                          icon: const Icon(Icons.close_rounded, size: 16),
-                          label: Text(isThai ? 'ปิด' : 'Close'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+      isThai: isThai,
+      slots: List<ControlPresetSlot>.generate(
+        controlPresetSlotCount,
+        (index) => makeSlot(index + 1),
+      ),
+      onSave: (slot) async {
+        gamepadBuzz();
+        final name = await _promptPresetName(
+          context: context,
+          currentName: slot.hasData ? slot.name : null,
+        );
+        if (name == null) return null;
+        await _savePreset(slot.slot, name: name);
+        final trimmed = name.trim();
+        return ControlPresetSlot(
+          slot: slot.slot,
+          name: trimmed.isEmpty
+              ? _defaultPresetName(slot.slot, isThai)
+              : trimmed,
+          hasData: true,
+        );
+      },
+      onLoad: (slot) async {
+        gamepadBuzz();
+        await _loadPreset(slot.slot);
+      },
+      onClear: (slot) async {
+        gamepadBuzz();
+        await prefs.remove(_presetKey(slot.slot));
+        return ControlPresetSlot(
+          slot: slot.slot,
+          name: _defaultPresetName(slot.slot, isThai),
+          hasData: false,
         );
       },
     );
@@ -1309,10 +738,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final bool down = _down && !_up;
     final bool left = _left && !_right;
     final bool right = _right && !_left;
-
     final v = up ? kCmdUp : (down ? kCmdDown : '');
     final h = left ? kCmdLeft : (right ? kCmdRight : '');
-
     if (v.isEmpty && h.isEmpty) {
       return kIdle;
     } else if (v.isNotEmpty && h.isEmpty) {
@@ -1336,7 +763,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   void _updateCommand() {
     _moveCmd = _computeMoveCmd();
     _actionCmd = _computeActionCmd();
-
     String combined;
     if (_moveCmd == kIdle && _actionCmd.isEmpty) {
       combined = kIdle;
@@ -1347,12 +773,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     } else {
       combined = '$_moveCmd$_actionCmd';
     }
-
     setState(() {
       _command = combined;
     });
-    if (combined == kIdle &&
-        BleManager.instance.isConnected) {
+    if (combined == kIdle && BleManager.instance.isConnected) {
       _sendBinary(force: true);
     }
   }
@@ -1364,7 +788,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final allRaw = prefs.getString(_prefsLayoutAll);
     final leftActiveRaw = prefs.getString(_prefsActiveLeft);
     final rightActiveRaw = prefs.getString(_prefsActiveRight);
-
     if (allRaw != null && allRaw.isNotEmpty) {
       _layoutAll = _decodeLayout(allRaw);
     } else {
@@ -1387,18 +810,31 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     } else {
       _rightActive = Set<String>.from(_defaultRightActiveIds);
     }
-
+    _layoutAll.removeWhere(
+      (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
+    );
+    _leftActive = _leftActive.intersection(_supportedEightButtonIds);
+    _rightActive = _rightActive.intersection(_supportedEightButtonIds);
+    if (_leftActive.isEmpty && _rightActive.isEmpty) {
+      _leftActive = Set<String>.from(_defaultLeftActiveIds);
+      _rightActive = Set<String>.from(_defaultRightActiveIds);
+    }
     _layoutAll.removeWhere(
       (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
     );
     _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
-
+    await _saveActive(_prefsActiveLeft, _leftActive);
+    await _saveActive(_prefsActiveRight, _rightActive);
+    await _saveLayout(_prefsLayoutAll, _layoutAll);
     if (mounted) {
       setState(() {});
     }
   }
 
-  Future<void> _saveLayout(String key, Map<String, _ButtonLayout> layout) async {
+  Future<void> _saveLayout(
+    String key,
+    Map<String, _ButtonLayout> layout,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
   }
@@ -1501,12 +937,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ..clear()
       ..addAll(snap.lockedIds);
     _selectedId = snap.selectedId;
-
     _layoutAll.removeWhere(
       (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
     );
     _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
-
     _pressedIds.removeWhere((id) => !_layoutAll.containsKey(id));
     _up = false;
     _down = false;
@@ -1562,11 +996,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final id = _selectedId;
     if (id == null) return;
     if (_lockedIds.contains(id)) return;
-
     final panelSize = _panelSize;
     final current = _layoutAll[id];
     if (panelSize == null || current == null) return;
-
     final w = panelSize.width;
     final h = panelSize.height;
     final s = GamepadEditMetrics.panelUnit(panelSize);
@@ -1588,14 +1020,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final maxY = h - safeEdgePad - half;
     final cx = current.cx * w;
     final cy = current.cy * h;
-
     if (cx < minX || cx > maxX || cy < minY || cy > maxY) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showBoundaryWarning();
       return;
     }
-
     var collides = false;
     for (final entry in _layoutAll.entries) {
       if (entry.key == id) continue;
@@ -1619,7 +1049,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _showOverlapWarning();
       return;
     }
-
     _pushHistory();
     setState(() {
       final nextLayout = Map<String, _ButtonLayout>.from(_layoutAll);
@@ -1643,16 +1072,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   void _showSizeLimit(bool atMax) {
-    final msg = atMax
-        ? 'Max size reached / ถึงขนาดสูงสุดแล้ว'
-        : 'Min size reached / ถึงขนาดต่ำสุดแล้ว';
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        duration: const Duration(milliseconds: 900),
-      ),
+    final msg = atMax ? 'Max size reached' : 'Min size reached';
+    showGamepadTopNotice(
+      context,
+      message: msg,
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -1665,19 +1090,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         if (_editWarningId == id) _editWarningId = null;
       });
     });
-  }
-
-  // ignore: unused_element
-  Widget _buildResizeBar() {
-    return const SizedBox.shrink();
-  }
+  } // ignore: unused_element
 
   Widget _buildGridOverlay() {
     if (!_editMode || !_showGrid) return const SizedBox.shrink();
     final theme = Theme.of(context);
-    final themeB = theme.brightness;
-    final platformB = MediaQuery.of(context).platformBrightness;
-    final isDark = themeB == Brightness.dark || platformB == Brightness.dark;
+    final isDark = theme.brightness == Brightness.dark;
     final base = isDark ? Colors.white : Colors.black;
     final minor = _opacity(base, isDark ? 0.16 : 0.14);
     final major = _opacity(base, isDark ? 0.30 : 0.24);
@@ -1775,39 +1193,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor =
-        Color.lerp(accent, isDark ? Colors.white : theme.colorScheme.onSurface, 0.4) ??
+        Color.lerp(
+          accent,
+          isDark ? Colors.white : theme.colorScheme.onSurface,
+          0.4,
+        ) ??
         Colors.white;
     final horizontalPadding = compact ? 10.0 : 12.0;
     final fontSize = compact ? 10.0 : 11.0;
-    if (Platform.isIOS) {
-      return GestureDetector(
-        key: _tutorialButtonsKey,
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (d) => _menuAnchor = d.globalPosition,
-        onTap: () {
-          gamepadBuzz();
-          _showEditMenuIOS();
-        },
-        child: _glassTopPill(
-          padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 0),
-          child: Center(
-            child: Text(
-              isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontWeight: FontWeight.w800,
-                color: textColor,
-                height: 1.0,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
     return _glassTopPill(
-      key: _tutorialButtonsKey,
       onTap: () {
         gamepadBuzz();
         _showEditMenuAndroid();
@@ -1815,7 +1209,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 0),
       child: Center(
         child: Text(
-          isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
+          isThai ? 'Buttons' : 'Buttons',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: fontSize,
@@ -1835,14 +1229,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _menuOpen = false;
       return;
     }
-
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: false,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black87,
+      barrierColor: const Color(0x6635206B),
       builder: (context) {
         final isThai = LanguageController.isThai.value;
         Widget row(
@@ -1851,14 +1244,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           bool active,
           void Function(VoidCallback fn) setSheetState,
         ) {
-          final accent = const Color(0xFF38BDF8);
-          final rowIsDark = Theme.of(context).brightness == Brightness.dark;
-          final rowTextColor = _opacity(
-            rowIsDark ? Colors.white : const Color(0xFF0F172A),
-            0.92,
-          );
+          const accent = Color(0xFFF472D0);
+          const secondaryAccent = Color(0xFF8063C2);
+          const rowTextColor = Color(0xFF39206D);
           return InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             onTap: () {
               gamepadBuzz();
               if (id.startsWith('L:')) {
@@ -1869,16 +1259,27 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               setSheetState(() {});
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: _opacity(Colors.white, active ? 0.12 : 0.06),
-                borderRadius: BorderRadius.circular(12),
+                color: active
+                    ? const Color(0xFFFFEEF9).withAlpha(216)
+                    : Colors.white.withAlpha(142),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: _opacity(
-                    active ? accent : Colors.white,
-                    active ? 0.56 : 0.12,
-                  ),
+                  color: active
+                      ? accent.withAlpha(220)
+                      : Colors.white.withAlpha(214),
+                  width: active ? 1.5 : 1,
                 ),
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: accent.withAlpha(56),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : const [],
               ),
               child: Row(
                 children: [
@@ -1886,18 +1287,20 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     width: 20,
                     height: 20,
                     decoration: BoxDecoration(
-                      color: _opacity(accent, active ? 0.22 : 0.08),
-                      borderRadius: BorderRadius.circular(6),
+                      color: active
+                          ? accent.withAlpha(34)
+                          : secondaryAccent.withAlpha(18),
+                      borderRadius: BorderRadius.circular(7),
                       border: Border.all(
-                        color: _opacity(accent, active ? 0.66 : 0.25),
+                        color: active
+                            ? accent.withAlpha(180)
+                            : secondaryAccent.withAlpha(70),
                       ),
                     ),
                     child: Icon(
                       active ? Icons.check_rounded : Icons.add_rounded,
                       size: 14,
-                      color: active
-                          ? accent
-                          : _opacity(rowIsDark ? Colors.white : const Color(0xFF0F172A), 0.62),
+                      color: active ? accent : secondaryAccent,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1916,9 +1319,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         ? Icons.radio_button_checked_rounded
                         : Icons.radio_button_off_rounded,
                     size: 16,
-                    color: active
-                        ? accent
-                        : _opacity(rowIsDark ? Colors.white : const Color(0xFF0F172A), 0.30),
+                    color: active ? accent : secondaryAccent.withAlpha(100),
                   ),
                 ],
               ),
@@ -1928,331 +1329,172 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
         final maxHeight = MediaQuery.of(context).size.height * 0.7;
         final scrollController = ScrollController();
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final accent = const Color(0xFF38BDF8);
+        const accent = Color(0xFFF472D0);
+        const titleColor = Color(0xFF39206D);
+        const sectionColor = Color(0xFF8063C2);
         return SafeArea(
           top: false,
-          child: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? _opacity(const Color(0xFF020817), 0.86)
-                  : _opacity(const Color(0xFFF8FAFC), 0.96),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _opacity(const Color(0xFF7DD3FC), isDark ? 0.46 : 0.26),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _opacity(Colors.black, isDark ? 0.30 : 0.14),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxHeight),
-              child: StatefulBuilder(
-                builder: (context, setSheetState) {
-                  return ScrollbarTheme(
-                    data: isDark
-                        ? const ScrollbarThemeData()
-                        : ScrollbarThemeData(
-                            thumbColor:
-                                WidgetStateProperty.all(Colors.white),
-                          ),
-                    child: Scrollbar(
-                      controller: scrollController,
-                      thumbVisibility: true,
-                      trackVisibility: true,
-                      thickness: 4,
-                      radius: const Radius.circular(999),
-                      child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: CatGlassModalSurface(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxHeight),
+                child: StatefulBuilder(
+                  builder: (context, setSheetState) {
+                    return ScrollbarTheme(
+                      data: ScrollbarThemeData(
+                        thumbColor: WidgetStateProperty.all(
+                          sectionColor.withAlpha(128),
+                        ),
+                      ),
+                      child: Scrollbar(
                         controller: scrollController,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 30,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: _opacity(accent, isDark ? 0.55 : 0.35),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 20,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          color: _opacity(accent, isDark ? 0.20 : 0.12),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.tune_rounded,
-                                          size: 13,
-                                          color: accent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 7),
-                                      Text(
-                                        isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
-                                        style: TextStyle(
-                                          color: _opacity(
-                                            isDark ? Colors.white : const Color(0xFF0F172A),
-                                            0.94,
-                                          ),
-                                          fontSize: 14.5,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
+                        thumbVisibility: true,
+                        trackVisibility: true,
+                        thickness: 4,
+                        radius: const Radius.circular(999),
+                        child: SingleChildScrollView(
+                          controller: scrollController,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Center(
+                                child: Container(
+                                  width: 30,
+                                  height: 4,
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  decoration: BoxDecoration(
+                                    color: _opacity(accent, 0.50),
+                                    borderRadius: BorderRadius.circular(999),
                                   ),
                                 ),
-                                TextButton(
-                                  onPressed: () {
-                                    gamepadBuzz();
-                                    Navigator.pop(context);
-                                  },
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: _opacity(
-                                      isDark ? Colors.white : const Color(0xFF0F172A),
-                                      0.72,
+                              ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 20,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: _opacity(accent, 0.16),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            Icons.tune_rounded,
+                                            size: 13,
+                                            color: accent,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Text(
+                                          isThai ? 'Buttons' : 'Buttons',
+                                          style: TextStyle(
+                                            color: titleColor,
+                                            fontSize: 14.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              isThai ? 'ปุ่มซ้าย' : 'Left pad',
-                              style: TextStyle(
-                                color: _opacity(
-                                  isDark ? Colors.white : const Color(0xFF0F172A),
-                                  0.70,
-                                ),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
+                                  TextButton(
+                                    onPressed: () {
+                                      gamepadBuzz();
+                                      Navigator.pop(context);
+                                    },
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: sectionColor,
+                                    ),
+                                    child: Text(isThai ? 'Cancel' : 'Cancel'),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'L:up',
-                              isThai ? 'ซ้าย: ขึ้น' : 'Left: Up',
-                              _leftActive.contains('L:up'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'L:down',
-                              isThai ? 'ซ้าย: ลง' : 'Left: Down',
-                              _leftActive.contains('L:down'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'L:left',
-                              isThai ? 'ซ้าย: ซ้าย' : 'Left: Left',
-                              _leftActive.contains('L:left'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'L:right',
-                              isThai ? 'ซ้าย: ขวา' : 'Left: Right',
-                              _leftActive.contains('L:right'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              isThai ? 'ปุ่มขวา' : 'Right pad',
-                              style: TextStyle(
-                                color: _opacity(
-                                  isDark ? Colors.white : const Color(0xFF0F172A),
-                                  0.70,
+                              const SizedBox(height: 8),
+                              Text(
+                                isThai ? 'Left pad' : 'Left pad',
+                                style: TextStyle(
+                                  color: sectionColor,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'R:triangle',
-                              isThai ? 'ขวา: Triangle' : 'Right: Triangle',
-                              _rightActive.contains('R:triangle'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'R:cross',
-                              isThai ? 'ขวา: Cross' : 'Right: Cross',
-                              _rightActive.contains('R:cross'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'R:square',
-                              isThai ? 'ขวา: Square' : 'Right: Square',
-                              _rightActive.contains('R:square'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 6),
-                            row(
-                              'R:circle',
-                              isThai ? 'ขวา: Circle' : 'Right: Circle',
-                              _rightActive.contains('R:circle'),
-                              setSheetState,
-                            ),
-                            const SizedBox(height: 4),
-                          ],
+                              const SizedBox(height: 6),
+                              row(
+                                'L:up',
+                                isThai ? 'Left: Up' : 'Left: Up',
+                                _leftActive.contains('L:up'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'L:down',
+                                isThai ? 'Left: Down' : 'Left: Down',
+                                _leftActive.contains('L:down'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'L:left',
+                                isThai ? 'Left: Left' : 'Left: Left',
+                                _leftActive.contains('L:left'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'L:right',
+                                isThai ? 'Left: Right' : 'Left: Right',
+                                _leftActive.contains('L:right'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                isThai ? 'Right pad' : 'Right pad',
+                                style: TextStyle(
+                                  color: sectionColor,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'R:triangle',
+                                isThai ? 'Right: Triangle' : 'Right: Triangle',
+                                _rightActive.contains('R:triangle'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'R:cross',
+                                isThai ? 'Right: Cross' : 'Right: Cross',
+                                _rightActive.contains('R:cross'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'R:square',
+                                isThai ? 'Right: Square' : 'Right: Square',
+                                _rightActive.contains('R:square'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 6),
+                              row(
+                                'R:circle',
+                                isThai ? 'Right: Circle' : 'Right: Circle',
+                                _rightActive.contains('R:circle'),
+                                setSheetState,
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    _menuOpen = false;
-  }
-
-  Future<void> _showEditMenuIOS() async {
-    if (_menuOpen) return;
-    _menuOpen = true;
-    if (!mounted) {
-      _menuOpen = false;
-      return;
-    }
-    await showCupertinoModalPopup<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black87,
-      anchorPoint: _menuAnchor,
-      builder: (context) {
-        CupertinoActionSheetAction action(
-          String id,
-          String label,
-          bool active,
-          void Function(VoidCallback fn) setSheetState,
-        ) {
-          return CupertinoActionSheetAction(
-            onPressed: () {
-              gamepadBuzz();
-              if (id.startsWith('L:')) {
-                _toggleActive(id, true);
-              } else if (id.startsWith('R:')) {
-                _toggleActive(id, false);
-              }
-              setSheetState(() {});
-            },
-            child: Row(
-              children: [
-                Icon(
-                  active
-                      ? CupertinoIcons.check_mark
-                      : CupertinoIcons.square,
-                  size: 18,
+                    );
+                  },
                 ),
-                const SizedBox(width: 8),
-                Text(label),
-              ],
-            ),
-          );
-        }
-
-        return SafeArea(
-          top: false,
-          child: Container(
-            margin: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF7DD3FC)),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: StatefulBuilder(
-                builder: (context, setSheetState) {
-                  return CupertinoActionSheet(
-                    title: Row(
-                      children: [
-                        const Expanded(child: Text('Buttons')),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          onPressed: () {
-                            gamepadBuzz();
-                            Navigator.pop(context);
-                          },
-                          child: const Text('Cancel'),
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      action(
-                        'L:up',
-                        'Left: Up',
-                        _leftActive.contains('L:up'),
-                        setSheetState,
-                      ),
-                      action(
-                        'L:down',
-                        'Left: Down',
-                        _leftActive.contains('L:down'),
-                        setSheetState,
-                      ),
-                      action(
-                        'L:left',
-                        'Left: Left',
-                        _leftActive.contains('L:left'),
-                        setSheetState,
-                      ),
-                      action(
-                        'L:right',
-                        'Left: Right',
-                        _leftActive.contains('L:right'),
-                        setSheetState,
-                      ),
-                      action(
-                        'R:triangle',
-                        'Right: Triangle',
-                        _rightActive.contains('R:triangle'),
-                        setSheetState,
-                      ),
-                      action(
-                        'R:cross',
-                        'Right: Cross',
-                        _rightActive.contains('R:cross'),
-                        setSheetState,
-                      ),
-                      action(
-                        'R:square',
-                        'Right: Square',
-                        _rightActive.contains('R:square'),
-                        setSheetState,
-                      ),
-                      action(
-                        'R:circle',
-                        'Right: Circle',
-                        _rightActive.contains('R:circle'),
-                        setSheetState,
-                      ),
-                    ],
-                  );
-                },
               ),
             ),
           ),
@@ -2278,6 +1520,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         return const Color(0xFFF59E0B);
       case 'EDIT':
         return const Color(0xFF60A5FA);
+      case 'SETTINGS':
+        return const Color(0xFF94A3B8);
       default:
         return Colors.white;
     }
@@ -2285,10 +1529,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Widget _buildAppBarBackButton() {
     return GamepadAppBarBackButton(
-      buttonKey: _tutorialBackKey,
-      onPressed: () {
+      onPressed: () async {
         gamepadBuzz();
-        Navigator.maybePop(context);
+        await _releaseTrafficOwnershipForExit();
+        if (!mounted) return;
+        Navigator.of(context).pop();
       },
     );
   }
@@ -2297,7 +1542,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     required Widget child,
     VoidCallback? onTap,
     Key? key,
-    EdgeInsets padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    EdgeInsets padding = const EdgeInsets.symmetric(
+      horizontal: 10,
+      vertical: 6,
+    ),
   }) {
     return GamepadGlassTopPill(
       pillKey: key,
@@ -2312,17 +1560,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (now - _lastBoundaryWarningMs < 900) return;
     _lastBoundaryWarningMs = now;
     final isThai = LanguageController.isThai.value;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          isThai
-              ? 'ปุ่มต้องอยู่ภายในขอบเขตปลอดภัย'
-              : 'Buttons must stay inside the safe zone.',
-        ),
-        duration: const Duration(milliseconds: 900),
-      ),
+    showGamepadTopNotice(
+      context,
+      message: isThai
+          ? 'Buttons must stay inside the safe zone.'
+          : 'Buttons must stay inside the safe zone.',
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -2331,15 +1575,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (now - _lastOverlapWarningMs < 900) return;
     _lastOverlapWarningMs = now;
     final isThai = LanguageController.isThai.value;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          isThai ? 'ปุ่มห้ามซ้อนทับกัน' : 'Buttons cannot overlap.',
-        ),
-        duration: const Duration(milliseconds: 900),
-      ),
+    showGamepadTopNotice(
+      context,
+      message: isThai ? 'Buttons cannot overlap.' : 'Buttons cannot overlap.',
+      duration: const Duration(milliseconds: 900),
+      style: GamepadNoticeStyle.warning,
     );
   }
 
@@ -2372,6 +1612,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       label: label,
       value: value,
       accentColor: accent,
+      iconAsset: label == 'CMD' ? AppAssets.controlCommand : null,
+      subdued: label == 'CMD',
     );
   }
 
@@ -2397,10 +1639,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Widget _speedToggle() {
     return GamepadSpeedTogglePill(
-      pillKey: _tutorialSpeedKey,
       expanded: _speedPanelOpen,
       accent: _barAccent('SPD'),
-      label: 'D$_driveSpeed T$_turnSpeed',
+      label: 'Speed',
+      iconAsset: AppAssets.controlSpeed,
       onTap: () {
         setState(() => _speedPanelOpen = !_speedPanelOpen);
       },
@@ -2472,6 +1714,127 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Widget _buildEditAppBarRow(bool isThai, double gap) {
+    final media = MediaQuery.of(context);
+    if (media.size.width >= 1000 && media.textScaler.scale(1) <= 1.3) {
+      return _buildExpandedEditAppBarRow(isThai, gap);
+    }
+    final selectedId = _selectedId;
+    final hasSelection = selectedId != null;
+    final selectedLocked =
+        selectedId != null && _lockedIds.contains(selectedId);
+    final sizeEnabled = hasSelection && !selectedLocked;
+    final metrics = GamepadAppBarMetrics.forWidth(media.size.width);
+
+    VoidCallback withBuzz(VoidCallback action) {
+      return () {
+        gamepadBuzz();
+        action();
+      };
+    }
+
+    Widget compactAction({
+      required String label,
+      required IconData icon,
+      required VoidCallback? onTap,
+    }) {
+      return Tooltip(
+        message: label,
+        child: _actionPill(
+          label: label,
+          icon: icon,
+          accent: const Color(0xFFA78BFA),
+          iconOnly: true,
+          compact: true,
+          onTap: onTap,
+        ),
+      );
+    }
+
+    final more = GamepadEditMoreButton(
+      actions: [
+        GamepadOverflowAction(
+          label: isThai ? 'ลบ' : 'Delete',
+          icon: Icons.delete_outline,
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+        GamepadOverflowAction(
+          label: 'Reset',
+          icon: Icons.restart_alt,
+          accent: const Color(0xFFF59E0B),
+          onTap: withBuzz(_resetLayouts),
+        ),
+        GamepadOverflowAction(
+          label: 'Grid',
+          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+          accent: const Color(0xFF38BDF8),
+          active: _showGrid,
+          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
+        ),
+        GamepadOverflowAction(
+          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          icon: Icons.remove,
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled
+              ? withBuzz(() => _adjustSelectedSize(-0.05))
+              : null,
+        ),
+        GamepadOverflowAction(
+          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          icon: Icons.add,
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
+        ),
+        GamepadOverflowAction(
+          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          accent: const Color(0xFFFBBF24),
+          active: selectedLocked,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+        ),
+      ],
+    );
+    final history = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        compactAction(
+          label: 'Undo',
+          icon: Icons.undo_rounded,
+          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
+        ),
+        SizedBox(width: gap),
+        compactAction(
+          label: 'Redo',
+          icon: Icons.redo_rounded,
+          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
+        ),
+        SizedBox(width: gap),
+        more,
+      ],
+    );
+    final done = _actionPill(
+      label: 'Done',
+      icon: Icons.edit,
+      accent: const Color(0xFF60A5FA),
+      compact: true,
+      onTap: withBuzz(_toggleEdit),
+    );
+    return SizedBox(
+      width: math.max(0, media.size.width - 48),
+      height: metrics.tapTargetExtent,
+      child: Row(
+        children: [
+          _buildEditMenu(compact: true),
+          SizedBox(width: metrics.sectionGap),
+          Expanded(child: Center(child: history)),
+          SizedBox(width: metrics.sectionGap),
+          done,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpandedEditAppBarRow(bool isThai, double gap) {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -2482,8 +1845,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final children = <Widget>[
       _buildEditMenu(compact: true),
       _actionPill(
-        key: _tutorialDoneKey,
-        label: isThai ? 'เสร็จสิ้น' : 'Done',
+        label: isThai ? 'Done' : 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -2493,8 +1855,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _actionPill(
-        key: _tutorialDeleteKey,
-        label: isThai ? 'ลบ' : 'Delete',
+        label: isThai ? 'ź' : 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
@@ -2506,8 +1867,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               },
       ),
       _actionPill(
-        key: _tutorialResetKey,
-        label: isThai ? 'รีเซ็ต' : 'Reset',
+        label: isThai ? 'Reset' : 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -2517,9 +1877,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _toolIconPill(
-        key: _tutorialUndoKey,
         icon: Icons.undo_rounded,
-        label: isThai ? 'ย้อน' : 'Undo',
+        label: isThai ? 'Undo' : 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: canUndo
             ? () {
@@ -2529,9 +1888,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialRedoKey,
         icon: Icons.redo_rounded,
-        label: isThai ? 'ทำซ้ำ' : 'Redo',
+        label: isThai ? 'Redo' : 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: canRedo
             ? () {
@@ -2541,9 +1899,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialGridKey,
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'กริด' : 'Grid',
+        label: isThai ? 'Grid' : 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () {
@@ -2551,15 +1908,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           setState(() => _showGrid = !_showGrid);
         },
       ),
-      _sizeToolPill(
-        key: _tutorialSizeKey,
-        isThai: isThai,
-        enabled: sizeEnabled,
-      ),
+      _sizeToolPill(isThai: isThai, enabled: sizeEnabled),
       _toolIconPill(
-        key: _tutorialLockKey,
         icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-        label: isThai ? 'ล็อก' : 'Lock',
+        label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
         accent: const Color(0xFFFBBF24),
         active: selectedLocked,
         onTap: hasSelection
@@ -2570,7 +1922,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             : null,
       ),
     ];
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2582,18 +1933,29 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
+  // ignore: unused_element
   PreferredSizeWidget _buildEditModeAppBar(bool isThai) {
+    final media = MediaQuery.of(context);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final metrics = GamepadAppBarMetrics.forWidth(
-      MediaQuery.of(context).size.width,
-    );
+    final metrics = GamepadAppBarMetrics.forWidth(media.size.width);
+    if (media.size.width < 1000 || media.textScaler.scale(1) > 1.3) {
+      return GamepadUnifiedAppBar(
+        textScaleFactor: media.textScaler.scale(1),
+        useGlassBackground: false,
+        glassOpacity: 0.18,
+        toolbarContent: _buildEditAppBarRow(
+          isThai,
+          _editAppBarGap(isThai: isThai, metrics: metrics),
+        ),
+      );
+    }
     final baseColor = isDark
-        ? _opacity(const Color(0xFF111827), 0.94)
+        ? _opacity(const Color(0xFF111827), 0.30)
         : _opacity(
             Color.lerp(const Color(0xFFF8FAFC), cs.surface, 0.55) ?? cs.surface,
-            0.97,
+            0.18,
           );
     final border = _opacity(
       isDark ? const Color(0xFF38BDF8) : cs.outline,
@@ -2606,8 +1968,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
     final middleChildren = <Widget>[
       _actionPill(
-        key: _tutorialDeleteKey,
-        label: isThai ? 'ลบ' : 'Delete',
+        label: isThai ? 'ź' : 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
@@ -2619,8 +1980,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               },
       ),
       _actionPill(
-        key: _tutorialResetKey,
-        label: isThai ? 'รีเซ็ต' : 'Reset',
+        label: isThai ? 'Reset' : 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -2630,9 +1990,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _toolIconPill(
-        key: _tutorialUndoKey,
         icon: Icons.undo_rounded,
-        label: isThai ? 'ย้อน' : 'Undo',
+        label: isThai ? 'Undo' : 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: _undoStack.isNotEmpty
             ? () {
@@ -2642,9 +2001,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialRedoKey,
         icon: Icons.redo_rounded,
-        label: isThai ? 'ทำซ้ำ' : 'Redo',
+        label: isThai ? 'Redo' : 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: _redoStack.isNotEmpty
             ? () {
@@ -2654,9 +2012,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             : null,
       ),
       _toolIconPill(
-        key: _tutorialGridKey,
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'กริด' : 'Grid',
+        label: isThai ? 'Grid' : 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () {
@@ -2665,16 +2022,17 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _sizeToolPill(
-        key: _tutorialSizeKey,
         isThai: isThai,
         enabled: _selectedId != null && !_lockedIds.contains(_selectedId),
       ),
       _toolIconPill(
-        key: _tutorialLockKey,
         icon: _selectedId != null && _lockedIds.contains(_selectedId)
             ? Icons.lock_rounded
             : Icons.lock_open_rounded,
-        label: isThai ? 'ล็อก' : 'Lock',
+        label: gamepadEditLockLabel(
+          isThai: isThai,
+          locked: _selectedId != null && _lockedIds.contains(_selectedId),
+        ),
         accent: const Color(0xFFFBBF24),
         active: _selectedId != null && _lockedIds.contains(_selectedId),
         onTap: _selectedId != null
@@ -2689,8 +2047,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _buildEditMenu(compact: true),
       ...middleChildren,
       _actionPill(
-        key: _tutorialDoneKey,
-        label: isThai ? 'เสร็จสิ้น' : 'Done',
+        label: isThai ? 'Done' : 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -2700,7 +2057,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
     ];
-
     return AppBar(
       automaticallyImplyLeading: false,
       toolbarHeight: GamepadAppBarMetrics.toolbarHeight,
@@ -2736,1383 +2092,462 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ),
       ),
       title: SizedBox(
-        height: metrics.controlHeight,
+        height: metrics.tapTargetExtent,
         child: Padding(
           padding: metrics.contentPadding,
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: allChildren,
+            children: [
+              allChildren.first,
+              SizedBox(width: metrics.sectionGap),
+              Expanded(
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (
+                        int index = 1;
+                        index < allChildren.length - 1;
+                        index++
+                      ) ...[
+                        allChildren[index],
+                        if (index < allChildren.length - 2)
+                          SizedBox(width: metrics.controlGap),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: metrics.sectionGap),
+              allChildren.last,
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _speedSlider({
-    required String label,
+  Widget _buildCenteredEditAppBar(bool isThai) {
+    final selectedId = _selectedId;
+    final hasSelection = selectedId != null;
+    final selectedLocked =
+        selectedId != null && _lockedIds.contains(selectedId);
+    final sizeEnabled = hasSelection && !selectedLocked;
+    VoidCallback withBuzz(VoidCallback action) {
+      return () {
+        gamepadBuzz();
+        action();
+      };
+    }
+
+    return GamepadCenteredToolbar(
+      textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
+      singleRow: true,
+      children: [
+        _toolIconPill(
+          icon: Icons.done_rounded,
+          label: 'Done',
+          accent: const Color(0xFF60A5FA),
+          onTap: withBuzz(_toggleEdit),
+        ),
+        _toolIconPill(
+          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          accent: const Color(0xFFFBBF24),
+          active: selectedLocked,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.remove,
+          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled
+              ? withBuzz(() => _adjustSelectedSize(-0.05))
+              : null,
+        ),
+        _toolIconPill(
+          icon: Icons.add,
+          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          accent: const Color(0xFF38BDF8),
+          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
+        ),
+        _toolIconPill(
+          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+          label: 'Grid',
+          accent: const Color(0xFF38BDF8),
+          active: _showGrid,
+          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
+        ),
+        _toolIconPill(
+          icon: Icons.undo_rounded,
+          label: 'Undo',
+          accent: const Color(0xFFA78BFA),
+          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.redo_rounded,
+          label: 'Redo',
+          accent: const Color(0xFFA78BFA),
+          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.restart_alt,
+          label: 'Reset',
+          accent: const Color(0xFFF59E0B),
+          onTap: withBuzz(_resetLayouts),
+        ),
+        _toolIconPill(
+          icon: Icons.delete_outline,
+          label: isThai ? 'ลบ' : 'Delete',
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+      ],
+    );
+  }
+
+  void _adjustSpeed({required bool drive, required int delta}) {
+    final current = drive ? _driveSpeed : _turnSpeed;
+    final next = (current + delta).clamp(0, 100).round();
+    if (drive) {
+      _setDriveSpeed(next);
+    } else {
+      _setTurnSpeed(next);
+    }
+  }
+
+  Widget _buildInlineSpeedPanel() {
+    final availableWidth = MediaQuery.of(context).size.width - 24;
+    final panelWidth = math.min(availableWidth, 560.0);
+    final compact = panelWidth < 360;
+    final editingDrive = _speedPanelEditingDrive;
+    final activeValue = editingDrive ? _driveSpeed : _turnSpeed;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: !_speedPanelOpen || _editMode
+          ? const SizedBox.shrink()
+          : Container(
+              width: panelWidth,
+              margin: const EdgeInsets.only(bottom: 8),
+              height: 72,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xD92E215F),
+                    Color(0xE14C3D97),
+                    Color(0xDE25376D),
+                  ],
+                ),
+                border: Border.all(color: const Color(0xFFBEA7FF), width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF9B7BFF).withAlpha(78),
+                    blurRadius: 14,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  _buildSpeedTarget(
+                    label: 'DRV',
+                    value: _driveSpeed,
+                    asset: AppAssets.speedValueCat,
+                    accent: const Color(0xFF22C55E),
+                    selected: editingDrive,
+                    compact: compact,
+                    onTap: () => setState(() => _speedPanelEditingDrive = true),
+                  ),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        _buildSpeedStepCat(
+                          asset: AppAssets.speedPanelDash,
+                          tooltip: 'Decrease by 5',
+                          onTap: () =>
+                              _adjustSpeed(drive: editingDrive, delta: -5),
+                        ),
+                        Expanded(
+                          child: _buildGradientSpeedSlider(
+                            value: activeValue,
+                            onChanged: (value) {
+                              if (editingDrive) {
+                                _setDriveSpeed(value);
+                              } else {
+                                _setTurnSpeed(value);
+                              }
+                            },
+                          ),
+                        ),
+                        _buildSpeedStepCat(
+                          asset: AppAssets.speedPanelPlus,
+                          tooltip: 'Increase by 5',
+                          onTap: () =>
+                              _adjustSpeed(drive: editingDrive, delta: 5),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildSpeedTarget(
+                    label: 'TRN',
+                    value: _turnSpeed,
+                    asset: AppAssets.speedValueCat,
+                    accent: const Color(0xFF38BDF8),
+                    selected: !editingDrive,
+                    compact: compact,
+                    onTap: () =>
+                        setState(() => _speedPanelEditingDrive = false),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildGradientSpeedSlider({
     required int value,
     required ValueChanged<int> onChanged,
   }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent =
-        label == 'DRV' ? const Color(0xFF22C55E) : const Color(0xFF38BDF8);
-    final surface = isDark
-        ? _opacity(const Color(0xFF0F172A), 0.84)
-        : _opacity(Colors.white, 0.9);
-    final border = _opacity(accent, isDark ? 0.28 : 0.18);
-
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(top: 6),
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: border),
-          boxShadow: [
-            BoxShadow(
-              color: _opacity(Colors.black, isDark ? 0.18 : 0.06),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const horizontalInset = 12.0;
+        const thumbSize = 26.0;
+        final trackWidth = math.max(
+          0.0,
+          constraints.maxWidth - (horizontalInset * 2),
+        );
+        final thumbLeft =
+            horizontalInset + (trackWidth * value / 100) - (thumbSize / 2);
+        return Stack(
+          alignment: Alignment.center,
           children: [
-            Container(
-              width: 44,
-              height: 24,
-              decoration: BoxDecoration(
-                color: _opacity(accent, isDark ? 0.18 : 0.12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: accent,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              width: 40,
-              height: 26,
-              decoration: BoxDecoration(
-                color: _opacity(accent, isDark ? 0.14 : 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                value.toString(),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: isDark ? Colors.white : theme.colorScheme.onSurface,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              height: 110,
-              child: RotatedBox(
-                quarterTurns: 3,
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 6,
-                    activeTrackColor: accent,
-                    inactiveTrackColor: _opacity(accent, 0.16),
-                    thumbColor: Colors.white,
-                    overlayColor: _opacity(accent, 0.12),
-                    trackShape: const _GradientTrackShape(),
-                  ),
-                  child: Slider(
-                    value: value.toDouble(),
-                    min: 0,
-                    max: 100,
-                    divisions: 100,
-                    label: value.toString(),
-                    onChanged: (v) => onChanged(_snapSpeed(v)),
-                    onChangeEnd: (_) => _sendBinary(force: true),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _speedScaleLabel('0'),
-                _speedScaleLabel('50'),
-                _speedScaleLabel('100'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  int _snapSpeed(double v) {
-    final int raw = v.round();
-    const int step = 10;
-    const int snapRadius = 2; // snap when within ?2 of a 10s step
-    final int mod = raw % step;
-    if (mod <= snapRadius || mod >= (step - snapRadius)) {
-      return ((raw + step ~/ 2) ~/ step) * step;
-    }
-    return raw;
-  }
-
-  Widget _speedScaleLabel(String label) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    return Text(
-      label,
-      style: TextStyle(
-        fontSize: 9,
-        fontWeight: FontWeight.w700,
-        color: _opacity(
-          isDark ? Colors.white : theme.colorScheme.onSurface,
-          0.58,
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildSpeedPanel() {
-    if (!_speedPanelOpen) return const SizedBox.shrink();
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final topInset = MediaQuery.of(context).padding.top;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final panelTop =
-        topInset + GamepadAppBarMetrics.toolbarHeight + _speedPanelTopGap;
-    final panelWidth = math.min(screenWidth - 24, 250.0);
-    final screenHeight = MediaQuery.of(context).size.height;
-    final maxPanelHeight = math.max(180.0, screenHeight - panelTop - 10);
-
-    return Positioned(
-      top: panelTop,
-      right: 12,
-      child: SizedBox(
-        key: _tutorialSpeedPanelKey,
-        width: panelWidth,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: panelWidth,
-            maxHeight: maxPanelHeight,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.zero,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? _opacity(const Color(0xFF020817), 0.78)
-                          : _opacity(const Color(0xFFF8FAFC), 0.94),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: _opacity(
-                          const Color(0xFF7DD3FC),
-                          isDark ? 0.45 : 0.24,
-                        ),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _opacity(Colors.black, isDark ? 0.22 : 0.08),
-                          blurRadius: 18,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                color: _opacity(
-                                  const Color(0xFF38BDF8),
-                                  isDark ? 0.18 : 0.12,
-                                ),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.speed_rounded,
-                                size: 13,
-                                color: Color(0xFF38BDF8),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                isThai ? 'ปรับความเร็วการควบคุม' : 'Speed Tuning',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  color: isDark
-                                      ? Colors.white
-                                      : theme.colorScheme.onSurface,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            TextButton.icon(
-                              onPressed: _resetSpeedPrefs,
-                              icon: const Icon(Icons.restart_alt_rounded, size: 13),
-                              label: Text(isThai ? 'รีเซ็ต' : 'Reset'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: const Color(0xFF7DD3FC),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                minimumSize: const Size(40, 40),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                textStyle: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(999),
-                                  side: BorderSide(
-                                    color: _opacity(
-                                      const Color(0xFF7DD3FC),
-                                      0.28,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              tooltip: isThai ? 'ปิด' : 'Close',
-                              onPressed: () => setState(() => _speedPanelOpen = false),
-                              icon: const Icon(Icons.close_rounded, size: 17),
-                              color: _opacity(
-                                isDark ? Colors.white : theme.colorScheme.onSurface,
-                                0.72,
-                              ),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 40,
-                                height: 40,
-                              ),
-                              style: IconButton.styleFrom(
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                backgroundColor: _opacity(
-                                  isDark ? Colors.white : const Color(0xFF0F172A),
-                                  isDark ? 0.06 : 0.04,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _speedSlider(
-                              label: 'DRV',
-                              value: _driveSpeed,
-                              onChanged: _setDriveSpeed,
-                            ),
-                            const SizedBox(width: 8),
-                            _speedSlider(
-                              label: 'TRN',
-                              value: _turnSpeed,
-                              onChanged: _setTurnSpeed,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBlePreviewPanel() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      return const SizedBox.shrink();
-    }
-    final step = steps[_tutorialStep];
-    if (!step.openBleSheet) return const SizedBox.shrink();
-
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final panelWidth = math.min(screenWidth - 24, 560.0);
-    final maxPanelHeight = math.max(220.0, screenHeight * 0.58);
-    final listMaxHeight = math.min(180.0, maxPanelHeight * 0.48);
-    final connected = BleManager.instance.isConnected;
-    final titleColor = isDark
-        ? _opacity(Colors.white, 0.94)
-        : _opacity(theme.colorScheme.onSurface, 0.95);
-    final bodyColor = isDark
-        ? _opacity(Colors.white, 0.72)
-        : _opacity(theme.colorScheme.onSurface, 0.72);
-    final tileColor = isDark
-        ? _opacity(Colors.white, 0.05)
-        : _opacity(const Color(0xFF0F172A), 0.04);
-    final tileBorder = isDark
-        ? _opacity(Colors.white, 0.08)
-        : _opacity(const Color(0xFF0F172A), 0.12);
-    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF38BDF8);
-    final mockDevices = const [
-      ('PrinceBot-01', '64:B7:08:6F:D4:06', -45),
-    ];
-
-    return Positioned.fill(
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: SizedBox(
-              key: _tutorialBlePanelKey,
-              width: panelWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: panelWidth,
-                  maxHeight: maxPanelHeight,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? _opacity(const Color(0xFF020817), 0.78)
-                              : _opacity(const Color(0xFFF8FAFC), 0.96),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _opacity(
-                              const Color(0xFF7DD3FC),
-                              isDark ? 0.40 : 0.22,
-                            ),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, isDark ? 0.26 : 0.10),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 30,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: _opacity(accent, isDark ? 0.55 : 0.35),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 18,
-                                        height: 18,
-                                        decoration: BoxDecoration(
-                                          color: _opacity(accent, isDark ? 0.20 : 0.12),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.bluetooth_disabled_rounded,
-                                          size: 12,
-                                          color: accent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          isThai ? 'ยังไม่เชื่อมต่อ' : 'Not connected',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: titleColor,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                _blePreviewChip(
-                                  label: isThai ? 'ล่าสุด' : 'Last',
-                                  icon: Icons.history_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFF38BDF8),
-                                  textColor: titleColor,
-                                ),
-                                const SizedBox(width: 4),
-                                _blePreviewChip(
-                                  label: isThai ? 'ค้นหา' : 'Scan',
-                                  icon: Icons.search_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFF38BDF8),
-                                  textColor: titleColor,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(maxHeight: listMaxHeight),
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    for (final d in mockDevices) ...[
-                                      ListTile(
-                                        dense: true,
-                                        visualDensity: VisualDensity.compact,
-                                        contentPadding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 0,
-                                        ),
-                                        tileColor: tileColor,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          side: BorderSide(color: tileBorder),
-                                        ),
-                                        title: Text(
-                                          d.$1,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: titleColor,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          'MAC: ${d.$2} • RSSI: ${d.$3} dBm',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w400,
-                                            color: bodyColor,
-                                          ),
-                                        ),
-                                        trailing: Icon(
-                                          Icons.chevron_right_rounded,
-                                          color: _opacity(titleColor, 0.45),
-                                        ),
-                                        onTap: null,
-                                      ),
-                                      if (d != mockDevices.last)
-                                        const SizedBox(height: 6),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                _blePreviewChip(
-                                  label: isThai ? 'ลืมอุปกรณ์' : 'Forget',
-                                  icon: Icons.delete_outline_rounded,
-                                  isDark: isDark,
-                                  accent: const Color(0xFFFB7185),
-                                  textColor: const Color(0xFFEF4444),
-                                ),
-                                const SizedBox(width: 6),
-                                _blePreviewChip(
-                                  label: isThai ? 'ยกเลิก' : 'Cancel',
-                                  icon: Icons.close_rounded,
-                                  isDark: isDark,
-                                  accent: isDark
-                                      ? _opacity(Colors.white, 0.28)
-                                      : const Color(0xFF94A3B8),
-                                  textColor: bodyColor,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildButtonsPreviewPanel() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      return const SizedBox.shrink();
-    }
-    final step = steps[_tutorialStep];
-    if (step.titleEn != 'Preview Buttons') return const SizedBox.shrink();
-
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final panelWidth = math.min(screenWidth - 24, 560.0);
-    final maxPanelHeight = math.max(220.0, screenHeight * 0.58);
-    final listMaxHeight = math.min(180.0, maxPanelHeight * 0.48);
-    const accent = Color(0xFF38BDF8);
-    final titleColor = isDark
-        ? _opacity(Colors.white, 0.94)
-        : _opacity(theme.colorScheme.onSurface, 0.95);
-    final bodyColor = isDark
-        ? _opacity(Colors.white, 0.72)
-        : _opacity(theme.colorScheme.onSurface, 0.72);
-
-    return Positioned.fill(
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: SizedBox(
-              key: _tutorialButtonsPanelKey,
-              width: panelWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: panelWidth,
-                  maxHeight: maxPanelHeight,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? _opacity(const Color(0xFF020817), 0.78)
-                              : _opacity(const Color(0xFFF8FAFC), 0.96),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _opacity(
-                              const Color(0xFF7DD3FC),
-                              isDark ? 0.40 : 0.22,
-                            ),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, isDark ? 0.26 : 0.10),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 30,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: _opacity(accent, isDark ? 0.55 : 0.35),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 20,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          color: _opacity(accent, isDark ? 0.20 : 0.12),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.tune_rounded,
-                                          size: 13,
-                                          color: accent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 7),
-                                      Text(
-                                        isThai ? 'เลือกใช้งานปุ่ม' : 'Buttons',
-                                        style: TextStyle(
-                                          color: titleColor,
-                                          fontSize: 14.5,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: null,
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: _opacity(bodyColor, 0.95),
-                                  ),
-                                  child: Text(isThai ? 'ยกเลิก' : 'Cancel'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              isThai ? 'ปุ่มซ้าย' : 'Left pad',
-                              style: TextStyle(
-                                color: bodyColor,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(maxHeight: listMaxHeight),
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    _buttonsPreviewRow(
-                                      label: isThai ? 'ซ้าย: ขึ้น' : 'Left: Up',
-                                      active: true,
-                                      isDark: isDark,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    _buttonsPreviewRow(
-                                      label: isThai ? 'ซ้าย: ลง' : 'Left: Down',
-                                      active: false,
-                                      isDark: isDark,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPresetPreviewPanel() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    if (_tutorialStep < 0 || _tutorialStep >= steps.length) {
-      return const SizedBox.shrink();
-    }
-    final step = steps[_tutorialStep];
-    if (step.titleEn != 'Preview Preset' &&
-        step.titleEn != 'Preset Management') {
-      return const SizedBox.shrink();
-    }
-
-    final isThai = LanguageController.isThai.value;
-    final theme = Theme.of(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final panelWidth = math.min(screenWidth - 24, 560.0);
-    final maxPanelHeight = math.max(230.0, screenHeight * 0.60);
-    final listMaxHeight = math.min(190.0, maxPanelHeight * 0.54);
-    final titleColor = _opacity(theme.colorScheme.onSurface, 0.95);
-    final subtitleColor = _opacity(theme.colorScheme.onSurface, 0.62);
-    const sheetBg = Color(0xFFF8FAFC);
-    final sheetBorder = _opacity(const Color(0xFFCBD5E1), 0.65);
-
-    Widget presetRow({
-      required int slot,
-      required String name,
-      required bool isEmpty,
-    }) {
-      const badge = Color(0xFFF59E0B);
-      final rowBg = _opacity(Colors.white, 0.88);
-      final rowBorder = _opacity(const Color(0xFFCBD5E1), 0.72);
-      final statusText = isEmpty
-          ? (isThai ? 'ว่าง' : 'Empty')
-          : (isThai ? 'พร้อมใช้' : 'Ready');
-      return Container(
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
-        decoration: BoxDecoration(
-          color: rowBg,
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: rowBorder),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: _opacity(badge, 0.16),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _opacity(badge, 0.40)),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$slot',
-                    style: const TextStyle(
-                      color: badge,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: titleColor,
-                      fontSize: 13.0,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _opacity(const Color(0xFFE2E8F0), 0.85),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: _opacity(const Color(0xFFCBD5E1), 0.85)),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(
-                      color: _opacity(const Color(0xFF64748B), 0.95),
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: horizontalInset),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                height: 5,
                 decoration: BoxDecoration(
-                  color: _opacity(const Color(0xFFDBEAFE), 0.85),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _opacity(const Color(0xFF93C5FD), 0.85)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.save_outlined,
-                      size: 12.5,
-                      color: _opacity(const Color(0xFF2563EB), 0.95),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      isThai ? 'บันทึก' : 'Save',
-                      style: TextStyle(
-                        color: _opacity(const Color(0xFF2563EB), 0.95),
-                        fontSize: 11.2,
-                        fontWeight: FontWeight.w700,
-                      ),
+                  borderRadius: BorderRadius.circular(99),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFE878FF), Color(0xFF61E3FF)],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF8FE9FF).withAlpha(105),
+                      blurRadius: 7,
                     ),
                   ],
                 ),
               ),
             ),
-          ],
-        ),
-      );
-    }
-
-    return Positioned.fill(
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: SizedBox(
-              width: panelWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: panelWidth,
-                  maxHeight: maxPanelHeight,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                        decoration: BoxDecoration(
-                          color: sheetBg,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: sheetBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _opacity(Colors.black, 0.14),
-                              blurRadius: 18,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 26,
-                                height: 4,
-                                margin: const EdgeInsets.only(bottom: 6),
-                                decoration: BoxDecoration(
-                                  color: _opacity(const Color(0xFF64748B), 0.52),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 22,
-                                  height: 22,
-                                  decoration: BoxDecoration(
-                                    color: _opacity(const Color(0xFFF59E0B), 0.16),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.bookmark_rounded,
-                                    size: 14,
-                                    color: Color(0xFFF59E0B),
-                                  ),
-                                ),
-                                const SizedBox(width: 7),
-                                Expanded(
-                                  child: Text(
-                                    isThai ? 'ค่าที่ตั้งไว้' : 'Presets',
-                                    style: TextStyle(
-                                      color: titleColor,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              isThai
-                                  ? 'บันทึกและเรียกใช้งานรูปแบบปุ่มพร้อมค่า DRV/TRN'
-                                  : 'Save and load button layouts with DRV/TRN values.',
-                              style: TextStyle(
-                                color: subtitleColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(maxHeight: listMaxHeight),
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    presetRow(
-                                      slot: 1,
-                                      name: isThai ? 'ค่าที่ตั้งไว้ 1' : 'Preset 1',
-                                      isEmpty: true,
-                                    ),
-                                    presetRow(
-                                      slot: 2,
-                                      name: isThai ? 'ค่าที่ตั้งไว้ 2' : 'Preset 2',
-                                      isEmpty: true,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buttonsPreviewRow({
-    required String label,
-    required bool active,
-    required bool isDark,
-  }) {
-    const accent = Color(0xFF38BDF8);
-    final rowTextColor = _opacity(
-      isDark ? Colors.white : const Color(0xFF0F172A),
-      0.92,
-    );
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: _opacity(Colors.white, active ? 0.12 : 0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _opacity(active ? accent : Colors.white, active ? 0.56 : 0.12),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: _opacity(accent, active ? 0.22 : 0.08),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: _opacity(accent, active ? 0.66 : 0.25),
-              ),
-            ),
-            child: Icon(
-              active ? Icons.check_rounded : Icons.add_rounded,
-              size: 14,
-              color: active
-                  ? accent
-                  : _opacity(isDark ? Colors.white : const Color(0xFF0F172A), 0.62),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: rowTextColor,
-                fontSize: 13.5,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-              ),
-            ),
-          ),
-          Icon(
-            active
-                ? Icons.radio_button_checked_rounded
-                : Icons.radio_button_off_rounded,
-            size: 16,
-            color: active
-                ? accent
-                : _opacity(isDark ? Colors.white : const Color(0xFF0F172A), 0.30),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _blePreviewChip({
-    required String label,
-    required IconData icon,
-    required bool isDark,
-    required Color accent,
-    required Color textColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: _opacity(accent, isDark ? 0.15 : 0.09),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _opacity(accent, 0.32)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: _opacity(textColor, 0.85)),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: _opacity(textColor, 0.86),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTutorialOverlay() {
-    if (!_showTutorial) return const SizedBox.shrink();
-    final steps = _tutorialSteps();
-    final step = steps[_tutorialStep];
-    final isPreviewSpdStep = step.openSpeedPanel;
-    final isPreviewBleStep = step.openBleSheet;
-    final isPreviewButtonsStep = step.titleEn == 'Preview Buttons';
-    final isPreviewPresetStep =
-        step.titleEn == 'Preview Preset' || step.titleEn == 'Preset Management';
-    final isTopPreviewCard =
-        isPreviewBleStep || isPreviewButtonsStep || isPreviewPresetStep;
-    final isLast = _tutorialStep == steps.length - 1;
-    final skin = Theme.of(context).extension<GamepadSkin>();
-    final rect = _tutorialTargetKey == step.targetKey ? _tutorialTargetRect : null;
-    final highlightRect = rect;
-    final screenSize = MediaQuery.of(context).size;
-    final scaledMedia = MediaQuery.of(
-      context,
-    ).copyWith(textScaler: TextScaler.linear(1.0));
-    const double arrowSize = 72;
-    const double arrowGap = 4;
-    final bool arrowOnLeft = isPreviewSpdStep && highlightRect != null;
-    final media = MediaQuery.of(context);
-    const double previewCardEstimatedHeight = 210;
-    final previewCardTopLimit = (screenSize.height -
-            media.padding.bottom -
-            12 -
-            previewCardEstimatedHeight -
-            8)
-        .clamp(8.0, screenSize.height - arrowSize - 8);
-    final bool arrowAbove =
-        !arrowOnLeft &&
-        highlightRect != null &&
-        highlightRect.top > (arrowSize + 24);
-    final double arrowLeft = highlightRect == null
-        ? 0
-        : arrowOnLeft
-            ? (highlightRect.left - arrowSize - 10)
-                .clamp(8.0, screenSize.width - arrowSize - 8)
-            : (highlightRect.center.dx - (arrowSize / 2))
-                .clamp(8.0, screenSize.width - arrowSize - 8);
-    final double arrowTop = highlightRect == null
-        ? 0
-        : arrowOnLeft
-            ? (highlightRect.center.dy - (arrowSize / 2))
-                .clamp(8.0, previewCardTopLimit)
-            : arrowAbove
-                ? (highlightRect.top - arrowSize - arrowGap)
-                    .clamp(8.0, screenSize.height - arrowSize - 8)
-                : (highlightRect.bottom + arrowGap)
-                    .clamp(8.0, screenSize.height - arrowSize - 8);
-    final tutorialCardAlignment = isTopPreviewCard
-        ? Alignment.topCenter
-        : (isPreviewSpdStep ? Alignment.bottomLeft : Alignment.bottomCenter);
-    final tutorialCardPadding = isTopPreviewCard
-        ? const EdgeInsets.fromLTRB(12, 2, 12, 12)
-        : const EdgeInsets.all(12);
-
-    return Positioned.fill(
-      child: MediaQuery(
-        data: scaledMedia,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            GestureDetector(
-              onTap: () {},
-              behavior: HitTestBehavior.opaque,
-              child: CustomPaint(
-                painter: GamepadTutorialMaskPainter(
-                  holeRect: highlightRect,
-                  radius: 12,
-                  color: _opacity(
-                    Colors.black,
-                    isPreviewButtonsStep
-                        ? (Theme.of(context).brightness == Brightness.dark ? 0.64 : 0.52)
-                        : (Theme.of(context).brightness == Brightness.dark ? 0.58 : 0.46),
-                  ),
-                ),
-                child: const SizedBox.expand(),
-              ),
-            ),
-            if (isPreviewButtonsStep) _buildButtonsPreviewPanel(),
-            if (isPreviewPresetStep) _buildPresetPreviewPanel(),
-            if (highlightRect != null)
-              Positioned.fromRect(
-                rect: highlightRect,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _opacity(const Color(0xFF7DD3FC), 0.82),
-                        width: 2.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _opacity(const Color(0xFF7DD3FC), 0.28),
-                          blurRadius: 18,
-                          spreadRadius: 1.2,
-                        ),
-                        BoxShadow(
-                          color: _opacity(Colors.white, 0.12),
-                          blurRadius: 10,
-                          spreadRadius: 0.2,
-                          blurStyle: BlurStyle.inner,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            if (highlightRect != null && !isPreviewBleStep)
-              Positioned(
-                left: arrowLeft,
-                top: arrowTop,
-                child: IgnorePointer(
-                  child: GamepadTutorialPointer(
-                    size: arrowSize,
-                    color: const Color(0xFF7DD3FC),
-                    direction: arrowOnLeft
-                        ? GamepadPointerDirection.right
-                        : (arrowAbove
-                            ? GamepadPointerDirection.down
-                            : GamepadPointerDirection.up),
-                  ),
-                ),
-              ),
-            SafeArea(
-              child: Align(
-                alignment: tutorialCardAlignment,
-                child: Padding(
-                  padding: tutorialCardPadding,
-                  child: GamepadTutorialFloatingCard(
-                    title: _tutorialThai ? step.titleTh : step.titleEn,
-                    body: _tutorialThai ? step.bodyTh : step.bodyEn,
-                    isThai: _tutorialThai,
-                    isLast: isLast,
-                    showBack: _tutorialStep > 0,
-                    surfaceColor: skin?.tutorialSurface ?? const Color(0xFF1F2329),
-                    ctaColor: skin?.tutorialCta ?? const Color(0xFF3B82F6),
-                    maxWidth: isPreviewBleStep
-                        ? 380
-                        : (isTopPreviewCard ? 280 : 420),
-                    minHeight: isPreviewBleStep ? 130 : null,
-                    roomyCompact: isPreviewBleStep,
-                    compact: isTopPreviewCard,
-                    onSkip: () {
-                      gamepadBuzz();
-                      _finishTutorial();
-                    },
-                    onBack: _tutorialStep > 0
-                        ? () {
-                            gamepadBuzz();
-                            _goTutorialStep(_tutorialStep - 1);
-                          }
-                        : null,
-                    onNext: isLast
-                        ? () {
-                            gamepadBuzz();
-                            _finishTutorial();
-                          }
-                        : () {
-                            gamepadBuzz();
-                            _goTutorialStep(_tutorialStep + 1);
-                          },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTutorialPromptOverlay() {
-    if (!_showTutorialPrompt || _showTutorial) return const SizedBox.shrink();
-    final isThai = LanguageController.isThai.value;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
-    final bodyColor = _opacity(titleColor, 0.72);
-    final cardColor = isDark
-        ? const Color(0xFF182233)
-        : const Color(0xFFF8FAFC);
-    final cardBorderColor = isDark
-        ? _opacity(const Color(0xFF93C5FD), 0.26)
-        : _opacity(const Color(0xFF1D4ED8), 0.16);
-
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-            child: Container(color: _opacity(Colors.black, isDark ? 0.54 : 0.45)),
-          ),
-          SafeArea(
-            child: Center(
+            IgnorePointer(
               child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: cardBorderColor,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: horizontalInset,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: List.generate(
+                    21,
+                    (_) => Container(
+                      width: 2,
+                      height: 2,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(150),
+                        shape: BoxShape.circle,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _opacity(Colors.black, isDark ? 0.42 : 0.18),
-                          blurRadius: 20,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isThai
-                              ? 'ดูคำแนะนำการใช้งานหน้านี้ไหม?'
-                              : 'Would you like to view this page guide?',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: titleColor,
-                            decoration: TextDecoration.none,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          isThai
-                              ? 'ระบบจะแสดง Tutorial การใช้งานปุ่มและเครื่องมือในหน้า Gamepad Mode Edit'
-                              : 'The app will show a tutorial for buttons and tools on the Gamepad Mode Edit page.',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            height: 1.35,
-                            color: bodyColor,
-                            fontWeight: FontWeight.w500,
-                            decoration: TextDecoration.none,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  gamepadBuzz();
-                                  _dismissTutorialPrompt();
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(42),
-                                  side: BorderSide(
-                                    color: _opacity(
-                                      isDark
-                                          ? Colors.white
-                                          : const Color(0xFF0F172A),
-                                      0.28,
-                                    ),
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  isThai ? 'ข้าม' : 'Skip',
-                                  style: TextStyle(
-                                    color: _opacity(titleColor, 0.84),
-                                    fontWeight: FontWeight.w700,
-                                    decoration: TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  gamepadBuzz();
-                                  _startTutorialFromPrompt();
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(42),
-                                  backgroundColor: const Color(0xFF3B82F6),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  isThai ? 'ดู' : 'View',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    decoration: TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                     ),
                   ),
                 ),
               ),
             ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: Colors.transparent,
+                inactiveTrackColor: Colors.transparent,
+                thumbColor: Colors.transparent,
+                overlayColor: Colors.transparent,
+                trackHeight: 5,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
+                overlayShape: SliderComponentShape.noOverlay,
+              ),
+              child: Slider(
+                value: value.toDouble(),
+                min: 0,
+                max: 100,
+                divisions: 100,
+                onChanged: (next) => onChanged(next.round()),
+              ),
+            ),
+            Positioned(
+              left: thumbLeft,
+              child: IgnorePointer(
+                child: SizedBox(
+                  width: thumbSize,
+                  height: thumbSize,
+                  child: OverflowBox(
+                    maxWidth: 64,
+                    maxHeight: 64,
+                    child: Image.asset(
+                      AppAssets.speedSliderThumb,
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.pets_rounded,
+                        color: Colors.white,
+                        size: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSpeedTarget({
+    required String label,
+    required int value,
+    required String asset,
+    required Color accent,
+    required bool selected,
+    required bool compact,
+    required VoidCallback onTap,
+  }) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label $value%',
+      child: Tooltip(
+        message: '$label $value%',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(28),
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            child: SizedBox(
+              width: compact ? 48 : 66,
+              height: 56,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: compact ? 32 : 40,
+                    height: compact ? 32 : 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected
+                          ? accent.withAlpha(24)
+                          : Colors.transparent,
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color: accent.withAlpha(190),
+                                blurRadius: 14,
+                              ),
+                            ]
+                          : const [],
+                    ),
+                  ),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 150),
+                    opacity: selected ? 1 : 0.52,
+                    child: IgnorePointer(
+                      child: SizedBox(
+                        width: compact ? 76 : 98,
+                        height: compact ? 76 : 98,
+                        child: Image.asset(
+                          asset,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              Icon(Icons.tune_rounded, size: 32, color: accent),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: compact ? 21 : 20,
+                    child: Text(
+                      '$value%',
+                      style: TextStyle(
+                        color: selected
+                            ? Colors.white
+                            : Colors.white.withAlpha(135),
+                        fontSize: compact ? 10 : 12,
+                        fontWeight: FontWeight.w900,
+                        shadows: [
+                          Shadow(
+                            color: const Color(0xFF12082F).withAlpha(220),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: -6,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: selected ? accent : Colors.white.withAlpha(180),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        shadows: [
+                          Shadow(
+                            color: const Color(0xFF12082F).withAlpha(200),
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpeedStepCat({
+    required String asset,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Image.asset(
+                asset,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(Icons.tune_rounded),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -4147,12 +2582,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (!_applyPressLimit(id, isDown)) {
       return;
     }
-
     if (id == kCmdUp) _up = isDown;
     if (id == kCmdDown) _down = isDown;
     if (id == kCmdLeft) _left = isDown;
     if (id == kCmdRight) _right = isDown;
-
     _updateCommand();
   }
 
@@ -4160,20 +2593,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (!_applyPressLimit(id, isDown)) {
       return;
     }
-
     if (id == kCmdTriangle) _triangle = isDown;
     if (id == kCmdCross) _cross = isDown;
     if (id == kCmdSquare) _square = isDown;
     if (id == kCmdCircle) _circle = isDown;
-
     _updateCommand();
   }
 
   void _onAnyPress(String id, bool isDown) {
-    if (id == kCmdUp ||
-        id == kCmdDown ||
-        id == kCmdLeft ||
-        id == kCmdRight) {
+    if (id == kCmdUp || id == kCmdDown || id == kCmdLeft || id == kCmdRight) {
       _onLeftPress(id, isDown);
       return;
     }
@@ -4181,303 +2609,264 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   List<String> _allActiveIds() {
-    return [
-      ..._leftActive,
-      ..._rightActive,
-    ];
+    return [..._leftActive, ..._rightActive];
+  }
+
+  Widget _buildControlActionButton() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, child) {
+        if (_editMode) return const SizedBox.shrink();
+        final isStarted = _controlStarted && !suspended;
+        return GamepadStartStopControlButton(
+          heroTag: 'start_stop_gamepad_8_control',
+          isStarted: isStarted,
+          isBusy: _startInProgress,
+          onPressed: isStarted
+              ? _stopControl
+              : (_canStartControl ? _startControl : null),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isThai = LanguageController.isThai.value;
-    final appBarMetrics = GamepadAppBarMetrics.forWidth(
-      MediaQuery.of(context).size.width,
-    );
-    return Stack(
-      key: _tutorialStackKey,
-      children: [
-        Scaffold(
-          extendBodyBehindAppBar: true,
-          appBar: _editMode
-          ? _buildEditModeAppBar(isThai)
-          : GamepadUnifiedAppBar(
-        leading: _editMode ? null : _buildAppBarBackButton(),
-        speedToggle: _editMode
-            ? _buildEditAppBarRow(
-                isThai,
-                _editAppBarGap(isThai: isThai, metrics: appBarMetrics),
-              )
-            : _speedToggle(),
-        cmdChip: _editMode
-            ? null
-            : SizedBox(
-                key: _tutorialCmdKey,
-                child: _appBarBadge('CMD', _commandByteLabel()),
-              ),
-        drvChip: _editMode
-            ? null
-            : SizedBox(
-                key: _tutorialDrvKey,
-                child: _appBarBadge('DRV', _driveSpeedLabel()),
-              ),
-        trnChip: _editMode
-            ? null
-            : SizedBox(
-                key: _tutorialTrnKey,
-                child: _appBarBadge('TRN', _turnSpeedLabel()),
-              ),
-        bleBadge: _editMode
-            ? null
-            : ConnectionStatusBadge(
-                key: _tutorialBtKey,
-                appBarMetrics: appBarMetrics,
-              ),
-        actionsBuilder: _editMode
-            ? null
-            : (gap) {
-          return GamepadAppBarActionGroup(
-            gap: gap,
-            items: [
-              GamepadAppBarActionItem(
-                key: _tutorialCustomizeKey,
-                label: isThai ? 'แก้ไข' : 'Edit',
-                icon: Icons.edit,
-                accent: const Color(0xFF60A5FA),
-                compactOnNarrow: false,
-                onTap: () {
-                  gamepadBuzz();
-                  _toggleEdit();
-                },
-              ),
-              GamepadAppBarActionItem(
-                key: _tutorialPresetKey,
-                label: isThai ? 'ค่าที่ตั้งไว้' : 'Preset',
-                icon: Icons.folder_open,
-                accent: _barAccent('PRESET'),
-                onTap: () {
-                  gamepadBuzz();
-                  _showPresetSheet();
-                },
-              ),
-              GamepadAppBarActionItem(
-                key: _tutorialHelpKey,
-                label: '?',
-                icon: Icons.help_outline,
-                accent: const Color(0xFFEC4899),
-                iconOnly: true,
-                onTap: () {
-                  gamepadBuzz();
-                  _restartTutorial();
-                },
-              ),
-            ],
-          );
-        },
-      ),
-          body: Stack(
-            children: [
-          SafeArea(
-            child: Stack(
-              children: [
-                _buildGridOverlay(),
-                LayoutBuilder(
-                  builder: (context, cons) {
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: _editMode
-                                ? _EditablePadPanel(
-                                    ids: _allActiveIds(),
-                                    specs: const {
-                                      'L:up': _BtnSpec(
-                                        'Up',
-                                        kCmdUp,
-                                        kGamepad8AssetUp,
-                                      ),
-                                      'L:down': _BtnSpec(
-                                        'Down',
-                                        kCmdDown,
-                                        kGamepad8AssetDown,
-                                      ),
-                                      'L:left': _BtnSpec(
-                                        'Left',
-                                        kCmdLeft,
-                                        kGamepad8AssetLeft,
-                                      ),
-                                      'L:right': _BtnSpec(
-                                        'Right',
-                                        kCmdRight,
-                                        kGamepad8AssetRight,
-                                      ),
-                                      'R:triangle': _BtnSpec(
-                                        'Triangle',
-                                        kCmdTriangle,
-                                        kGamepad8AssetTriangle,
-                                      ),
-                                      'R:cross': _BtnSpec(
-                                        'Cross',
-                                        kCmdCross,
-                                        kGamepad8AssetCross,
-                                      ),
-                                      'R:square': _BtnSpec(
-                                        'Square',
-                                        kCmdSquare,
-                                        kGamepad8AssetSquare,
-                                      ),
-                                      'R:circle': _BtnSpec(
-                                        'Circle',
-                                        kCmdCircle,
-                                        kGamepad8AssetCircle,
-                                      ),
-                                    },
-                                    layout: _layoutAll,
-                                    onLayoutChanged: (next) {
-                                      setState(() {
-                                        _layoutAll = next;
-                                        _editWarningId = null;
-                                      });
-                                      _saveLayout(
-                                        _prefsLayoutAll,
-                                        _layoutAll,
-                                      );
-                                    },
-                                    selectedId: _selectedId,
-                                    lockedIds: _lockedIds,
-                                    snapToGrid: _showGrid,
-                                    onSelect: _selectButton,
-                                    onPanelSize: (size) {
-                                      _panelSize = size;
-                                    },
-                                    onStart: _startEditTransform,
-                                    onCollision: _showOverlapWarning,
-                                    onBoundaryWarning: _showBoundaryWarning,
-                                    warningId: _editWarningId,
-                                  )
-                                : _LayoutPadPanel(
-                                    ids: _allActiveIds(),
-                                    specs: const {
-                                      'L:up': _BtnSpec(
-                                        'Up',
-                                        kCmdUp,
-                                        kGamepad8AssetUp,
-                                      ),
-                                      'L:down': _BtnSpec(
-                                        'Down',
-                                        kCmdDown,
-                                        kGamepad8AssetDown,
-                                      ),
-                                      'L:left': _BtnSpec(
-                                        'Left',
-                                        kCmdLeft,
-                                        kGamepad8AssetLeft,
-                                      ),
-                                      'L:right': _BtnSpec(
-                                        'Right',
-                                        kCmdRight,
-                                        kGamepad8AssetRight,
-                                      ),
-                                      'R:triangle': _BtnSpec(
-                                        'Triangle',
-                                        kCmdTriangle,
-                                        kGamepad8AssetTriangle,
-                                      ),
-                                      'R:cross': _BtnSpec(
-                                        'Cross',
-                                        kCmdCross,
-                                        kGamepad8AssetCross,
-                                      ),
-                                      'R:square': _BtnSpec(
-                                        'Square',
-                                        kCmdSquare,
-                                        kGamepad8AssetSquare,
-                                      ),
-                                      'R:circle': _BtnSpec(
-                                        'Circle',
-                                        kCmdCircle,
-                                        kGamepad8AssetCircle,
-                                      ),
-                                    },
-                                    layout: _layoutAll,
-                                    onPressChanged: _onAnyPress,
-                                  ),
+    final media = MediaQuery.of(context);
+    final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
+    final textScaleFactor = media.textScaler.scale(1);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_exitControlPage());
+      },
+      child: Stack(
+        children: [
+          Scaffold(
+            extendBodyBehindAppBar: true,
+            appBar: GamepadUnifiedAppBar(
+              controlLayout: _editMode
+                  ? null
+                  : GamepadControlLayout.measure(context, [
+                      '',
+                      '@speed:Speed',
+                      'CMD = 255 | DRV = 100% | TRN = 100%',
+                      '@ble',
+                      '',
+                    ]),
+              textScaleFactor: textScaleFactor,
+              viewportWidth: media.size.width - media.padding.horizontal,
+              toolbarItemCount: _editMode ? 9 : null,
+              singleRowToolbar: _editMode,
+              useGlassBackground: false,
+              glassOpacity: 0.18,
+              toolbarContent: _editMode
+                  ? _buildCenteredEditAppBar(isThai)
+                  : null,
+              leading: _editMode ? null : _buildAppBarBackButton(),
+              speedToggle: _editMode ? null : _speedToggle(),
+              cmdChip: _editMode
+                  ? null
+                  : SizedBox(
+                      child: _appBarBadge(
+                        'CMD',
+                        '= ${_commandByteLabel()} | DRV = $_driveSpeed% | TRN = $_turnSpeed%',
+                      ),
+                    ),
+              bleBadge: _editMode
+                  ? null
+                  : ConnectionStatusBadge(
+                      appBarMetrics: appBarMetrics,
+                      iconAsset: AppAssets.controlBle,
+                      subdued: true,
+                      onManagementBlocked: () => showGamepadTopNotice(
+                        context,
+                        message: isThai
+                            ? 'Use Emergency Stop before managing BLE.'
+                            : 'Use Emergency Stop before managing BLE.',
+                        style: GamepadNoticeStyle.ble,
+                      ),
+                    ),
+              actionsBuilder: _editMode
+                  ? null
+                  : (gap) {
+                      return GamepadAppBarActionGroup(
+                        gap: gap,
+                        items: [
+                          GamepadAppBarActionItem(
+                            label: isThai ? 'Settings' : 'Settings',
+                            icon: Icons.settings_outlined,
+                            iconAsset: AppAssets.controlSettings,
+                            accent: _barAccent('SETTINGS'),
+                            iconOnly: true,
+                            compact: true,
+                            onTap: _openSettings,
                           ),
                         ],
-                      ),
-                    );
-                  },
+                      );
+                    },
+            ),
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: Image.asset(
+                    AppAssets.controlBackground,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                  ),
                 ),
-        ],
-      ),
+                SafeArea(
+                  child: Stack(
+                    children: [
+                      _buildGridOverlay(),
+                      LayoutBuilder(
+                        builder: (context, cons) {
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                            child: Column(
+                              children: [
+                                if (!_editMode) _buildInlineSpeedPanel(),
+                                Expanded(
+                                  child: _editMode
+                                      ? _EditablePadPanel(
+                                          ids: _allActiveIds(),
+                                          specs: const {
+                                            'L:up': _BtnSpec(
+                                              'Up',
+                                              kCmdUp,
+                                              kGamepad8AssetUp,
+                                            ),
+                                            'L:down': _BtnSpec(
+                                              'Down',
+                                              kCmdDown,
+                                              kGamepad8AssetDown,
+                                            ),
+                                            'L:left': _BtnSpec(
+                                              'Left',
+                                              kCmdLeft,
+                                              kGamepad8AssetLeft,
+                                            ),
+                                            'L:right': _BtnSpec(
+                                              'Right',
+                                              kCmdRight,
+                                              kGamepad8AssetRight,
+                                            ),
+                                            'R:triangle': _BtnSpec(
+                                              'Triangle',
+                                              kCmdTriangle,
+                                              kGamepad8AssetTriangle,
+                                            ),
+                                            'R:cross': _BtnSpec(
+                                              'Cross',
+                                              kCmdCross,
+                                              kGamepad8AssetCross,
+                                            ),
+                                            'R:square': _BtnSpec(
+                                              'Square',
+                                              kCmdSquare,
+                                              kGamepad8AssetSquare,
+                                            ),
+                                            'R:circle': _BtnSpec(
+                                              'Circle',
+                                              kCmdCircle,
+                                              kGamepad8AssetCircle,
+                                            ),
+                                          },
+                                          layout: _layoutAll,
+                                          onLayoutChanged: (next) {
+                                            setState(() {
+                                              _layoutAll = next;
+                                              _editWarningId = null;
+                                            });
+                                            _saveLayout(
+                                              _prefsLayoutAll,
+                                              _layoutAll,
+                                            );
+                                          },
+                                          selectedId: _selectedId,
+                                          lockedIds: _lockedIds,
+                                          snapToGrid: _showGrid,
+                                          onSelect: _selectButton,
+                                          onPanelSize: (size) {
+                                            _panelSize = size;
+                                          },
+                                          onStart: _startEditTransform,
+                                          onCollision: _showOverlapWarning,
+                                          onBoundaryWarning:
+                                              _showBoundaryWarning,
+                                          warningId: _editWarningId,
+                                        )
+                                      : _LayoutPadPanel(
+                                          ids: _allActiveIds(),
+                                          specs: const {
+                                            'L:up': _BtnSpec(
+                                              'Up',
+                                              kCmdUp,
+                                              kGamepad8AssetUp,
+                                            ),
+                                            'L:down': _BtnSpec(
+                                              'Down',
+                                              kCmdDown,
+                                              kGamepad8AssetDown,
+                                            ),
+                                            'L:left': _BtnSpec(
+                                              'Left',
+                                              kCmdLeft,
+                                              kGamepad8AssetLeft,
+                                            ),
+                                            'L:right': _BtnSpec(
+                                              'Right',
+                                              kCmdRight,
+                                              kGamepad8AssetRight,
+                                            ),
+                                            'R:triangle': _BtnSpec(
+                                              'Triangle',
+                                              kCmdTriangle,
+                                              kGamepad8AssetTriangle,
+                                            ),
+                                            'R:cross': _BtnSpec(
+                                              'Cross',
+                                              kCmdCross,
+                                              kGamepad8AssetCross,
+                                            ),
+                                            'R:square': _BtnSpec(
+                                              'Square',
+                                              kCmdSquare,
+                                              kGamepad8AssetSquare,
+                                            ),
+                                            'R:circle': _BtnSpec(
+                                              'Circle',
+                                              kCmdCircle,
+                                              kGamepad8AssetCircle,
+                                            ),
+                                          },
+                                          layout: _layoutAll,
+                                          onPressChanged: _onAnyPress,
+                                        ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildControlActionButton(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _buildDimOverlay(),
+              ],
+            ),
           ),
-          _buildDimOverlay(),
-          _buildSpeedPanel(),
-          _buildBlePreviewPanel(),
         ],
       ),
-        ),
-        _buildTutorialOverlay(),
-        _buildTutorialPromptOverlay(),
-      ],
     );
-  }
-}
-
-class _GradientTrackShape extends SliderTrackShape {
-  const _GradientTrackShape();
-
-  @override
-  Rect getPreferredRect({
-    required RenderBox parentBox,
-    Offset offset = Offset.zero,
-    required SliderThemeData sliderTheme,
-    bool isEnabled = false,
-    bool isDiscrete = false,
-  }) {
-    final double trackHeight = sliderTheme.trackHeight ?? 2;
-    final double trackLeft = offset.dx;
-    final double trackTop =
-        offset.dy + (parentBox.size.height - trackHeight) / 2;
-    final double trackWidth = parentBox.size.width;
-    return Rect.fromLTWH(trackLeft, trackTop, trackWidth, trackHeight);
-  }
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset offset, {
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required Animation<double> enableAnimation,
-    required Offset thumbCenter,
-    required TextDirection textDirection,
-    Offset? secondaryOffset,
-    bool isEnabled = false,
-    bool isDiscrete = false,
-  }) {
-    final Rect trackRect = getPreferredRect(
-      parentBox: parentBox,
-      offset: offset,
-      sliderTheme: sliderTheme,
-      isEnabled: isEnabled,
-      isDiscrete: isDiscrete,
-    );
-
-    final radius = Radius.circular(trackRect.height / 2);
-    final rrect = RRect.fromRectAndRadius(trackRect, radius);
-
-    const gradient = LinearGradient(
-      colors: [
-        Color(0xFF22C55E), // green
-        Color(0xFFFACC15), // yellow
-        Color(0xFFEF4444), // red
-      ],
-      stops: [0.0, 0.55, 1.0],
-    );
-
-    final paint = Paint()..shader = gradient.createShader(trackRect);
-    context.canvas.drawRRect(rrect, paint);
   }
 }
 
@@ -4485,22 +2874,18 @@ class _GridPainter extends CustomPainter {
   final double step;
   final Color minorColor;
   final Color majorColor;
-
   const _GridPainter({
     required this.step,
     required this.minorColor,
     required this.majorColor,
   });
-
   @override
   void paint(Canvas canvas, Size size) {
     if (step <= 0) return;
     final paint = Paint()..strokeWidth = 1;
-
     final dx = size.width * step;
     final dy = size.height * step;
     if (dx <= 0 || dy <= 0) return;
-
     const int majorEvery = 4;
     int ix = 1;
     for (double x = dx; x < size.width; x += dx, ix++) {
@@ -4522,36 +2907,12 @@ class _GridPainter extends CustomPainter {
   }
 }
 
-class _TutorialStep {
-  final String titleTh;
-  final String bodyTh;
-  final String titleEn;
-  final String bodyEn;
-  final GlobalKey? targetKey;
-  final bool? editMode;
-  final bool openSpeedPanel;
-  final bool openBleSheet;
-  const _TutorialStep({
-    required this.titleTh,
-    required this.bodyTh,
-    required this.titleEn,
-    required this.bodyEn,
-    this.targetKey,
-    this.editMode,
-    this.openSpeedPanel = false,
-    this.openBleSheet = false,
-  });
-}
-
 class _BtnSpec {
   final String label, sendValue, asset;
   const _BtnSpec(this.label, this.sendValue, this.asset);
 }
 
-Map<String, _ButtonLayout> _defaultLayoutForIds(
-  Size size,
-  List<String> ids,
-) {
+Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
   final w = size.width;
   final h = size.height;
   final s = GamepadEditMetrics.panelUnit(size);
@@ -4559,7 +2920,6 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
   final gap = s * 0.08;
   final frame = GamepadEditMetrics.defaultLayoutFrame(size);
   final cy = frame.center.dy;
-
   _ButtonLayout make(double x, double y) {
     return _ButtonLayout(x / w, y / h, btn / s);
   }
@@ -4570,19 +2930,19 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
     final key = parts.length > 1 ? parts[1] : id;
     suffixMap[key] = id;
   }
-
   final out = <String, _ButtonLayout>{};
-  final hasMove = suffixMap.containsKey('up') ||
+  final hasMove =
+      suffixMap.containsKey('up') ||
       suffixMap.containsKey('down') ||
       suffixMap.containsKey('left') ||
       suffixMap.containsKey('right');
-  final hasAction = suffixMap.containsKey('triangle') ||
+  final hasAction =
+      suffixMap.containsKey('triangle') ||
       suffixMap.containsKey('cross') ||
       suffixMap.containsKey('square') ||
       suffixMap.containsKey('circle');
-
   if (hasMove) {
-    final cxLeft = frame.left + frame.width * 0.28;
+    final cxLeft = frame.left + frame.width * 0.20;
     if (suffixMap.containsKey('up')) {
       out[suffixMap['up']!] = make(cxLeft, cy - gap - btn / 2);
     }
@@ -4596,9 +2956,8 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
       out[suffixMap['right']!] = make(cxLeft + gap + btn / 2, cy);
     }
   }
-
   if (hasAction) {
-    final cxRight = frame.left + frame.width * 0.72;
+    final cxRight = frame.left + frame.width * 0.80;
     if (suffixMap.containsKey('triangle')) {
       out[suffixMap['triangle']!] = make(cxRight, cy - gap - btn / 2);
     }
@@ -4612,7 +2971,6 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(
       out[suffixMap['circle']!] = make(cxRight + gap + btn / 2, cy);
     }
   }
-
   return out;
 }
 
@@ -4620,9 +2978,7 @@ class _ButtonLayout {
   final double cx;
   final double cy;
   final double size;
-
   const _ButtonLayout(this.cx, this.cy, this.size);
-
   _ButtonLayout copyWith({double? cx, double? cy, double? size}) {
     return _ButtonLayout(cx ?? this.cx, cy ?? this.cy, size ?? this.size);
   }
@@ -4636,7 +2992,6 @@ class _EditSnapshot {
   final Set<String> rightActive;
   final Set<String> lockedIds;
   final String? selectedId;
-
   const _EditSnapshot({
     required this.layoutAll,
     required this.leftActive,
@@ -4660,7 +3015,6 @@ class _EditablePadPanel extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
-
   const _EditablePadPanel({
     required this.ids,
     required this.specs,
@@ -4676,7 +3030,6 @@ class _EditablePadPanel extends StatefulWidget {
     this.onCollision,
     this.onBoundaryWarning,
   });
-
   @override
   State<_EditablePadPanel> createState() => _EditablePadPanelState();
 }
@@ -4689,7 +3042,6 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
   bool _guideSnapActive = false;
   double? _guideX;
   double? _guideY;
-
   @override
   void initState() {
     super.initState();
@@ -4767,7 +3119,6 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
         final size = Size(c.maxWidth, c.maxHeight);
         widget.onPanelSize(size);
         final defaults = _defaultLayoutForIds(size, widget.ids);
-
         bool changed = false;
         if (!_initialized) {
           _initialized = true;
@@ -4787,7 +3138,6 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
             widget.onLayoutChanged(_layout);
           });
         }
-
         return Stack(
           children: [
             ...widget.ids.map((id) {
@@ -4848,14 +3198,12 @@ class _LayoutPadPanel extends StatelessWidget {
   final Map<String, _BtnSpec> specs;
   final Map<String, _ButtonLayout> layout;
   final void Function(String id, bool down) onPressChanged;
-
   const _LayoutPadPanel({
     required this.ids,
     required this.specs,
     required this.layout,
     required this.onPressChanged,
   });
-
   @override
   Widget build(BuildContext context) {
     if (ids.isEmpty) {
@@ -4871,11 +3219,9 @@ class _LayoutPadPanel extends StatelessWidget {
         final size = Size(c.maxWidth, c.maxHeight);
         final defaults = _defaultLayoutForIds(size, ids);
         final effective = <String, _ButtonLayout>{...defaults, ...layout};
-
         final w = size.width;
         final h = size.height;
         final s = GamepadEditMetrics.panelUnit(size);
-
         return Stack(
           children: ids.map((id) {
             final spec = specs[id];
@@ -4886,7 +3232,6 @@ class _LayoutPadPanel extends StatelessWidget {
             final d = l.size * s;
             final cx = l.cx * w;
             final cy = l.cy * h;
-
             return Positioned(
               left: cx - d / 2,
               top: cy - d / 2,
@@ -4925,7 +3270,6 @@ class _EditableButton extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
-
   const _EditableButton({
     required this.id,
     required this.layout,
@@ -4945,7 +3289,6 @@ class _EditableButton extends StatefulWidget {
     this.onCollision,
     this.onBoundaryWarning,
   });
-
   @override
   State<_EditableButton> createState() => _EditableButtonState();
 }
@@ -4961,7 +3304,6 @@ class _EditableButtonState extends State<_EditableButton> {
   bool _dragging = false;
   bool _colliding = false;
   bool _nearEdgeWarning = false;
-
   void _onScaleStart(ScaleStartDetails d) {
     if (widget.locked) return;
     if (!widget.selected) {
@@ -4981,30 +3323,23 @@ class _EditableButtonState extends State<_EditableButton> {
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
     final s = GamepadEditMetrics.panelUnit(widget.panelSize);
-
     final dx = d.focalPoint.dx - _startFocal.dx;
     final dy = d.focalPoint.dy - _startFocal.dy;
     final moved = dx.abs() > 1 || dy.abs() > 1;
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-
-    double size = (_startLayout.size * d.scale)
-        .clamp(_minBtnSize, _maxBtnSize);
-
+    double size = (_startLayout.size * d.scale).clamp(_minBtnSize, _maxBtnSize);
     final sizePx = GamepadEditMetrics.sizePx(widget.panelSize, size);
     final half = sizePx / 2;
-
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
-
     if (widget.snapToGrid) {
       double nx = _snapToGrid(cx / w);
       double ny = _snapToGrid(cy / h);
       cx = nx * w;
       cy = ny * h;
     }
-
     final centerX = w / 2;
     final centerY = h / 2;
     final snapX = (cx - centerX).abs() <= _snapThresholdPx;
@@ -5020,17 +3355,16 @@ class _EditableButtonState extends State<_EditableButton> {
         snap: snapX || snapY,
       ),
     );
-
     final minX = _safeEdgePad + half;
     final maxX = w - _safeEdgePad - half;
     final minY = _safeTopEdgePad + half;
     final maxY = h - _safeEdgePad - half;
-
     final attemptedOutOfBounds =
         cx < minX || cx > maxX || cy < minY || cy > maxY;
     cx = cx.clamp(minX, maxX);
     cy = cy.clamp(minY, maxY);
-    final nearEdge = attemptedOutOfBounds ||
+    final nearEdge =
+        attemptedOutOfBounds ||
         ((cx - minX).abs() <= _edgeWarnThresholdPx) ||
         ((maxX - cx).abs() <= _edgeWarnThresholdPx) ||
         ((cy - minY).abs() <= _edgeWarnThresholdPx) ||
@@ -5041,7 +3375,6 @@ class _EditableButtonState extends State<_EditableButton> {
         widget.onBoundaryWarning?.call();
       }
     }
-
     var collides = false;
     for (final entry in widget.allLayouts.entries) {
       if (entry.key == widget.id) continue;
@@ -5059,7 +3392,6 @@ class _EditableButtonState extends State<_EditableButton> {
         break;
       }
     }
-
     if (collides) {
       if (!_colliding) {
         HapticFeedback.vibrate();
@@ -5071,7 +3403,6 @@ class _EditableButtonState extends State<_EditableButton> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-
     widget.onChanged(_ButtonLayout(cx / w, cy / h, size));
   }
 
@@ -5083,68 +3414,37 @@ class _EditableButtonState extends State<_EditableButton> {
     final size = widget.layout.size * s;
     final cx = widget.layout.cx * w;
     final cy = widget.layout.cy * h;
-    final dimOpacity = widget.dimmed ? 0.35 : 1.0;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = Theme.of(context).colorScheme.primary;
-    final selectedGlow = primary.withAlpha(
-      ((isDark ? 0.65 : 0.45) * 255).round(),
-    );
-    final warningColor = const Color(0xFFEF4444);
-    final showWarning = _colliding || _nearEdgeWarning || widget.externalWarning;
-
-    final buttonContent = SizedBox(
-      width: size,
-      height: size,
+    final showWarning =
+        _colliding || _nearEdgeWarning || widget.externalWarning;
+    Widget buildButtonVisual() => Padding(
+      padding: EdgeInsets.all(size * 0.08),
       child: ClipOval(
-        child: AnimatedScale(
-          scale: widget.selected ? 0.95 : 1.0,
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOutBack,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 50),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: widget.selected
-                  ? [
-                      BoxShadow(
-                        color: selectedGlow,
-                        blurRadius: 18,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : const [],
-            ),
-            child: ColorFiltered(
-              colorFilter: widget.selected
-                  ? const ColorFilter.matrix([
-                      1, 0, 0, 0, 51,
-                      0, 1, 0, 0, 51,
-                      0, 0, 1, 0, 51,
-                      0, 0, 0, 1, 0,
-                    ])
-                  : const ColorFilter.matrix([
-                      1, 0, 0, 0, 0,
-                      0, 1, 0, 0, 0,
-                      0, 0, 1, 0, 0,
-                      0, 0, 0, 1, 0,
-                    ]),
-              child: Padding(
-                padding: EdgeInsets.all(size * 0.08),
-                child: ClipOval(
-                  child: Image.asset(
-                    widget.asset,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
-                ),
-              ),
+        child: Image.asset(
+          widget.asset,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            color: _opacity(Colors.red, 0.18),
+            alignment: Alignment.center,
+            child: Text(
+              widget.asset.split('/').last.split('.').first,
+              style: Theme.of(context).textTheme.labelSmall,
+              textAlign: TextAlign.center,
             ),
           ),
         ),
       ),
     );
-
+    final buttonContent = SizedBox(
+      width: size,
+      height: size,
+      child: GamepadEditSelectionVisual(
+        selected: widget.selected,
+        dimmed: widget.dimmed,
+        warning: showWarning,
+        selectionMask: buildButtonVisual(),
+        child: buildButtonVisual(),
+      ),
+    );
     return Positioned(
       left: cx - size / 2,
       top: cy - size / 2,
@@ -5165,30 +3465,7 @@ class _EditableButtonState extends State<_EditableButton> {
                 widget.onEnd();
               },
         onTap: widget.onTap,
-        child: Opacity(
-          opacity: dimOpacity,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 90),
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: showWarning
-                  ? Border.all(color: _opacity(warningColor, 0.96), width: 3)
-                  : null,
-              boxShadow: showWarning
-                  ? [
-                      BoxShadow(
-                        color: _opacity(warningColor, 0.46),
-                        blurRadius: 14,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : const [],
-            ),
-            child: buttonContent,
-          ),
-        ),
+        child: SizedBox(width: size, height: size, child: buttonContent),
       ),
     );
   }
@@ -5204,7 +3481,6 @@ class _GuideState {
   final double? verticalX;
   final double? horizontalY;
   final bool snap;
-
   const _GuideState({
     required this.showVertical,
     required this.showHorizontal,
@@ -5212,13 +3488,12 @@ class _GuideState {
     required this.horizontalY,
     required this.snap,
   });
-
   const _GuideState.hidden()
-      : showVertical = false,
-        showHorizontal = false,
-        verticalX = null,
-        horizontalY = null,
-        snap = false;
+    : showVertical = false,
+      showHorizontal = false,
+      verticalX = null,
+      horizontalY = null,
+      snap = false;
 }
 
 class _EditGuidePainter extends CustomPainter {
@@ -5227,7 +3502,6 @@ class _EditGuidePainter extends CustomPainter {
   final double? verticalXFactor;
   final double? horizontalYFactor;
   final Color color;
-
   const _EditGuidePainter({
     required this.showVertical,
     required this.showHorizontal,
@@ -5235,7 +3509,6 @@ class _EditGuidePainter extends CustomPainter {
     required this.horizontalYFactor,
     required this.color,
   });
-
   @override
   void paint(Canvas canvas, Size size) {
     if (!showVertical && !showHorizontal) return;
@@ -5243,7 +3516,6 @@ class _EditGuidePainter extends CustomPainter {
       ..color = color
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke;
-
     if (showVertical && verticalXFactor != null) {
       final x = (verticalXFactor!.clamp(0.0, 1.0)) * size.width;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);

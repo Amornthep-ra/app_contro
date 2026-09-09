@@ -8,6 +8,7 @@ class AppBackButton extends StatelessWidget {
   final double height;
   final double iconSize;
   final BorderRadius? borderRadius;
+  final Widget? child;
 
   const AppBackButton({
     super.key,
@@ -17,6 +18,7 @@ class AppBackButton extends StatelessWidget {
     this.height = 44,
     this.iconSize = 30,
     this.borderRadius,
+    this.child,
   });
 
   @override
@@ -45,10 +47,7 @@ class AppBackButton extends StatelessWidget {
               width: width,
               height: height,
               child: Center(
-                child: Icon(
-                  Icons.chevron_left_rounded,
-                  size: iconSize,
-                ),
+                child: child ?? Icon(Icons.chevron_left_rounded, size: iconSize),
               ),
             ),
           ),

@@ -1,29 +1,29 @@
 <!-- android/app/src/main/AndroidManifest.xml -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- อุปกรณ์ต้องมี Bluetooth / BLE (ตั้งเป็น true ถ้าอยากจำกัดเฉพาะเครื่องที่มี BT เท่านั้น) -->
+    <!-- Bluetooth / BLE hardware is optional for installation. -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
-    <!-- ===== Permissions สำหรับ Android ≤ 11 (API 30) ===== -->
+    <!-- ===== Permissions for Android 11 and earlier (API 30) ===== -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- สแกน BLE บน Android ≤ 11 ต้องใช้ Location -->
+    <!-- BLE scanning on Android 11 and earlier requires location permission. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
 
-    <!-- ===== Permissions สำหรับ Android 12+ (API 31+) ===== -->
-    <!-- SCAN: สำหรับค้นหา/สแกน (ไม่ใช้ตำแหน่ง) -->
+    <!-- ===== Permissions for Android 12+ (API 31+) ===== -->
+    <!-- SCAN: discover BLE devices without deriving location. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
-    <!-- CONNECT: สำหรับเชื่อมต่อ/สื่อสาร (ทั้ง BLE และ Classic SPP) -->
+    <!-- CONNECT: communicate over BLE and Classic SPP. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- ถ้าต้องการโฆษณา BLE (Peripheral) ให้เปิดบรรทัดนี้ -->
+    <!-- Enable BLUETOOTH_ADVERTISE only when peripheral advertising is needed. -->
     <!-- <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> -->
 
-    <!-- (ตัวเลือก) ถ้าแอปต้องใช้อินเทอร์เน็ตให้เปิด -->
+    <!-- Optional internet permission. -->
     <!-- <uses-permission android:name="android.permission.INTERNET" /> -->
 
     <application
@@ -56,7 +56,7 @@
             android:value="2" />
     </application>
 
-    <!-- (ตัวเลือก) ถ้าต้อง query อินเทนต์อื่น ๆ -->
+    <!-- Optional queries for external intents. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />

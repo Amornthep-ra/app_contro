@@ -1,6 +1,6 @@
 {
-    "name": "app_contro",
-    "short_name": "app_contro",
+    "name": "pb_controller",
+    "short_name": "pb_controller",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/widgets/app_back_button.dart';
+import '../../core/widgets/portrait_background.dart';
 import 'joystick/widgets/joystick_widget.dart';
 import 'joystick/joystick_controller.dart';
 
@@ -19,68 +20,77 @@ class _JoystickTestPageState extends State<JoystickTestPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         leading: Navigator.of(context).canPop()
             ? const AppBackButton(width: 48, height: 48, iconSize: 32)
             : null,
         title: const Text("Joystick Test"),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        scrolledUnderElevation: 0,
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Text(
-                    "Left Stick  :  X=${(lx * 100).toStringAsFixed(0)}  |  Y=${(ly * 100).toStringAsFixed(0)}",
-                    style: const TextStyle(fontSize: 18),
+      body: PortraitBackground(
+        child: Padding(
+          padding: const EdgeInsets.only(top: kToolbarHeight),
+          child: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      Text(
+                        "Left Stick  :  X=${(lx * 100).toStringAsFixed(0)}  |  Y=${(ly * 100).toStringAsFixed(0)}",
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "Right Stick :  X=${(rx * 100).toStringAsFixed(0)}  |  Y=${(ry * 100).toStringAsFixed(0)}",
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    "Right Stick :  X=${(rx * 100).toStringAsFixed(0)}  |  Y=${(ry * 100).toStringAsFixed(0)}",
-                    style: const TextStyle(fontSize: 18),
+                ),
+
+                const SizedBox(height: 20),
+
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      JoystickWidget(
+                        controller: joystickController,
+                        isLeft: true,
+                        onChanged: (x, y) {
+                          setState(() {
+                            lx = x;
+                            ly = y;
+                          });
+                        },
+                      ),
+
+                      JoystickWidget(
+                        controller: joystickController,
+                        isLeft: false,
+                        onChanged: (x, y) {
+                          setState(() {
+                            rx = x;
+                            ry = y;
+                          });
+                        },
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-
-            const SizedBox(height: 20),
-
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  JoystickWidget(
-                    controller: joystickController,
-                    isLeft: true,
-                    onChanged: (x, y) {
-                      setState(() {
-                        lx = x;
-                        ly = y;
-                      });
-                    },
-                  ),
-
-                  JoystickWidget(
-                    controller: joystickController,
-                    isLeft: false,
-                    onChanged: (x, y) {
-                      setState(() {
-                        rx = x;
-                        ry = y;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
-
-
