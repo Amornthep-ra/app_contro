@@ -292,6 +292,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _openArduinoLibrary() async {
+    try {
+      final opened = await launchUrl(
+        Uri.parse('https://github.com/Amornthep-ra/PB-BLE-And-Line-Follower.git'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) _showSnack('Unable to open the library link.');
+    } catch (_) {
+      _showSnack('Unable to open the library link.');
+    }
+  }
+
   Color _contentTextColor(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark
       ? Theme.of(context).colorScheme.onSurface
@@ -437,6 +449,13 @@ class _HomePageState extends State<HomePage> {
         icon: Icons.facebook,
         accent: _HomePalette.guide,
         onTap: () => _openFacebookPage(isThai),
+      ),
+      _NavItem(
+        title: 'Arduino IDE Library',
+        subtitle: 'Download from GitHub',
+        icon: Icons.download_rounded,
+        accent: _HomePalette.guide,
+        onTap: _openArduinoLibrary,
       ),
     ];
   }
@@ -721,6 +740,19 @@ class _HomePageState extends State<HomePage> {
                   item: items[2],
                   enabled: !_openingPage,
                   onTap: () => _openNavItem(items[2]),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.center,
+              child: SizedBox(
+                width: width > 420 ? 420 : width,
+                child: _SecondaryNavAction(
+                  actionKey: const ValueKey('home-arduino-library-action'),
+                  item: items[3],
+                  enabled: !_openingPage,
+                  onTap: () => _openNavItem(items[3]),
                 ),
               ),
             ),
@@ -1086,11 +1118,13 @@ class _NavCardState extends State<_NavCard> {
 }
 
 class _SecondaryNavAction extends StatelessWidget {
+  final Key actionKey;
   final _NavItem item;
   final bool enabled;
   final VoidCallback onTap;
 
   const _SecondaryNavAction({
+    this.actionKey = const ValueKey('home-contact-action'),
     required this.item,
     required this.enabled,
     required this.onTap,
@@ -1103,7 +1137,7 @@ class _SecondaryNavAction extends StatelessWidget {
     final label = subtitle == null ? item.title : '${item.title}. $subtitle';
 
     return Semantics(
-      key: const ValueKey('home-contact-action'),
+      key: actionKey,
       button: true,
       enabled: enabled,
       label: label,
