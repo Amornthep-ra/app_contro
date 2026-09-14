@@ -627,6 +627,13 @@ class BleManager {
       _diagnosticsController.stream;
   Stream<String> get protocolLines => _protocolLineController.stream;
   bool get isSecureControlReady => _secureControlSession != null;
+  bool _securePairingPending = false;
+
+  void setSecurePairingPending(bool pending) {
+    if (_securePairingPending == pending) return;
+    _securePairingPending = pending;
+    _lastRxTime = DateTime.now();
+  }
 
   void setSecureControlSession(BleSecureControlSession session) {
     _clearSecureControlSession();
@@ -637,6 +644,7 @@ class BleManager {
   void clearSecureControlSession() => _clearSecureControlSession();
 
   void _clearSecureControlSession() {
+    _securePairingPending = false;
     _secureControlSession?.dispose();
     _secureControlSession = null;
   }
@@ -1663,6 +1671,7 @@ class BleManager {
     required Future<void> Function() sendPing,
     required Future<void> Function() onTimeout,
   }) async {
+    if (_securePairingPending) return;
     if (!shouldMonitorHeartbeatRx(
       _trafficMode,
       isSecureControlReady: isSecureControlReady,

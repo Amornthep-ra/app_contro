@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/control_input_gate.dart';
+import '../../../../core/widgets/editable_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -77,6 +79,8 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _editMode = false;
   bool _menuOpen = false;
   String? _selectedId;
+  StartStopPlacement _startStop = const StartStopPlacement();
+  final _startStopKey = GlobalKey<EditableStartStopSurfaceState>();
   Size? _panelSize;
   Map<String, _JoyLayout> _layout = {};
   Set<String> _activeIds = {kJoyLeftId, kJoyRightId};
@@ -285,7 +289,7 @@ class _JoystickPageState extends State<JoystickPage> {
       }
       showGamepadTopNotice(
         context,
-        message: 'Unable to connect to the last BLE device.',
+        message: 'Connect to a BLE device, then tap Start again.',
         style: GamepadNoticeStyle.error,
       );
       return;
@@ -587,6 +591,12 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Future<void> _loadLayout() async {
     final prefs = await SharedPreferences.getInstance();
+    final systemRaw = prefs.getString('${_prefsLayout}_start_stop');
+    if (systemRaw != null) {
+      try {
+        _startStop = StartStopPlacement.fromJson(jsonDecode(systemRaw));
+      } catch (_) {}
+    }
     final raw = prefs.getString(_prefsLayout);
     final activeRaw = prefs.getString(_prefsActive);
     if (raw != null && raw.isNotEmpty) {
@@ -605,6 +615,10 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _saveLayout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsLayout, jsonEncode(_encodeLayout(_layout)));
+    await prefs.setString(
+      '${_prefsLayout}_start_stop',
+      jsonEncode(_startStop.toJson()),
+    );
   }
 
   Future<void> _saveActive() async {
@@ -671,7 +685,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
   void _toggleSelectedLock() {
     final id = _selectedId;
-    if (id == null) return;
+    if (id == null || id == startStopEditId) return;
     _pushHistory();
     setState(() {
       if (_lockedIds.contains(id)) {
@@ -692,6 +706,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
+      startStop: _startStop,
       layout: _cloneLayout(_layout),
       activeIds: Set<String>.from(_activeIds),
       lockedIds: Set<String>.from(_lockedIds),
@@ -700,6 +715,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
+    _startStop = snap.startStop;
     _layout = _cloneLayout(snap.layout);
     _activeIds = Set<String>.from(snap.activeIds);
     _lockedIds
@@ -708,7 +724,9 @@ class _JoystickPageState extends State<JoystickPage> {
     _selectedId = snap.selectedId;
     _layout.removeWhere((k, _) => !_activeIds.contains(k));
     _lockedIds.removeWhere((id) => !_layout.containsKey(id));
-    if (_selectedId != null && !_layout.containsKey(_selectedId)) {
+    if (_selectedId != null &&
+        _selectedId != startStopEditId &&
+        !_layout.containsKey(_selectedId)) {
       _selectedId = null;
     }
   }
@@ -769,12 +787,13 @@ class _JoystickPageState extends State<JoystickPage> {
 
   void _removeSelected() {
     final id = _selectedId;
-    if (id == null) return;
+    if (id == null || id == startStopEditId) return;
     _toggleActive(id);
   }
 
   void _resetLayout() async {
     _pushHistory();
+    _startStop = const StartStopPlacement();
     final defaultActive = Set<String>.from(kJoyDefaultActiveIds);
     final defaultLayout = _panelSize != null
         ? _defaultLayout(_panelSize!, defaultActive)
@@ -796,6 +815,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _resetRightJoystick();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayout);
+    await prefs.remove('${_prefsLayout}_start_stop');
     await prefs.remove(_prefsActive);
   }
 
@@ -1024,6 +1044,7 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
+      'startStop': _startStop.toJson(),
       'layout': _encodeLayout(_layout),
       'active': _activeIds.toList(),
     };
@@ -1041,6 +1062,7 @@ class _JoystickPageState extends State<JoystickPage> {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return;
+      _startStop = StartStopPlacement.fromJson(obj['startStop']);
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       if (layoutRaw is Map) {
@@ -1488,6 +1510,10 @@ class _JoystickPageState extends State<JoystickPage> {
   void _adjustSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
+    if (id == startStopEditId) {
+      _startStopKey.currentState?.adjustSize(delta);
+      return;
+    }
     if (_lockedIds.contains(id)) return;
     final panel = _panelSize;
     if (panel == null) return;
@@ -1544,7 +1570,15 @@ class _JoystickPageState extends State<JoystickPage> {
         break;
       }
     }
-    if (collides) {
+    if (collides ||
+        ((_startStopKey.currentState?.blocksRect(
+              Rect.fromCenter(
+                center: Offset(cx, cy),
+                width: sizePx,
+                height: sizePx,
+              ),
+            ) ??
+            false))) {
       HapticFeedback.vibrate();
       _showOverlapWarning();
       _flashEditWarning(id);
@@ -1697,6 +1731,8 @@ class _JoystickPageState extends State<JoystickPage> {
   }) {
     return [
       ConnectionStatusBadge(
+        autoPromptPairing: !_editMode,
+        pairingPromptEnabled: !_editMode,
         appBarMetrics: appBarMetrics,
         iconAsset: AppAssets.controlBle,
         subdued: true,
@@ -1809,7 +1845,9 @@ class _JoystickPageState extends State<JoystickPage> {
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+          onTap: hasSelection && _selectedId != startStopEditId
+              ? withBuzz(_toggleSelectedLock)
+              : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
@@ -1854,7 +1892,9 @@ class _JoystickPageState extends State<JoystickPage> {
           icon: Icons.delete_outline,
           label: isThai ? 'ลบ' : 'Delete',
           accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+          onTap: hasSelection && _selectedId != startStopEditId
+              ? withBuzz(_removeSelected)
+              : null,
         ),
       ],
     );
@@ -1903,7 +1943,9 @@ class _JoystickPageState extends State<JoystickPage> {
           label: isThai ? 'ลบ' : 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+          onTap: hasSelection && _selectedId != startStopEditId
+              ? withBuzz(_removeSelected)
+              : null,
         ),
         GamepadOverflowAction(
           label: 'Reset',
@@ -1937,7 +1979,9 @@ class _JoystickPageState extends State<JoystickPage> {
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
+          onTap: hasSelection && _selectedId != startStopEditId
+              ? withBuzz(_toggleSelectedLock)
+              : null,
         ),
       ],
     );
@@ -2178,6 +2222,32 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
+  Widget _buildStartStopSurface({required Widget child}) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => EditableStartStopSurface(
+        key: _startStopKey,
+        placement: _startStop,
+        editing: _editMode,
+        selected: _selectedId == startStopEditId,
+        snapToGrid: _showGrid,
+        started: _controlStarted && !suspended,
+        busy: _startInProgress,
+        onPressed: _controlStarted && !suspended
+            ? _stopControl
+            : (_canStartControl ? _startControl : null),
+        onSelect: () => setState(() => _selectedId = startStopEditId),
+        onBeginChange: _pushHistory,
+        onChanged: (next) {
+          setState(() => _startStop = next);
+          _saveLayout();
+        },
+        onBlocked: _showBoundaryWarning,
+        child: child,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -2197,23 +2267,6 @@ class _JoystickPageState extends State<JoystickPage> {
         children: [
           Scaffold(
             extendBodyBehindAppBar: true,
-            floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerFloat,
-            floatingActionButton: ValueListenableBuilder<bool>(
-              valueListenable: BleManager.instance.controlSuspendedListenable,
-              builder: (context, suspended, child) {
-                if (_editMode) return const SizedBox.shrink();
-                final isStarted = _controlStarted && !suspended;
-                return GamepadStartStopControlButton(
-                  heroTag: 'start_stop_joystick_control',
-                  isStarted: isStarted,
-                  isBusy: _startInProgress,
-                  onPressed: isStarted
-                      ? _stopControl
-                      : (_canStartControl ? _startControl : null),
-                );
-              },
-            ),
             appBar: GamepadUnifiedAppBar(
               controlLayout: _editMode
                   ? null
@@ -2370,7 +2423,16 @@ class _JoystickPageState extends State<JoystickPage> {
                               ),
                             );
                           }
-                          return Stack(children: widgets);
+                          return _buildStartStopSurface(
+                            child: ControlInputGate(
+                              started: _controlStarted,
+                              editing: _editMode,
+                              suspended: BleManager
+                                  .instance
+                                  .controlSuspendedListenable,
+                              child: Stack(children: widgets),
+                            ),
+                          );
                         },
                       ),
                     ],
@@ -2439,7 +2501,11 @@ class _JoystickPageState extends State<JoystickPage> {
       ),
     );
     if (!_editMode) {
-      return Positioned(left: cx - half, top: cy - half, child: joyWidget);
+      return Positioned(
+        left: cx - half,
+        top: cy - half,
+        child: StartStopObstacle(child: joyWidget),
+      );
     }
     return _EditableJoystick(
       id: id,
@@ -2475,7 +2541,7 @@ class _JoystickPageState extends State<JoystickPage> {
       onCollision: _showOverlapWarning,
       onBoundaryWarning: _showBoundaryWarning,
       externalWarning: _editWarningId == id,
-      child: joyWidget,
+      child: StartStopObstacle(child: joyWidget),
     );
   }
 
@@ -2505,7 +2571,11 @@ class _JoystickPageState extends State<JoystickPage> {
       ),
     );
     if (!_editMode) {
-      return Positioned(left: cx - half, top: cy - half, child: btnWidget);
+      return Positioned(
+        left: cx - half,
+        top: cy - half,
+        child: StartStopObstacle(child: btnWidget),
+      );
     }
     return _EditableButtonItem(
       id: id,
@@ -2542,7 +2612,7 @@ class _JoystickPageState extends State<JoystickPage> {
       onCollision: _showOverlapWarning,
       onBoundaryWarning: _showBoundaryWarning,
       externalWarning: _editWarningId == id,
-      child: btnWidget,
+      child: StartStopObstacle(child: btnWidget),
     );
   }
 }
@@ -2755,11 +2825,13 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
 }
 
 class _EditSnapshot {
+  final StartStopPlacement startStop;
   final Map<String, _JoyLayout> layout;
   final Set<String> activeIds;
   final Set<String> lockedIds;
   final String? selectedId;
   const _EditSnapshot({
+    this.startStop = const StartStopPlacement(),
     required this.layout,
     required this.activeIds,
     required this.lockedIds,
@@ -2938,6 +3010,13 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     }
     if (_colliding) {
       setState(() => _colliding = false);
+    }
+    if (EditableStartStopSurface.blocks(
+      context,
+      Rect.fromCenter(center: Offset(cx, cy), width: sizePx, height: sizePx),
+    )) {
+      widget.onCollision?.call();
+      return;
     }
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
@@ -3190,6 +3269,13 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     }
     if (_colliding) {
       setState(() => _colliding = false);
+    }
+    if (EditableStartStopSurface.blocks(
+      context,
+      Rect.fromCenter(center: Offset(cx, cy), width: sizePx, height: sizePx),
+    )) {
+      widget.onCollision?.call();
+      return;
     }
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }

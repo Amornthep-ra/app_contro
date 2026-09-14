@@ -179,6 +179,21 @@ void main() {
           await tester.pumpAndSettle();
           for (final option in {'Lo': 1, 'Med': 2, 'Hi': 4}.entries) {
             expect(find.text(option.key), findsOneWidget);
+            final tile = find
+                .ancestor(
+                  of: find.text(option.key),
+                  matching: find.byType(InkWell),
+                )
+                .first;
+            expect(tester.getSize(tile).height, 48);
+            final icon = tester.widget<Image>(
+              find.descendant(of: tile, matching: find.byType(Image)),
+            );
+            expect(icon.width, 32);
+            expect(icon.height, 32);
+            final tileRect = tester.getRect(tile);
+            final labelRect = tester.getRect(find.text(option.key));
+            expect(labelRect.bottom, lessThanOrEqualTo(tileRect.bottom));
           }
           await tester.ensureVisible(find.text(entry.key));
           await tester.pumpAndSettle();

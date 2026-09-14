@@ -70,7 +70,25 @@ class BluetoothBlePage extends StatefulWidget {
   State<BluetoothBlePage> createState() => _BluetoothBlePageState();
 }
 
-class _BluetoothBlePageState extends State<BluetoothBlePage> {
+class _BluetoothBlePageState extends State<BluetoothBlePage>
+    with WidgetsBindingObserver {
+  bool _pairingCheckScheduled = false;
+
+  void _schedulePairingCheck() {
+    if (!mounted || _pairingCheckScheduled) return;
+    _pairingCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pairingCheckScheduled = false;
+      if (mounted) unawaited(_enterPairingCode(automatic: true));
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _schedulePairingCheck();
+  }
+
   static const _bluetoothSettingsChannel = MethodChannel(
     'com.pbcontroller.app/bluetooth_settings',
   );
@@ -171,6 +189,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bleCoordinatorSub = _bleCoordinator.stream.listen(_applyCoordinatorState);
     if (widget.enableBlePlatformBindings) {
       _bleCoordinator.acquire();
@@ -210,7 +229,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       _devices = state.devices;
     });
     if (requiresBlePairingCode(state.securityState) && _isBleConnected) {
-      unawaited(_enterPairingCode(automatic: true));
+      _schedulePairingCheck();
     }
   }
 
@@ -253,6 +272,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _adapterStateSub?.cancel();
     _isScanningSub?.cancel();
     _connStateSub?.cancel();
@@ -367,6 +387,12 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   Future<void> _enterPairingCode({bool automatic = false}) async {
     if (_pairingDialogOpen || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true ||
+        (WidgetsBinding.instance.lifecycleState != null &&
+            WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed)) {
+      return;
+    }
     if (!_isBleConnected) {
       if (automatic) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -412,6 +438,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
       );
     } finally {
       _pairingDialogOpen = false;
+      _schedulePairingCheck();
     }
   }
 
@@ -723,6 +750,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (ModalRoute.isCurrentOf(context) == true) _schedulePairingCheck();
     final connectedDeviceId = BleManager.instance.currentDeviceId;
     final results = _devices
         .where(

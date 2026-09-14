@@ -32,11 +32,15 @@ class ConnectionStatusBadge extends StatefulWidget {
     this.pairingTransitionDelay = const Duration(milliseconds: 200),
     this.enableBlePlatformBindings = true,
     this.presentationState,
+    this.autoPromptPairing = false,
+    this.pairingPromptEnabled = true,
   });
 
   final GamepadAppBarMetrics? appBarMetrics;
   final String? iconAsset;
   final bool subdued;
+  final bool autoPromptPairing;
+  final bool pairingPromptEnabled;
   final VoidCallback? onManagementBlocked;
   final bool Function()? isControlSessionActive;
   final BleConnectionCoordinator? coordinator;
@@ -53,7 +57,58 @@ class ConnectionStatusBadge extends StatefulWidget {
   State<ConnectionStatusBadge> createState() => _ConnectionStatusBadgeState();
 }
 
-class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
+class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
+    with WidgetsBindingObserver {
+  StreamSubscription<BleConnectionCoordinatorState>? _pairingSubscription;
+  bool _promptScheduled = false;
+  bool _pairingTransitionPending = false;
+  ({BleConnectionCoordinator coordinator, int generation, bool automatic})?
+  _pendingPairing;
+
+  void _bindPairing() {
+    _pairingSubscription?.cancel();
+    _pairingSubscription = _bleCoordinator.stream.listen(
+      (_) => _schedulePairing(),
+    );
+    _schedulePairing();
+  }
+
+  void _schedulePairing() {
+    if (!mounted ||
+        _promptScheduled ||
+        (!widget.autoPromptPairing && _pendingPairing == null)) {
+      return;
+    }
+    _promptScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _promptScheduled = false;
+      if (!mounted) return;
+      final pending = _pendingPairing;
+      if (pending != null &&
+          (pending.coordinator != _bleCoordinator ||
+              pending.generation !=
+                  _bleCoordinator.pairingConnectionGeneration ||
+              !_isBleConnected ||
+              !requiresBlePairingCode(_bleCoordinator.state.securityState))) {
+        _pendingPairing = null;
+      }
+      if (_pendingPairing == null && widget.autoPromptPairing) {
+        _pendingPairing = (
+          coordinator: _bleCoordinator,
+          generation: _bleCoordinator.pairingConnectionGeneration,
+          automatic: true,
+        );
+      }
+      unawaited(_showPairingCode());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _schedulePairing();
+  }
+
   bool _sheetOpen = false;
   bool _pairingDialogOpen = false;
   Offset? _sheetAnchor;
@@ -70,11 +125,18 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
   void initState() {
     super.initState();
     _bindPresentationState();
+    WidgetsBinding.instance.addObserver(this);
+    _bindPairing();
   }
 
   @override
   void didUpdateWidget(ConnectionStatusBadge oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.coordinator != widget.coordinator ||
+        oldWidget.autoPromptPairing != widget.autoPromptPairing ||
+        oldWidget.pairingPromptEnabled != widget.pairingPromptEnabled) {
+      _bindPairing();
+    }
     if (oldWidget.presentationState != widget.presentationState ||
         oldWidget.enableBlePlatformBindings !=
             widget.enableBlePlatformBindings) {
@@ -108,15 +170,49 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pairingSubscription?.cancel();
     _ownedPresentationState?.dispose();
     super.dispose();
   }
 
-  Future<void> _showPairingCode(bool automatic) async {
-    if (_pairingDialogOpen || !mounted) return;
+  Future<void> _requestSheetPairing(bool automatic) async {
+    if (!mounted) return;
+    final request = (
+      coordinator: _bleCoordinator,
+      generation: _bleCoordinator.pairingConnectionGeneration,
+      automatic: automatic,
+    );
+    _pendingPairing = request;
+    _pairingTransitionPending = true;
+    await Future<void>.delayed(widget.pairingTransitionDelay);
+    if (!mounted) return;
+    _pairingTransitionPending = false;
+    _schedulePairing();
+  }
+
+  Future<void> _showPairingCode() async {
+    final request = _pendingPairing;
+    if (request == null ||
+        !mounted ||
+        _pairingDialogOpen ||
+        _sheetOpen ||
+        _pairingTransitionPending ||
+        !widget.pairingPromptEnabled ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        (WidgetsBinding.instance.lifecycleState != null &&
+            WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed)) {
+      return;
+    }
+    if (request.coordinator != _bleCoordinator ||
+        request.generation != _bleCoordinator.pairingConnectionGeneration) {
+      return;
+    }
     if (!_isBleConnected) return;
     if (!requiresBlePairingCode(_bleCoordinator.state.securityState)) return;
-    if (automatic) {
+    _pendingPairing = null;
+    if (request.automatic) {
       if (!_bleCoordinator.claimAutomaticPairingPrompt(connected: true)) {
         return;
       }
@@ -128,11 +224,14 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
       await widget.pairingPromptLauncher(
         context: context,
         isThai: LanguageController.isThai.value,
-        coordinator: _bleCoordinator,
+        coordinator: request.coordinator,
       );
     } catch (error, stackTrace) {
-      if (automatic) {
-        _bleCoordinator.releaseAutomaticPairingPrompt();
+      if (request.automatic &&
+          mounted &&
+          request.coordinator == _bleCoordinator &&
+          request.generation == _bleCoordinator.pairingConnectionGeneration) {
+        request.coordinator.releaseAutomaticPairingPrompt();
       }
       FlutterError.reportError(
         FlutterErrorDetails(
@@ -144,6 +243,7 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
       );
     } finally {
       _pairingDialogOpen = false;
+      _schedulePairing();
     }
   }
 
@@ -159,6 +259,8 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
       _openSheetIOS();
       return;
     }
+    if (_sheetOpen) return;
+    _sheetOpen = true;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: false,
@@ -166,13 +268,15 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
       isScrollControlled: true,
       barrierColor: Colors.black87,
       builder: (context) => _ConnectionSheet(
-        onPairingRequested: _showPairingCode,
+        onPairingRequested: _requestSheetPairing,
         coordinator: _bleCoordinator,
         isBleConnected: () => _isBleConnected,
-        pairingTransitionDelay: widget.pairingTransitionDelay,
         enableBlePlatformBindings: widget.enableBlePlatformBindings,
       ),
-    );
+    ).whenComplete(() {
+      _sheetOpen = false;
+      _schedulePairing();
+    });
   }
 
   Future<void> _openSheetIOS() async {
@@ -208,10 +312,9 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
                 child: Material(
                   color: Colors.transparent,
                   child: _ConnectionSheet(
-                    onPairingRequested: _showPairingCode,
+                    onPairingRequested: _requestSheetPairing,
                     coordinator: _bleCoordinator,
                     isBleConnected: () => _isBleConnected,
-                    pairingTransitionDelay: widget.pairingTransitionDelay,
                     enableBlePlatformBindings: widget.enableBlePlatformBindings,
                   ),
                 ),
@@ -222,10 +325,12 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge> {
       },
     );
     _sheetOpen = false;
+    _schedulePairing();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (ModalRoute.isCurrentOf(context) == true) _schedulePairing();
     final theme = Theme.of(context);
     return ValueListenableBuilder<BlePresentationState>(
       valueListenable: _presentationState!,
@@ -471,14 +576,12 @@ class _ConnectionSheet extends StatefulWidget {
     required this.onPairingRequested,
     required this.coordinator,
     required this.isBleConnected,
-    required this.pairingTransitionDelay,
     required this.enableBlePlatformBindings,
   });
 
   final Future<void> Function(bool automatic) onPairingRequested;
   final BleConnectionCoordinator coordinator;
   final bool Function() isBleConnected;
-  final Duration pairingTransitionDelay;
   final bool enableBlePlatformBindings;
 
   @override
@@ -572,9 +675,9 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       return;
     }
     _pairingRequestPending = true;
+    final request = widget.onPairingRequested(automatic);
     Navigator.of(context).pop();
-    await Future<void>.delayed(widget.pairingTransitionDelay);
-    await widget.onPairingRequested(automatic);
+    await request;
   }
 
   @override

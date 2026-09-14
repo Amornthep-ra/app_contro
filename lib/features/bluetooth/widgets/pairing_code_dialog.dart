@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -19,17 +20,68 @@ Future<bool?> promptForBlePairingCode({
   BleConnectionCoordinator? coordinator,
 }) async {
   final target = coordinator ?? BleConnectionCoordinator.instance;
-  final paired = await showDialog<bool>(
+  final generation = target.pairingConnectionGeneration;
+  final navigator = Navigator.of(context, rootNavigator: true);
+  var expired = false;
+  final route = DialogRoute<bool>(
     context: context,
-    builder: (_) =>
-        PairingCodeDialog(isThai: isThai, onPair: target.savePairingCode),
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    builder: (_) => PairingCodeDialog(
+      replacingSavedCode:
+          target.state.recoveryOutcome ==
+              BleRecoveryOutcome.credentialMismatchSuspected ||
+          target.state.recoveryOutcome == BleRecoveryOutcome.credentialRejected,
+      isThai: isThai,
+      onPair: (code) async {
+        if (generation != target.pairingConnectionGeneration) {
+          return const BlePairingAttemptResult(
+            ready: false,
+            failure: BlePairingFailure.protocolError,
+          );
+        }
+        final result = await target.savePairingCode(code);
+        if (generation != target.pairingConnectionGeneration) {
+          return const BlePairingAttemptResult(
+            ready: false,
+            failure: BlePairingFailure.protocolError,
+          );
+        }
+        return result;
+      },
+    ),
   );
-  return paired;
+  void closeExpiredSession() {
+    if (generation == target.pairingConnectionGeneration) return;
+    expired = true;
+    if (route.isActive) navigator.removeRoute(route);
+  }
+
+  final subscription = target.stream.listen((_) => closeExpiredSession());
+  try {
+    final completion = navigator.push<bool>(route);
+    closeExpiredSession();
+    final paired = await completion;
+    if (!expired &&
+        paired != true &&
+        generation == target.pairingConnectionGeneration) {
+      await target.cancelPairing(generation);
+    }
+    return expired ? null : paired;
+  } finally {
+    unawaited(subscription.cancel());
+  }
 }
 
 /// A keyboard-safe dialog for entering the BLE pairing code configured on a board.
 class PairingCodeDialog extends StatefulWidget {
-  const PairingCodeDialog({super.key, required this.isThai, this.onPair});
+  const PairingCodeDialog({
+    super.key,
+    required this.isThai,
+    this.onPair,
+    this.replacingSavedCode = false,
+  });
+
+  final bool replacingSavedCode;
 
   final bool isThai;
   final Future<BlePairingAttemptResult> Function(String code)? onPair;
@@ -145,7 +197,9 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  isThai
+                  widget.replacingSavedCode
+                      ? 'Saved Pair Code no longer works. Enter the current code.'
+                      : isThai
                       ? 'Use the code set on your board.'
                       : 'Use the code set on your board.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(

@@ -24,10 +24,18 @@ class _NoopBleConnectionPlatform implements BleConnectionPlatform {
   Future<void> stopScan() async {}
 }
 
-BleConnectionCoordinator _coordinator() => BleConnectionCoordinator(
-  platform: _NoopBleConnectionPlatform(),
-  listenToManagerAutoConnectRequests: false,
-);
+class _TestCoordinator extends BleConnectionCoordinator {
+  _TestCoordinator()
+    : super(
+        platform: _NoopBleConnectionPlatform(),
+        listenToManagerAutoConnectRequests: false,
+      );
+  int generation = 0;
+  @override
+  int get pairingConnectionGeneration => generation;
+}
+
+_TestCoordinator _coordinator() => _TestCoordinator();
 
 const _pairingRequired = BleConnectionCoordinatorState(
   securityState: BleControlSecurityState.pairingRequired,
@@ -39,6 +47,226 @@ const _pairingReady = BleConnectionCoordinatorState(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final obstruction in ['route', 'edit', 'disconnect', 'generation']) {
+    testWidgets('sheet request handles $obstruction during transition', (
+      tester,
+    ) async {
+      final coordinator = _coordinator();
+      final navigator = GlobalKey<NavigatorState>();
+      var calls = 0;
+      var enabled = true;
+      var connected = true;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return ConnectionStatusBadge(
+                  coordinator: coordinator,
+                  pairingPromptEnabled: enabled,
+                  isBleConnected: () => connected,
+                  isControlSessionActive: () => false,
+                  enableBlePlatformBindings: false,
+                  pairingPromptLauncher:
+                      ({required context, required isThai, coordinator}) async {
+                        calls++;
+                        return true;
+                      },
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(ConnectionStatusBadge));
+      await tester.pumpAndSettle();
+      coordinator.debugEmitForTesting(_pairingRequired);
+      await tester.pump();
+      switch (obstruction) {
+        case 'route':
+          navigator.currentState!.push(
+            MaterialPageRoute<void>(builder: (_) => const Scaffold()),
+          );
+        case 'edit':
+          rebuild(() => enabled = false);
+        case 'disconnect':
+          connected = false;
+          coordinator.debugEmitForTesting(
+            const BleConnectionCoordinatorState(),
+          );
+        case 'generation':
+          coordinator.generation++;
+          coordinator.debugEmitForTesting(_pairingRequired);
+      }
+      await tester.pumpAndSettle();
+      expect(calls, 0);
+      expect(coordinator.pairingPromptPresentedForConnection, isFalse);
+      if (obstruction == 'route') navigator.currentState!.pop();
+      if (obstruction == 'edit') rebuild(() => enabled = true);
+      await tester.pumpAndSettle();
+      expect(calls, obstruction == 'route' || obstruction == 'edit' ? 1 : 0);
+      await tester.pumpWidget(const SizedBox());
+      await coordinator.dispose();
+    });
+  }
+
+  testWidgets('pending frame uses latest generation for automatic prompt', (
+    tester,
+  ) async {
+    final coordinator = _coordinator();
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ConnectionStatusBadge(
+            autoPromptPairing: true,
+            coordinator: coordinator,
+            isBleConnected: () => true,
+            enableBlePlatformBindings: false,
+            pairingPromptLauncher:
+                ({required context, required isThai, coordinator}) async {
+                  calls++;
+                  return true;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    coordinator.debugEmitForTesting(_pairingRequired);
+    await tester.idle();
+    coordinator.generation++;
+    coordinator.debugEmitForTesting(_pairingRequired);
+    await tester.idle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    await coordinator.dispose();
+  });
+
+  testWidgets('sheet pairing waits while app is inactive then resumes once', (
+    tester,
+  ) async {
+    final coordinator = _coordinator();
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ConnectionStatusBadge(
+            coordinator: coordinator,
+            isBleConnected: () => true,
+            isControlSessionActive: () => false,
+            enableBlePlatformBindings: false,
+            pairingPromptLauncher:
+                ({required context, required isThai, coordinator}) async {
+                  calls++;
+                  return true;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(ConnectionStatusBadge));
+    await tester.pumpAndSettle();
+    coordinator.debugEmitForTesting(_pairingRequired);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(calls, 0);
+    expect(coordinator.pairingPromptPresentedForConnection, isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    await coordinator.dispose();
+  });
+
+  testWidgets('covered controller waits until its route returns', (
+    tester,
+  ) async {
+    final coordinator = _coordinator();
+    final navigator = GlobalKey<NavigatorState>();
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        home: Scaffold(
+          body: ConnectionStatusBadge(
+            autoPromptPairing: true,
+            coordinator: coordinator,
+            isBleConnected: () => true,
+            enableBlePlatformBindings: false,
+            pairingPromptLauncher:
+                ({required context, required isThai, coordinator}) async {
+                  calls++;
+                  return true;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('Settings')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    coordinator.debugEmitForTesting(_pairingRequired);
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    await coordinator.dispose();
+  });
+
+  for (final initiallyRequired in [false, true]) {
+    testWidgets(
+      'controller prompts without opening BLE: initial=$initiallyRequired',
+      (tester) async {
+        final coordinator = _coordinator();
+        var calls = 0;
+        if (initiallyRequired) {
+          coordinator.debugEmitForTesting(_pairingRequired);
+        }
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ConnectionStatusBadge(
+                autoPromptPairing: true,
+                coordinator: coordinator,
+                isBleConnected: () => true,
+                enableBlePlatformBindings: false,
+                pairingPromptLauncher:
+                    ({required context, required isThai, coordinator}) async {
+                      calls++;
+                      return true;
+                    },
+              ),
+            ),
+          ),
+        );
+        if (!initiallyRequired) {
+          coordinator.debugEmitForTesting(_pairingRequired);
+        }
+        await tester.pumpAndSettle();
+        expect(calls, 1);
+        coordinator.debugEmitForTesting(_pairingRequired);
+        await tester.pumpAndSettle();
+        expect(calls, 1);
+        await tester.pumpWidget(const SizedBox());
+        await coordinator.dispose();
+      },
+    );
+  }
 
   setUp(() {
     LanguageController.isThai.value = false;
@@ -123,6 +351,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: ConnectionStatusBadge(
+              autoPromptPairing: true,
               coordinator: coordinator,
               isBleConnected: () => true,
               isControlSessionActive: () => false,

@@ -263,6 +263,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
   static const Color startColor = Color(0xFF22C55E);
   static const Color emergencyStopColor = Color(0xFFEF4444);
 
+  final double diameter;
   final String heroTag;
   final bool isStarted;
   final bool isBusy;
@@ -270,6 +271,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
 
   const GamepadStartStopControlButton({
     super.key,
+    this.diameter = 48,
     required this.heroTag,
     required this.isStarted,
     this.isBusy = false,
@@ -323,16 +325,16 @@ class GamepadStartStopControlButton extends StatelessWidget {
               onTap: onPressed,
               customBorder: const CircleBorder(),
               child: SizedBox(
-                width: 48,
-                height: 48,
+                width: diameter < 48 ? 48 : diameter,
+                height: diameter < 48 ? 48 : diameter,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
                       curve: Curves.easeOut,
-                      width: 36,
-                      height: 36,
+                      width: diameter * .75,
+                      height: diameter * .75,
                       decoration: BoxDecoration(
                         color: color.withAlpha(isBusy ? 38 : 24),
                         shape: BoxShape.circle,
@@ -351,9 +353,11 @@ class GamepadStartStopControlButton extends StatelessWidget {
                       opacity: onPressed == null ? 0.4 : 1,
                       child: Image.asset(
                         asset,
+                        width: diameter,
+                        height: diameter,
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) =>
-                            Icon(fallback, size: 40, color: color),
+                            Icon(fallback, size: diameter * .83, color: color),
                       ),
                     ),
                     if (isBusy)

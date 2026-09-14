@@ -40,6 +40,14 @@ void main() {
     manager.setTrafficMode(BleTrafficMode.textCommand);
   });
 
+  test('pending pairing ignores legacy RX timeout', () async {
+    manager.setSecurePairingPending(true);
+    for (var seconds = 2; seconds <= 60; seconds += 2) {
+      await tick(seconds);
+    }
+    expect(events, isEmpty);
+  });
+
   test(
     'PB2 idle before Start never pings or disconnects for 60 seconds',
     () async {

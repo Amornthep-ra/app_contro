@@ -23,6 +23,39 @@ void main() {
   );
 
   test(
+    'coordinator pairing wait suppresses heartbeat for 60 seconds',
+    () async {
+      final transport = _HandshakeTransport(secret: secret);
+      final coordinator = coordinatorFor(
+        transport,
+        pairingStore: _PairingStore(),
+      );
+      addTearDown(coordinator.dispose);
+      addTearDown(transport.dispose);
+      await coordinator.authenticateConnectedBoard();
+      expect(
+        coordinator.state.securityState,
+        BleControlSecurityState.pairingRequired,
+      );
+      final events = <String>[];
+      for (var seconds = 2; seconds <= 60; seconds += 2) {
+        await BleManager.instance.checkHeartbeatTick(
+          rxAge: Duration(seconds: seconds),
+          sendPing: () async {
+            events.add('PING');
+          },
+          onTimeout: () async {
+            events.add('disconnect');
+          },
+        );
+      }
+      expect(events, isEmpty);
+      await coordinator.authenticateConnectedBoard(pairingSecret: secret);
+      expect(coordinator.state.controlReady, isTrue);
+    },
+  );
+
+  test(
     'completes PB2 HELLO, CAPS, AUTH, and OK before enabling control',
     () async {
       final transport = _HandshakeTransport(secret: secret);
@@ -40,26 +73,20 @@ void main() {
     },
   );
 
-  test(
-    'retries after a CAPS response whose authentication tag is invalid',
-    () async {
-      final transport = _HandshakeTransport(
-        secret: secret,
-        invalidCapsTag: true,
-      );
-      final coordinator = coordinatorFor(transport);
+  test('entered code rejected by CAPS stays available for retry', () async {
+    final transport = _HandshakeTransport(secret: secret, invalidCapsTag: true);
+    final coordinator = coordinatorFor(transport);
 
-      await coordinator.authenticateConnectedBoard(pairingSecret: secret);
+    await coordinator.authenticateConnectedBoard(pairingSecret: secret);
 
-      expect(
-        coordinator.state.securityState,
-        BleControlSecurityState.unsupportedFirmware,
-      );
-      expect(transport.sessions, isEmpty);
-      await coordinator.dispose();
-      await transport.dispose();
-    },
-  );
+    expect(
+      coordinator.state.securityState,
+      BleControlSecurityState.pairingRequired,
+    );
+    expect(transport.sessions, isEmpty);
+    await coordinator.dispose();
+    await transport.dispose();
+  });
 
   test(
     'retries after an OK response whose authentication tag is invalid',
@@ -137,6 +164,17 @@ void main() {
       BleRecoveryOutcome.credentialMismatchSuspected,
     );
     expect(transport.authCount, 0);
+    expect(
+      coordinator.state.securityState,
+      BleControlSecurityState.pairingRequired,
+    );
+    expect(coordinator.claimAutomaticPairingPrompt(connected: true), isTrue);
+    expect(coordinator.claimAutomaticPairingPrompt(connected: true), isFalse);
+    final paired = await coordinator.savePairingCode(code);
+    expect(paired.ready, isTrue);
+    expect(await store.readSecret('BOARD-A'), orderedEquals(secret));
+    await coordinator.authenticateConnectedBoard();
+    expect(coordinator.state.controlReady, isTrue);
     await coordinator.dispose();
     await transport.dispose();
   });

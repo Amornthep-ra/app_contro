@@ -312,8 +312,22 @@ class BleConnectionCoordinator {
 
   BleConnectionCoordinatorState get state => _state;
   Stream<BleConnectionCoordinatorState> get stream => _controller.stream;
+  int get pairingConnectionGeneration => _authenticationGeneration;
+
+  Future<void> cancelPairing(int generation) async {
+    if (generation != _authenticationGeneration || _disposed) return;
+    _authenticationGeneration++;
+    _authenticationFuture = null;
+    await disconnect();
+  }
 
   void _emit(BleConnectionCoordinatorState state) {
+    BleManager.instance.setSecurePairingPending(
+      state.securityState == BleControlSecurityState.authenticating ||
+          state.securityState == BleControlSecurityState.pairingRequired ||
+          state.securityState == BleControlSecurityState.authenticationFailed ||
+          state.securityState == BleControlSecurityState.unsupportedFirmware,
+    );
     _state = state;
     _controller.add(state);
   }
@@ -334,6 +348,8 @@ class BleConnectionCoordinator {
     _pairingPromptPresentedForConnection = false;
     _automaticPairingPromptClaimPending = false;
 
+    _authenticationGeneration++;
+    _authenticationFuture = null;
     AppConnection.instance.setBleConnected(false);
     _secureHandshakeTransport.clearSecureControlSession();
     if (_state.connecting ||
@@ -649,7 +665,7 @@ class BleConnectionCoordinator {
               _capabilityMismatchThreshold) {
             _emit(
               _state.copyWith(
-                securityState: BleControlSecurityState.authenticationFailed,
+                securityState: BleControlSecurityState.pairingRequired,
                 failureReason: 'stored_pairing_code_mismatch_suspected',
                 pairingFailure: BlePairingFailure.codeRejected,
                 recoveryOutcome: BleRecoveryOutcome.credentialMismatchSuspected,
@@ -662,8 +678,13 @@ class BleConnectionCoordinator {
             );
           }
         } else {
-          await _recordTransientHandshakeFailure(
-            reason: 'capabilities_authentication_failed',
+          _emit(
+            _state.copyWith(
+              securityState: BleControlSecurityState.pairingRequired,
+              failureReason: 'pairing_code_rejected',
+              pairingFailure: BlePairingFailure.codeRejected,
+              recoveryOutcome: BleRecoveryOutcome.credentialRejected,
+            ),
           );
         }
         return;
@@ -747,7 +768,9 @@ class BleConnectionCoordinator {
       _emit(
         _state.copyWith(
           securityState: rejected
-              ? BleControlSecurityState.authenticationFailed
+              ? (usedStoredSecret
+                    ? BleControlSecurityState.pairingRequired
+                    : BleControlSecurityState.authenticationFailed)
               : BleControlSecurityState.unsupportedFirmware,
           failureReason: 'board_protocol_${error.code.toLowerCase()}',
           pairingFailure: rejected
@@ -1369,6 +1392,8 @@ class BleConnectionCoordinator {
   @visibleForTesting
   Future<void> dispose() async {
     _disposed = true;
+    _authenticationGeneration++;
+    BleManager.instance.setSecurePairingPending(false);
     _linkLossReconnectTimer?.cancel();
     await stopScan();
     await _managerAutoConnectSub?.cancel();

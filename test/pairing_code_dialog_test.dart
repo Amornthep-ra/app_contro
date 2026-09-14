@@ -1,9 +1,120 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:pb_controller/core/widgets/connection_status_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_connection_coordinator.dart';
 import 'package:pb_controller/features/bluetooth/widgets/pairing_code_dialog.dart';
 
 void main() {
+  for (final readyAfterReconnect in [false, true]) {
+    testWidgets(
+      'reconnect replaces pending dialog only when needed: $readyAfterReconnect',
+      (tester) async {
+        final coordinator = _SessionCoordinator();
+        coordinator.debugEmitForTesting(
+          const BleConnectionCoordinatorState(
+            securityState: BleControlSecurityState.pairingRequired,
+          ),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ConnectionStatusBadge(
+                autoPromptPairing: true,
+                coordinator: coordinator,
+                isBleConnected: () => true,
+                enableBlePlatformBindings: false,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(PairingCodeDialog), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'Example1');
+        await tester.pump();
+        await tester.tap(find.text('Pair'));
+        await tester.pump();
+        coordinator.generation++;
+        coordinator.releaseAutomaticPairingPrompt();
+        expect(coordinator.pairingPromptPresentedForConnection, isFalse);
+        coordinator.debugEmitForTesting(
+          BleConnectionCoordinatorState(
+            securityState: readyAfterReconnect
+                ? BleControlSecurityState.ready
+                : BleControlSecurityState.pairingRequired,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(PairingCodeDialog),
+          readyAfterReconnect ? findsNothing : findsOneWidget,
+        );
+        coordinator.result.complete(
+          const BlePairingAttemptResult(
+            ready: true,
+            failure: BlePairingFailure.none,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(PairingCodeDialog),
+          readyAfterReconnect ? findsNothing : findsOneWidget,
+        );
+        expect(coordinator.cancellations, 0);
+        if (!readyAfterReconnect) {
+          expect(
+            tester.widget<TextField>(find.byType(TextField)).controller!.text,
+            isEmpty,
+          );
+          await tester.tap(find.text('Cancel'));
+          await tester.pumpAndSettle();
+          expect(coordinator.cancellations, 1);
+        }
+        await tester.pumpWidget(const SizedBox());
+        await coordinator.dispose();
+      },
+    );
+  }
+  testWidgets(
+    'session change removes only stale dialog without cancelling new link',
+    (tester) async {
+      final coordinator = _SessionCoordinator();
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => promptForBlePairingCode(
+                  context: context,
+                  isThai: false,
+                  coordinator: coordinator,
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Other page')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      coordinator.generation++;
+      coordinator.debugEmitForTesting(const BleConnectionCoordinatorState());
+      await tester.pumpAndSettle();
+      expect(find.byType(PairingCodeDialog, skipOffstage: false), findsNothing);
+      expect(find.text('Other page'), findsOneWidget);
+      expect(coordinator.cancellations, 0);
+      await tester.pumpWidget(const SizedBox());
+      await coordinator.dispose();
+    },
+  );
   testWidgets('Cancel closes the pairing dialog without a code', (
     tester,
   ) async {
@@ -102,6 +213,21 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+}
+
+class _SessionCoordinator extends BleConnectionCoordinator {
+  final result = Completer<BlePairingAttemptResult>();
+  @override
+  Future<BlePairingAttemptResult> savePairingCode(String code) => result.future;
+  _SessionCoordinator() : super(listenToManagerAutoConnectRequests: false);
+  int generation = 0;
+  int cancellations = 0;
+  @override
+  int get pairingConnectionGeneration => generation;
+  @override
+  Future<void> cancelPairing(int generation) async {
+    cancellations++;
+  }
 }
 
 class _DialogHost extends StatefulWidget {
