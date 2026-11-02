@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../../features/bluetooth/widgets/ble_connection_status.dart';
+import '../../features/bluetooth/widgets/ble_device_row.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_presentation_state.dart';
@@ -114,6 +115,10 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
   String? _lastDeviceId;
   String? _lastDeviceName;
   bool _pendingConnectLast = false;
+
+  /// Row the user tapped (or the last device for `Connect <name>`), so only
+  /// that one shows a spinner while connecting.
+  String? _connectingDeviceId;
   bool _pairingRequestPending = false;
   BleControlSecurityState _securityState = BleControlSecurityState.disconnected;
   BleConnectionCoordinator get _bleCoordinator => widget.coordinator;
@@ -165,6 +170,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     setState(() {
       _scanning = state.scanning;
       _connecting = state.connecting;
+      if (!state.connecting) _connectingDeviceId = null;
       _scanSecondsLeft = state.scanSecondsLeft;
       _securityState = state.securityState;
       _lastDeviceId = state.lastDeviceId?.isEmpty == true
@@ -243,7 +249,11 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       );
     } finally {
       _pendingConnectLast = false;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          if (_connectingDeviceId == _lastDeviceId) _connectingDeviceId = null;
+        });
+      }
     }
   }
 
@@ -259,12 +269,24 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
 
   Future<void> _openPairingCode() => _requestPairingCode(automatic: false);
 
-  Future<void> _connect(ScanResult result) =>
-      _bleCoordinator.connect(result, source: 'connection_status_badge');
+  Future<void> _connect(ScanResult result) async {
+    final id = result.device.remoteId.str;
+    setState(() => _connectingDeviceId = id);
+    try {
+      await _bleCoordinator.connect(result, source: 'connection_status_badge');
+    } finally {
+      if (mounted && _connectingDeviceId == id) {
+        setState(() => _connectingDeviceId = null);
+      }
+    }
+  }
 
   Future<void> _connectLast() async {
     if (_lastDeviceId == null || _pendingConnectLast) return;
-    _pendingConnectLast = true;
+    setState(() {
+      _pendingConnectLast = true;
+      _connectingDeviceId = _lastDeviceId;
+    });
     await _connectRememberedDevice(
       'connection_badge_manual',
       userInitiated: true,
@@ -458,6 +480,15 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     scanning: _scanning,
   );
 
+  /// Display name for a device id: from the scan list, else the remembered
+  /// last-device name.
+  String? _deviceName(String? id) {
+    if (id == null) return null;
+    final entry = _deviceMap[id];
+    if (entry != null) return bleScanResultName(entry.result);
+    return id == _lastDeviceId ? _lastDeviceName : null;
+  }
+
   String _connectedName() => resolveBleConnectedDeviceName(
     currentName: BleManager.instance.currentDeviceName,
     currentId: BleManager.instance.currentDeviceId,
@@ -467,6 +498,13 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
 
   Widget _buildHeader(BlePresentationState presentation, bool connected) {
     final title = connected ? _connectedName() : presentation.label;
+    final target = _deviceName(
+      _connectingDeviceId ?? (_pendingConnectLast ? _lastDeviceId : null),
+    );
+    final hint =
+        presentation.kind == BlePresentationKind.connecting && target != null
+        ? 'Connecting to $target'
+        : _bleSheetHint(presentation.kind);
     final status = Semantics(
       container: true,
       liveRegion: true,
@@ -504,7 +542,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
                   BleSecurityLine(state: _securityState)
                 else
                   Text(
-                    _bleSheetHint(presentation.kind),
+                    hint,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -548,6 +586,9 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
   Widget _buildActions(bool connected, {required bool wide}) {
     Widget? leading;
     final List<Widget> buttons;
+    // On narrow sheets, only this button stretches; the others keep their
+    // natural width. Null: all share the row.
+    Widget? stretch;
     if (connected) {
       final needsCode = requiresBlePairingCode(_securityState);
       leading = IconButton(
@@ -591,31 +632,47 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
         ),
       ];
     } else {
+      final inProgress =
+          _connecting || _pendingConnectLast || _connectingDeviceId != null;
+      // The spinner goes on the button the user pressed.
+      final lastBusy =
+          _lastDeviceId != null && _connectingDeviceId == _lastDeviceId;
+      final connectLast = _lastDeviceId == null
+          ? null
+          : GlassActionButton(
+              label: lastBusy
+                  ? 'Connecting'
+                  : 'Connect ${_deviceName(_lastDeviceId) ?? 'last robot'}',
+              icon: Icons.link_rounded,
+              height: 48,
+              busy: lastBusy,
+              onPressed: inProgress ? null : _connectLast,
+            );
+      // Next to "Connect <name>" on a narrow sheet, "Scan" leaves the name
+      // room to stay readable.
+      final scanBusy = _connecting && !lastBusy;
       buttons = [
-        if (_lastDeviceId != null)
-          GlassActionButton(
-            label: 'Connect last',
-            icon: Icons.link_rounded,
-            height: 48,
-            onPressed: _connecting ? null : _connectLast,
-          ),
+        ?connectLast,
         GradientActionButton(
-          label: _connecting ? 'Connecting' : 'Scan devices',
+          label: scanBusy
+              ? 'Connecting'
+              : (connectLast != null && !wide ? 'Scan' : 'Scan devices'),
           icon: Icons.search_rounded,
           height: 48,
-          busy: _connecting,
-          onPressed: _connecting ? null : _startScan,
+          busy: scanBusy,
+          onPressed: inProgress ? null : _startScan,
         ),
       ];
+      stretch = connectLast;
     }
 
     final children = <Widget>[?leading];
     for (final button in buttons) {
       if (children.isNotEmpty) children.add(const SizedBox(width: 8));
       children.add(
-        wide
+        wide || (stretch != null && button != stretch)
             ? ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
+                constraints: const BoxConstraints(maxWidth: 260),
                 child: IntrinsicWidth(child: button),
               )
             : Expanded(child: button),
@@ -632,15 +689,11 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
-          SizedBox(
-            width: 44,
-            child: Icon(
-              _scanning
-                  ? Icons.bluetooth_searching_rounded
-                  : Icons.smart_toy_outlined,
-              size: 26,
-              color: LavenderPalette.violet,
-            ),
+          BleRoundIcon(
+            icon: _scanning
+                ? Icons.bluetooth_searching_rounded
+                : Icons.smart_toy_outlined,
+            size: 44,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -675,6 +728,47 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     );
   }
 
+  Widget _buildDeviceList(List<ScanResult> results) {
+    final rows = <Widget>[];
+    for (var i = 0; i < results.length; i++) {
+      if (i > 0) {
+        rows.add(
+          Divider(
+            height: 1,
+            thickness: 1,
+            indent: 70,
+            endIndent: 16,
+            color: LavenderPalette.ink.withValues(alpha: 0.07),
+          ),
+        );
+      }
+      final result = results[i];
+      final id = result.device.remoteId.str;
+      rows.add(
+        BleDeviceRow(
+          name: bleScanResultName(result),
+          rssi: result.rssi,
+          lastUsed: id == _lastDeviceId,
+          connecting: _connectingDeviceId == id,
+          enabled: !_connecting && _connectingDeviceId == null,
+          onTap: () => _connect(result),
+        ),
+      );
+    }
+    final radius = BorderRadius.circular(20);
+    return ClipRRect(
+      borderRadius: radius,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.55),
+          borderRadius: radius,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: rows),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isThai = LanguageController.isThai.value;
@@ -683,7 +777,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     const bodyColor = LavenderPalette.inkSoft;
     final tileColor = Colors.white.withValues(alpha: 0.5);
     final tileBorder = LavenderPalette.ink.withValues(alpha: 0.1);
-    final devices = _deviceMap.values.map((e) => e.result).toList();
+    final devices = sortBleScanResults(_deviceMap.values.map((e) => e.result));
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
     // The header and footer stay put and only the middle scrolls, so Close
@@ -716,59 +810,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (!connected)
-          devices.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  itemCount: devices.length,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemBuilder: (context, index) {
-                    final r = devices[index];
-                    final name = r.device.platformName.isNotEmpty
-                        ? r.device.platformName
-                        : r.device.remoteId.str;
-                    return ListTile(
-                      dense: true,
-                      tileColor: tileColor,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(color: tileBorder),
-                      ),
-                      title: Text(
-                        name,
-                        style: _sheetTextStyle(
-                          isThai,
-                          size: 14,
-                          weight: FontWeight.w600,
-                          color: titleColor,
-                        ),
-                      ),
-                      subtitle: Text(
-                        'MAC: ${r.device.remoteId.str} | RSSI: ${r.rssi} dBm',
-                        style: _sheetTextStyle(
-                          isThai,
-                          size: 12,
-                          weight: FontWeight.w400,
-                          color: bodyColor,
-                        ),
-                      ),
-                      trailing: _connecting
-                          ? SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: titleColor,
-                              ),
-                            )
-                          : Icon(
-                              Icons.chevron_right,
-                              color: _opacity(titleColor, 0.62),
-                            ),
-                      onTap: _connecting ? null : () => _connect(r),
-                    );
-                  },
-                ),
+          devices.isEmpty ? _buildEmptyState() : _buildDeviceList(devices),
         StreamBuilder<BleDiagnosticsSnapshot>(
           stream: BleManager.instance.diagnosticsStream,
           initialData: BleManager.instance.diagnostics,
