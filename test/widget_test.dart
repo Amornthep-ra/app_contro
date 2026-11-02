@@ -430,8 +430,8 @@ void main() {
             (widget.image as AssetImage).assetName == AppAssets.controlBack,
       ),
     );
-    expect(backImage.width, 24);
-    expect(backImage.height, 24);
+    expect(backImage.width, 40);
+    expect(backImage.height, 40);
   });
 
   testWidgets('LineSonic uses Cat Glass navigation and the shared back asset', (
@@ -473,8 +473,8 @@ void main() {
             (widget.image as AssetImage).assetName == AppAssets.controlBack,
       ),
     );
-    expect(backImage.width, 24);
-    expect(backImage.height, 24);
+    expect(backImage.width, 40);
+    expect(backImage.height, 40);
 
     await tester.tap(find.text('PID Tuning'));
     await tester.pumpAndSettle();

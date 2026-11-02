@@ -11,10 +11,10 @@ import '../../core/ble/ble_adapter_observation.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/ble_presentation_state.dart';
-import '../../core/ui/app_assets.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/ble_status_orb.dart';
+import '../../core/widgets/cat_back_button.dart';
 import '../../core/widgets/portrait_background.dart';
 import '../../core/widgets/signal_bars.dart';
 import 'widgets/pairing_code_dialog.dart';
@@ -150,29 +150,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       widget.isBleConnected?.call() ?? BleManager.instance.isConnected;
 
   StreamSubscription<BleConnectionCoordinatorState>? _bleCoordinatorSub;
-
-  Widget _buildBackButton() {
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: IconButton(
-        tooltip: 'Back',
-        icon: Image.asset(
-          AppAssets.controlBack,
-          width: 24,
-          height: 24,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) =>
-              const Icon(Icons.chevron_left_rounded, size: 24),
-        ),
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          Navigator.maybePop(context);
-        },
-        padding: EdgeInsets.zero,
-      ),
-    );
-  }
 
   @override
   void initState() {
@@ -494,7 +471,10 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       appBar: AppBar(
         automaticallyImplyLeading: false,
         toolbarHeight: _kToolbarHeight,
-        leading: Navigator.of(context).canPop() ? _buildBackButton() : null,
+        leadingWidth: CatBackButton.leadingWidthFor(_kPagePadding),
+        leading: Navigator.of(context).canPop()
+            ? CatBackButton.leading()
+            : null,
         centerTitle: true,
         title: const Text(
           'BLE Connection',

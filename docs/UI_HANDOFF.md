@@ -99,3 +99,7 @@ UX:
 - Dead `_t` / `isThai` / `isDark` code and the "Pair QR" string remap removed. BLE logic in the coordinator is unchanged.
 
 Tests: `test/ble_page_ui_test.dart` (alignment, states, compact empty list, Connected chip, Forget confirmation, row spinner, small phone at 1.3× text, sort order). `ble_pairing_prompt_wiring_test.dart` "paired" case now checks that "Paired" is a label with no way to reopen the prompt.
+
+### Back button
+
+`lib/core/widgets/cat_back_button.dart` — shared `CatBackButton`: `Back.png` at 40 px (was 24 px, the arrow was ~6 px and hard to see) in a 48 px tap target. Pages set `leadingWidth: CatBackButton.leadingWidthFor(<page padding>)` with `leading: CatBackButton.leading()` so the icon lines up with the content's left edge. Used on BLE Connection (20) and LineSonic (16). The control-page toolbar back pill (28 px) is a separate style and was not changed.

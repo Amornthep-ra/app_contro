@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/ble/ble_manager.dart';
-import '../../core/ui/app_assets.dart';
 import '../../core/ui/language_controller.dart';
+import '../../core/widgets/cat_back_button.dart';
 import '../../core/widgets/portrait_background.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
 import 'linesonic_pid_page.dart';
@@ -40,30 +40,6 @@ class _LineSonicPageState extends State<LineSonicPage> {
       width: size,
       height: size,
       fit: BoxFit.contain,
-    );
-  }
-
-  Widget _buildPlainBackButton(bool isThai) {
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: IconButton(
-        tooltip: _t(isThai, 'Back', 'Back'),
-        icon: Center(
-          child: Image.asset(
-            AppAssets.controlBack,
-            width: 24,
-            height: 24,
-            filterQuality: FilterQuality.high,
-          ),
-        ),
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          Navigator.maybePop(context);
-        },
-        padding: EdgeInsets.zero,
-        splashRadius: 22,
-      ),
     );
   }
 
@@ -243,8 +219,9 @@ class _LineSonicPageState extends State<LineSonicPage> {
             shadowColor: Colors.transparent,
             systemOverlayStyle: SystemUiOverlayStyle.dark,
             foregroundColor: _LineSonicPalette.deepPlum,
+            leadingWidth: CatBackButton.leadingWidthFor(16),
             leading: Navigator.of(context).canPop()
-                ? _buildPlainBackButton(isThai)
+                ? CatBackButton.leading()
                 : null,
             centerTitle: true,
             title: Text(
