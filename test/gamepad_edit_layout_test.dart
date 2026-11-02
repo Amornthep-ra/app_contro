@@ -126,8 +126,12 @@ void main() {
       BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
     });
 
-    Future<void> openEditor(WidgetTester tester, Widget page) async {
-      tester.view.physicalSize = const Size(914, 411);
+    Future<void> openEditor(
+      WidgetTester tester,
+      Widget page, {
+      Size size = const Size(914, 411),
+    }) async {
+      tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(home: page));
@@ -269,6 +273,42 @@ void main() {
           );
         }
 
+        await closePage(tester);
+      });
+    }
+
+    for (final size in [const Size(914, 411), const Size(640, 360)]) {
+      testWidgets('joystick: the Buttons tool adds △ ✕ □ ○ to the pad at '
+          '${size.width.toInt()}x${size.height.toInt()}', (tester) async {
+        await openEditor(tester, const JoystickPage(), size: size);
+        final buttonItems = _byTypeName('_EditableButtonItem');
+        expect(buttonItems, findsNothing); // Default: two joysticks only.
+
+        // On the single tool row, inside the screen, full 48 px slot.
+        final slot = toolSlot(tester, 'Buttons');
+        final grid = toolSlot(tester, 'Grid');
+        expect(slot.height, greaterThanOrEqualTo(48));
+        expect(slot.top, grid.top);
+        expect(slot.left, greaterThanOrEqualTo(0));
+        expect(slot.right, lessThanOrEqualTo(size.width));
+
+        await tester.tap(find.byTooltip('Buttons'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('enable or disable joysticks and buttons'),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(find.text('Triangle'));
+        await tester.tap(find.text('Triangle'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(buttonItems, findsOneWidget);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('joy_dual_active'), contains('btn_triangle'));
+        expect(tester.takeException(), isNull);
         await closePage(tester);
       });
     }

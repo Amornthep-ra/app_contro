@@ -1840,6 +1840,15 @@ class _JoystickPageState extends State<JoystickPage> {
           accent: const Color(0xFF60A5FA),
           onTap: withBuzz(_toggleEdit),
         ),
+        // Choose which joysticks and buttons (△ ✕ □ ○) are on the pad.
+        // This entry point was lost when the editor moved to this toolbar.
+        _toolIconPill(
+          key: const ValueKey('joystick-edit-controls'),
+          icon: Icons.videogame_asset_outlined,
+          label: 'Buttons',
+          accent: const Color(0xFF34D399),
+          onTap: withBuzz(_openButtonsMenu),
+        ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
@@ -2248,7 +2257,7 @@ class _JoystickPageState extends State<JoystickPage> {
               controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
-              toolbarItemCount: _editMode ? 9 : 7,
+              toolbarItemCount: _editMode ? 10 : 7,
               singleRowToolbar: _editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,

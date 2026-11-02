@@ -412,8 +412,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byKey(const ValueKey('gamepad-edit-more')), findsNothing);
-        for (final label in <String>[
+        // Joystick also has "Buttons" (add △ ✕ □ ○ / joysticks) after Done.
+        final orderedLabels = <String>[
           'Done',
+          if (mode.key == 'joystick') 'Buttons',
           'Lock',
           'Decrease size',
           'Increase size',
@@ -422,11 +424,12 @@ void main() {
           'Redo',
           'Reset',
           'Delete',
-        ]) {
+        ];
+        for (final label in orderedLabels) {
           expect(find.byTooltip(label), findsOneWidget);
         }
         final editTools = find.byType(GamepadToolIconPill);
-        expect(editTools, findsNWidgets(9));
+        expect(editTools, findsNWidgets(orderedLabels.length));
         for (var index = 0; index < editTools.evaluate().length; index++) {
           final rect = tester.getRect(editTools.at(index));
           expect(rect.width, greaterThanOrEqualTo(48));
@@ -444,17 +447,6 @@ void main() {
             expect(row[index].left - row[index - 1].right, 8);
           }
         }
-        final orderedLabels = <String>[
-          'Done',
-          'Lock',
-          'Decrease size',
-          'Increase size',
-          'Grid',
-          'Undo',
-          'Redo',
-          'Reset',
-          'Delete',
-        ];
         final centers = [
           for (final label in orderedLabels)
             tester.getRect(find.byTooltip(label)).center.dx,
