@@ -1968,6 +1968,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           accent: const Color(0xFF60A5FA),
           onTap: withBuzz(_toggleEdit),
         ),
+        // Show or hide controls, e.g. bring back one that was deleted
+        // without resetting the whole layout.
+        _toolIconPill(
+          key: const ValueKey('gamepad-edit-controls'),
+          icon: Icons.videogame_asset_outlined,
+          label: 'Buttons',
+          accent: const Color(0xFF34D399),
+          onTap: withBuzz(_showEditMenuAndroid),
+        ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
@@ -2483,7 +2492,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: media.size.width - media.padding.horizontal,
-              toolbarItemCount: _editMode ? 9 : null,
+              toolbarItemCount: _editMode ? 10 : null,
               singleRowToolbar: _editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,

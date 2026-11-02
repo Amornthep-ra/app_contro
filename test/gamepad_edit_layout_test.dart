@@ -342,5 +342,39 @@ void main() {
         await closePage(tester);
       });
     }
+
+    for (final page in _pages.entries.where((e) => e.key != 'joystick')) {
+      testWidgets('${page.key}: a deleted button comes back from the Buttons '
+          'sheet without Reset', (tester) async {
+        await openEditor(tester, page.value.build());
+        final controls = _byTypeName(page.value.controlType);
+        final count = controls.evaluate().length;
+        expect(count, greaterThan(1));
+
+        await tester.tap(controls.first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Delete'));
+        await tester.pumpAndSettle();
+        expect(controls, findsNWidgets(count - 1));
+
+        await tester.tap(find.byTooltip('Buttons'));
+        await tester.pumpAndSettle();
+        expect(find.byType(GamepadControlsSheet), findsOneWidget);
+        // Exactly the deleted one is offered for adding back.
+        final hidden = find.ancestor(
+          of: find.byIcon(Icons.add_circle_outline_rounded),
+          matching: find.byType(InkWell),
+        );
+        expect(hidden, findsOneWidget);
+        await tester.tap(hidden);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+
+        expect(controls, findsNWidgets(count));
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
   });
 }

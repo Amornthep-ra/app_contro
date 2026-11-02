@@ -412,10 +412,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byKey(const ValueKey('gamepad-edit-more')), findsNothing);
-        // Joystick also has "Buttons" (add △ ✕ □ ○ / joysticks) after Done.
+        // "Buttons" (show or hide controls) follows Done on every page.
         final orderedLabels = <String>[
           'Done',
-          if (mode.key == 'joystick') 'Buttons',
+          'Buttons',
           'Lock',
           'Decrease size',
           'Increase size',

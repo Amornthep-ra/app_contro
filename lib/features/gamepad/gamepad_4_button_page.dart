@@ -28,6 +28,7 @@ import '../../core/ble/joystick_packet.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/routes/app_routes.dart';
 import 'control_mode_settings_page.dart';
+import 'widgets/gamepad_controls_sheet.dart';
 import 'widgets/gamepad_edit_shared.dart';
 import 'widgets/gamepad_telemetry_chip.dart';
 import '../bluetooth/widgets/pairing_code_dialog.dart';
@@ -503,6 +504,52 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final id = _selectedId;
     if (id == null) return;
     _toggleActive(id);
+  }
+
+  bool _controlsSheetOpen = false;
+
+  Future<void> _openButtonsMenu() async {
+    if (_controlsSheetOpen || !mounted) return;
+    _controlsSheetOpen = true;
+    try {
+      await showGamepadControlsSheet(
+        context: context,
+        groups: const [
+          GamepadControlGroup(
+            title: 'Arrows',
+            choices: [
+              GamepadControlChoice(
+                id: 'F:forward',
+                label: 'Forward',
+                asset: kGamepad8AssetUp,
+              ),
+              GamepadControlChoice(
+                id: 'F:backward',
+                label: 'Backward',
+                asset: kGamepad8AssetDown,
+              ),
+              GamepadControlChoice(
+                id: 'F:left',
+                label: 'Left',
+                asset: kGamepad8AssetLeft,
+              ),
+              GamepadControlChoice(
+                id: 'F:right',
+                label: 'Right',
+                asset: kGamepad8AssetRight,
+              ),
+            ],
+          ),
+        ],
+        isActive: (id) => _activeIds.contains(id),
+        onToggle: (id) {
+          gamepadBuzz();
+          _toggleActive(id);
+        },
+      );
+    } finally {
+      _controlsSheetOpen = false;
+    }
   }
 
   Map<String, _ButtonLayout> _cloneLayout(Map<String, _ButtonLayout> src) {
@@ -1837,6 +1884,18 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           accent: const Color(0xFF60A5FA),
           onTap: _toggleEdit,
         ),
+        // Show or hide controls, e.g. bring back one that was deleted
+        // without resetting the whole layout.
+        _toolIconPill(
+          key: const ValueKey('gamepad-edit-controls'),
+          icon: Icons.videogame_asset_outlined,
+          label: 'Buttons',
+          accent: const Color(0xFF34D399),
+          onTap: () {
+            gamepadBuzz();
+            _openButtonsMenu();
+          },
+        ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
@@ -1920,7 +1979,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
               controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: media.size.width - media.padding.horizontal,
-              toolbarItemCount: _editMode ? 9 : null,
+              toolbarItemCount: _editMode ? 10 : null,
               singleRowToolbar: _editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,
