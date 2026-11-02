@@ -1,133 +1,155 @@
-# UI Handoff — Splash & Home (2026-11-02)
+# UI Handoff — PB Controller (updated 2026-11-02)
 
-Branch: `release/2.1.0-android`
+> **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 4 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection และหน้า Controller (4 BTN / 8 BTN / Joystick)
+> งานทั้งหมดอยู่ที่ branch `claude/home-lavender-glass` (แตกจาก `release/2.1.0-android`) และ push แล้ว แต่ยังไม่ได้เปิด PR
+> test ผ่าน 260 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง หน้าถัดไปที่ยังไม่ได้รีวิวคือ LineSonic (PID Tuning / Read Sensor)
+> **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
-## 1. Splash Screen — DONE
+---
 
-- Source images:
-  - `assets/Logo/splash_logo.png` — 1152×1152, transparent, D-pad + "PB CONTROLLER" (iOS + Android ≤11, shown at 288dp/pt)
-  - `assets/Logo/splash_android12.png` — 1152×1152, transparent, D-pad + PB only, fits inside the 768px Android 12 mask circle
-- Old `assets/Logo/Splash_Screen.png` removed (had a Gemini ✦ watermark, full-bleed square, 3.6 MB).
-- `pubspec.yaml` → `flutter_native_splash`: background `#EDE3F6` (lavender, sampled from `BG_Portrait.png` so launch → Home has no colour jump), no `*_dark` keys (dark = light), `web: false`.
-- `splash_logo.png` text "PB CONTROLLER" recoloured to deep violet `#4A308C` without the cyan glow (the glow was unreadable on lavender). D-pad unchanged. The Android 12 icon (`splash_android12.png`) is D-pad only and was not changed.
-- Regenerated with `dart run flutter_native_splash:remove` + `create`.
-- Splash PNG size: Android ~16 MB → 3.7 MB, iOS ~6 MB → 0.7 MB.
+## 0. Start here (next session)
 
-Gotchas when regenerating:
-- The plugin rewrites `ios/Runner/Info.plist` (indentation only) — `git checkout -- ios/Runner/Info.plist` afterwards.
-- `remove` leaves `drawable-night*/launch_background.xml` with **no logo layer** → dark mode on Android ≤11 shows an empty screen. Delete `drawable-night/` and `drawable-night-v21/` after `create` (already done).
-- PIL quantization (256 colors) visibly bands the neon glow — don't use it. Use `pngquant` if more compression is needed.
+| Item | Value |
+|---|---|
+| Working branch | `claude/home-lavender-glass` (pushed, up to date) |
+| Based on | `origin/release/2.1.0-android` (v2.1.1+21) |
+| PR | **not opened yet** — target would be `release/2.1.0-android` |
+| `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use) |
+| Tests | `flutter test` → 260 passing; `flutter analyze lib test` → no issues |
+| Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
-Not yet verified on a real device: Android ≤11, Android 12+, iOS small screen (SE/mini), dark mode.
+### Owner rules (must keep)
+1. **Do not change anything the Arduino library depends on**: BLE packets/commands, button IDs and names, joystick axis directions (Y- is up, Y+ down), the △ ○ ✕ □ face buttons, and the CMD / DRV / TRN / X / Y telemetry text and numbers.
+2. **Keep the backgrounds** `assets/BG_Portrait.png` (portrait pages) and `assets/BG.png` (control pages) unchanged. Restyle everything else to match them.
+3. English-only UI (`LanguageController` is locked to English on this branch).
 
-## 2. Home page (`lib/features/home/home_page.dart`) — IMPLEMENTED (Lavender Glass)
+### Commits on the branch (oldest → newest)
+| Commit | What |
+|---|---|
+| `9c500d1` | Home → Lavender Glass + ambient animated background |
+| `3f25a4e` | Lavender native splash |
+| `181728c` | Shared design system moved to `lib/core/ui/lavender_glass.dart` |
+| `3e9b062` | BLE Connection page restyle + layout bug fixes |
+| `d340293` | Shared 40 px `CatBackButton` (BLE + LineSonic) |
+| `3651aab` | Controller phase 1 — Start/Stop prominence, locked-control look |
+| `9f68f3d` | Controller phase 2 — toolbar: Back left, Settings right |
+| `bab2601` | Controller phase 3 — speed panel / Settings / editor hint to glass |
+| `a7c2aaf` | Controller phase 4 — veil over corner cats on short screens |
+| `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
 
-Constraint from owner: **keep `assets/BG_Portrait.png` as is** (pastel lavender, cat theme). Everything else must match the BG and feel premium.
+### Suggested next steps
+1. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android and iPhone landscape safe areas.
+2. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
+3. Open a PR `claude/home-lavender-glass` → `release/2.1.0-android` when the owner asks.
 
-Verdict: not premium yet. Findings, by impact:
+---
 
-1. **Bug — clipped square shadows** under BLE card, Controller and LineSonic cards. `boxShadow` lives on `Ink` inside `Card` (`home_page.dart` ~L501, ~L1010); shadow is clipped by the Material bounds → hard rectangular edges. Fix: move shadow to an outer `DecoratedBox`/`Container` around the card.
-2. **Palette scattered** — 4 accent families (blue `#6F8FFF`, mint `#45D6A1`, orange `#FFB56B`, purple→cyan gradient). Mint and orange clash with lavender BG.
-3. **Controller / LineSonic cards are empty** — 112 tall, tiny icon + title only, flat saturated fill hides the BG.
-4. **Mixed icon styles** — `assets/icons/HomeUnified/*` 3D PNGs mixed with Material icons (facebook, download, open_in_new, bluetooth); Facebook icon is orange.
-5. **No brand presence / generic typography** — Roboto everywhere, plain 18pt AppBar title. `Kanit` is already in `assets/fonts/` but not registered in `pubspec.yaml`.
-6. **"No recent device yet" card** is a low-value empty state taking a full row.
-7. **Version footer logo** — `logo_corner.png` (dark neon) at 0.42 opacity becomes a grey blob on lavender.
-8. Dead code: all `isDark` branches — `main.dart` has no `darkTheme`, app is always light.
-9. Minor: `isThai ? 'X' : 'X'` strings are identical in both branches.
+## 1. How we worked (tooling notes)
 
-Keep: information hierarchy (BLE status → main nav → secondary links), purple→cyan Scan button, content not covering the cat art at the bottom.
-
-### Proposed direction — "Lavender Glass"
-
-- Cards: frosted glass (`BackdropFilter` blur + white ~55% + thin white border), BG visible through.
-- Palette: primary violet `#7256B6`, single accent cyan `#37D8FF`, text deep plum `#261B39`. Drop mint/orange.
-- Controller / LineSonic: add subtitles ("Gamepad · Joystick", "PID · Sensor"), icon 40–48.
-- Header: Kanit, small logo mark beside title, secondary greeting line.
-- Secondary links: merge Contact + Arduino into one grouped list card with dividers, single icon style.
-- Merge recent device into the BLE card (Reconnect when a last device exists, hide otherwise).
-- Fix the shadow bug; delete dark-mode branches.
-
-### Implemented (2026-11-02)
-
-Owner approved "keep the BG, restyle everything else, animated BG welcome".
-
-- `widgets/home_glass.dart` — `HomePalette` (violet `#7256B6` → cyan `#37D8FF`, ink `#261B39`), `GlassPanel` (backdrop blur + white glass + light rim; shadow painted only *outside* the rounded shape, so finding 1 is gone), `GradientActionButton`, `GlassActionButton`.
-- `widgets/home_backdrop.dart` — `HomeBackdrop`: the untouched `BG_Portrait.png` plus an optional ambient-motion layer (drifting aurora light, twinkles on the sparkles already painted in the art, breathing glow on the collar / paw sign / cat-house door, floating motes). ~30 fps timer; stops when Home is covered by another page, when the app is backgrounded, and when the OS "remove animations" setting is on. `HomePage(animateBackground: false)` turns it off. Off by default under `flutter test`.
-- Header: logo badge + Kanit title + "Robot remote by PrinceBot". The transparent AppBar gets a frosted strip once content scrolls under it (no more text overlapping the title).
-- BLE hero card: status orb (spins while busy), device name as title when connected + signal bars + "Manage connection" button; hint line when not connected; **Reconnect** next to **Scan devices** when a last device exists. The separate "No recent device yet" card is removed.
-- Controller / LineSonic: glass tiles tinted violet / cyan, 3D icon at 54 px, subtitles, arrow badge; single-column fallback below 314 px width.
-- Contact + Arduino Library merged into one "Resources" glass list with matching violet line icons.
-- Version line is text only (`PB Controller · vX`), no fallback version string.
-- Content is capped at 560 px wide on tablets; spacing is on a 16 px rhythm.
-- Pull-to-refresh (which used to open the BLE page) was removed; Scan devices is the entry point.
-- Kanit Regular/Bold registered in `pubspec.yaml` (used for titles only).
-- Dead `isDark` / `isThai` branches removed from Home.
-
-Not yet verified on a real device: blur/animation smoothness on low-end Android, iOS.
-
-### Resolved
-
-- Splash vs Home theme jump: owner chose a lavender splash (see section 1).
-
-### How the screenshot was taken
-
+### Flutter in the cloud container
+```bash
+mkdir -p /opt/flutter-sdk && cd /opt/flutter-sdk
+curl -sSfL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.9-stable.tar.xz -o flutter.tar.xz
+tar -xf flutter.tar.xz && rm flutter.tar.xz
+git config --global --add safe.directory /opt/flutter-sdk/flutter
+export PATH=/opt/flutter-sdk/flutter/bin:$PATH
 ```
-flutter build apk --debug
-adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
-adb -s emulator-5554 shell monkey -p com.pbcontroller.app -c android.intent.category.LAUNCHER 1
-adb -s emulator-5554 exec-out screencap -p > home.png
+- `flutter pub get` / `flutter analyze` rewrite `analysis_options.yaml` and bump SDK-pinned entries in `pubspec.lock`. **Revert both before committing**: `git checkout -- analysis_options.yaml pubspec.lock`.
+
+### Line endings (important)
+Many Dart files are **CRLF** (e.g. `home_page.dart`, `bluetooth_ble_page.dart`, the three control pages, `gamepad_app_bar.dart`); some are LF; `connection_status_badge.dart` and `ble_pairing_prompt_wiring_test.dart` are **mixed**. Preserve each file's endings or the diff explodes. Edit by normalising to LF, changing, then restoring CRLF; for mixed files patch at byte level. Only run `dart format` on files you touched (formatting a whole folder reformats unrelated files).
+
+### Rendering screenshots without a device
+Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit it**) that:
+- loads real fonts with `FontLoader` (`assets/fonts/Roboto/static/*.ttf`, `assets/fonts/Kanit/*`, and Material icons from `/opt/flutter-sdk/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf`),
+- sets `tester.view.physicalSize` / `devicePixelRatio` (phone portrait 1080×2400 @ 2.625; landscape 914×411 logical; small 640×360),
+- pumps the page, `precacheImage`s every `Image` inside `tester.runAsync`, then captures a `RepaintBoundary` with `toImage` and writes a PNG.
+- Use fixed `pump(Duration)` calls, not `pumpAndSettle`, when a spinner/pulse is running. Animated cross-fades need ~1 s of pumps after a state change or you capture the old frame.
+- `AmbientMotion.enabledByDefault = true` in the harness to see pulses/motion (it is off under `flutter test`).
+
+### Testing gotchas found
+- The default test font is much wider than real fonts. Layout-fit tests (toolbar rows) must load Roboto (see `test/control_start_stop_test.dart`).
+- A `Completer` created in `setUp` completes outside the fake-async zone; create it inside the test body.
+- 8 BTN edit-mode items are not hit-testable by `tester.tap` at 844×390 (true before these changes too).
+
+---
+
+## 2. Design system — "Lavender Glass"
+
+- `lib/core/ui/lavender_glass.dart`
+  - `LavenderPalette`: background `#F3EEFF`, ink `#261B39` (+ soft/muted alphas), violet `#7256B6`, violetBright `#8B6CF2`, cyan `#37D8FF`, success `#1FBF95`, warning `#F2A33A`, coral `#F05264`; `brandGradient` violet→cyan; display font `Kanit` (Regular/Bold registered in `pubspec.yaml`, titles only).
+  - `GlassPanel` (backdrop blur, white glass, light rim; shadow drawn only outside the rounded shape), `GradientActionButton` / `GlassActionButton` (with `busy` spinner, `accent`), `LavenderChip`, `showLavenderConfirmDialog`, `FrostedBarBackground` (frosted app-bar strip shown when content scrolls under it).
+- `lib/core/ui/ambient_motion.dart` — `AmbientMotion.enabledFor(context)`: decorative loops are off under `flutter test` and when the OS "remove animations" setting is on.
+- `lib/core/widgets/`: `ble_status_orb.dart`, `signal_bars.dart`, `cat_back_button.dart` (40 px `Back.png` in a 48 px target; `leadingWidthFor(padding)` aligns it with content), `control_background.dart`, `control_start_stop.dart`, `gamepad_edit_hint.dart`.
+
+---
+
+## 3. Splash — DONE
+
+- `flutter_native_splash` background `#EDE3F6` (sampled from `BG_Portrait.png`) for Android, Android 12 and iOS; no `*_dark` keys; `web: false`.
+- `assets/Logo/splash_logo.png`: "PB CONTROLLER" wordmark recoloured to deep violet `#4A308C` without the cyan glow (unreadable on lavender). D-pad unchanged. `splash_android12.png` (D-pad only) unchanged.
+- Regenerate: `dart run flutter_native_splash:create`, then `git checkout -- ios/Runner/Info.plist` (plugin only rewrites indentation/line endings).
+- Older gotchas: `remove` leaves `drawable-night*/launch_background.xml` without a logo — delete `drawable-night/` and `drawable-night-v21/` after `create`. Don't quantise PNGs with PIL (bands the glow); use `pngquant`.
+
+Not yet verified on a real device: Android ≤11, Android 12+, iOS.
+
+---
+
+## 4. Home (`lib/features/home/home_page.dart`) — DONE
+
+- `widgets/home_backdrop.dart` — `HomeBackdrop`: untouched `BG_Portrait.png` + optional ambient motion (drifting aurora light, twinkles on the painted sparkles, breathing glow on collar / paw sign / cat-house door, floating motes). ~30 fps timer; pauses when Home is covered, when the app is backgrounded, and with reduce-motion. `HomePage(animateBackground: false)` disables it.
+- Header: logo badge + Kanit title + "Robot remote by PrinceBot"; frosted strip when scrolled.
+- BLE hero card: status orb, hint text, **Reconnect** + **Scan devices** when a last device exists, device name + signal + Manage when connected. The old "No recent device yet" card is merged into it.
+- Controller / LineSonic glass tiles with subtitles; Contact + Arduino Library grouped into a "Resources" list; version line `PB Controller · vX`; content max width 560; pull-to-refresh (which opened the BLE page) removed; dead `isDark`/`isThai` code removed.
+- Tests: `test/home_backdrop_test.dart` (motion pauses when covered / backgrounded / reduce-motion).
+
+---
+
+## 5. BLE Connection (`lib/features/bluetooth/bluetooth_ble_page.dart`) — DONE
+
+- Fixed: status text centred away from its icon; empty device panel stretching to the bottom; "Last device" Connect active while already connected; "Tap scan to begin" shown while scanning.
+- Status card with the shared orb; full-width **Scan devices**; countdown + **Stop** while scanning; when connected: security state in words, **Pair code** or a "Paired" chip, **Disconnect**.
+- Coral only for real problems. Robots sorted by signal level then name, signal bars, "Last used" chip, spinner on the row being connected. "Forget device" in a ⋯ menu with a glass confirmation. Glass "Bluetooth is off" dialog. Coordinator logic unchanged.
+- Tests: `test/ble_page_ui_test.dart`; `ble_pairing_prompt_wiring_test.dart` paired case checks "Paired" is a label.
+
+---
+
+## 6. Controller pages (4 BTN / 8 BTN / Joystick) — DONE
+
+Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dart` (8 BTN), `lib/features/joystick/joystick/presentation/joystick.dart`, `control_mode_settings_page.dart`, shared widgets in `lib/core/widgets/`.
+
+### Toolbar
 ```
+[Back] [Start/Stop]   Speed · CMD/telemetry · BLE   [Settings]
+```
+- `GamepadControlLayout.measure(context, labels, leadingCount: 2)` + `GamepadControlRows`: Back and Start/Stop are pinned left (16 px safety gaps), Settings pinned right, the rest centred. Rows still wrap at large text.
+- Start/Stop (`ControlStartStopButton`) is 48 px like Back/Settings. Next to Back on purpose: Back also stops control before leaving; Settings does not. Stop has a red halo; Start has a breathing green ring while control is off.
+- "Tap Start to drive" (`ControlStartHint`) sits just under the toolbar pointing at Start — only when the toolbar is a single row and (on 4/8 BTN) the speed panel is closed.
+- **Start/Stop placement editing was removed** (owner request): no `EditableStartStopSurface` / `StartStopPlacement` / `StartStopObstacle` any more. Old saved `*_start_stop` prefs and the `startStop` key in presets are ignored; reset still removes the old pref.
+- Compact Bluetooth wording: only when the toolbar would otherwise wrap, the BLE badge uses `BlePresentationState.shortLabel` ("Checking…", "Unavailable", "Needs permission", "Turning on…", "Turning off…"); screen readers keep the full label. Result: Joystick stays on one row at 640×360. 8 BTN still wraps at 640 (its CMD text is long — pre-existing).
 
-## 3. BLE Connection page (`lib/features/bluetooth/bluetooth_ble_page.dart`) — IMPLEMENTED (Lavender Glass)
+### Pad
+- `ControlInputGate`: locked controls (before Start / while suspended) are desaturated at 0.72 opacity; tapping them shows the "Tap Start to drive" notice; control state is kept across lock/unlock.
+- `ControlBackground`: same `BG.png`; on screens shorter than 400 px a soft lavender veil fades the bottom-corner cats (full at 340 px). Control positions untouched.
 
-Shared design system now lives in `lib/core/ui/lavender_glass.dart` (`LavenderPalette`, `GlassPanel`, `GradientActionButton` / `GlassActionButton` with `busy`, `LavenderChip`, `showLavenderConfirmDialog`, `FrostedBarBackground`) plus `lib/core/widgets/ble_status_orb.dart` and `signal_bars.dart`. Home and BLE page both use them.
+### Chrome
+- 8 BTN speed panel: light glass; DRV / TRN labels kept, small "Drive" / "Turn" captions added. 4 BTN Lo/Med/Hi menu unchanged.
+- Settings page: violet selection instead of pink.
+- Layout editor: `GamepadEditHint` under the edit toolbar ("Tap a control to select it · Long-press a tool to see its name" → "Drag to move · − / + to resize · Done when finished"). Edit toolbar icons/tooltips unchanged.
 
-Bugs fixed:
-- Status text was centred away from its icon (`AnimatedSwitcher` default layout) → left-aligned.
-- "Discovered devices" panel stretched to the bottom when empty → hugs its content.
-- "Last device" Connect stayed active while already connected to it → shows a "Connected" chip.
-- "Tap scan to begin" shown while scanning → text follows the state (scanning / connecting to X / idle).
-
-UX:
-- Status card: same status orb as Home; full-width gradient **Scan devices**; while scanning a countdown pill + **Stop**; when connected the security state in words, **Pair code** (gradient) or a "Paired" chip, and **Disconnect** (coral glass). All actions ≥ 44 px tall.
-- Coral is used only for real problems (pairing needed/failed, firmware, weak signal), not for "not connected".
-- Robots sorted by signal level then name (no jumping on every RSSI tick), signal bars, "Last used" chip, spinner on the row being connected while other rows are disabled.
-- "Forget device" moved into a ⋯ menu and asks for confirmation (also says it will disconnect when connected).
-- "Bluetooth is off" uses the glass confirm dialog.
-- Last-device card stacks its action under the name on narrow screens / large text.
-- Dead `_t` / `isThai` / `isDark` code and the "Pair QR" string remap removed. BLE logic in the coordinator is unchanged.
-
-Tests: `test/ble_page_ui_test.dart` (alignment, states, compact empty list, Connected chip, Forget confirmation, row spinner, small phone at 1.3× text, sort order). `ble_pairing_prompt_wiring_test.dart` "paired" case now checks that "Paired" is a label with no way to reopen the prompt.
-
-### Back button
-
-`lib/core/widgets/cat_back_button.dart` — shared `CatBackButton`: `Back.png` at 40 px (was 24 px, the arrow was ~6 px and hard to see) in a 48 px tap target. Pages set `leadingWidth: CatBackButton.leadingWidthFor(<page padding>)` with `leading: CatBackButton.leading()` so the icon lines up with the content's left edge. Used on BLE Connection (20) and LineSonic (16). The control-page toolbar back pill (28 px) is a separate style and was not changed.
-
-## 4. Controller pages (4 BTN / 8 BTN / Joystick) — IMPLEMENTED (phases 1–4)
-
-Rule from owner: **do not change anything the Arduino library depends on** — packets, button IDs/names, axis directions (Y- is up), △○✕□ face buttons, and the CMD / DRV / TRN / X / Y telemetry text all stay as they are.
-
-### Phase 1 — Start/Stop and locked controls (done)
-- `StartStopPlacement.defaultScale` = 1.5 → Start/Stop is 72 px (was 48). Saved data now carries `"v": 2`. Older versions auto-saved `scale: 1` on every visit, so a legacy `1.0` is treated as "never resized" and gets the new default; any other legacy size, or anything saved by this version, is kept.
-- Emergency Stop has a red halo.
-- While control is off: "Tap Start to drive" label next to Start and a breathing green ring (ring respects reduce-motion and is off under `flutter test`, via `lib/core/ui/ambient_motion.dart`, which Home's backdrop now uses too).
-- `ControlInputGate`: locked controls are desaturated at 0.72 opacity instead of 0.4 grey; a tap on the locked pad shows the "Tap Start to drive" notice (`onLockedTap`). Child state is kept across lock/unlock with a GlobalKey.
-
-### Phase 2 — control toolbar (done)
-- `GamepadControlRows`: Back is pinned to the left edge and Settings to the right edge; Speed / telemetry / BLE stay centred between them. Widths and gaps still come from `GamepadControlLayout.measure`, so wrapping at large text is unchanged (each row pins whichever end it holds).
-- Back/Settings in this toolbar were already 48 px icons, so their size is unchanged. Telemetry chips already use the light glass pill and keep their exact text and 12 pt font.
-- "Tap Start to drive" label: measured with the real text style, text capped at 1.3×, and only placed above/below Start where it clears every control by 12 px × text scale; otherwise it is hidden (the tap notice still explains).
-
-### Phase 3 — chrome to Lavender Glass (done)
-- 8 BTN speed panel: dark slab → light glass panel; DRV / TRN labels kept (dark ink now) with small "Drive" / "Turn" captions underneath; slider ticks in violet. Cat assets unchanged. The 4 BTN Lo/Med/Hi menu was already light and its green/amber/red speed colours stay.
-- Settings page: pink selection (`#F472D0`) → `LavenderPalette.violet`, selected tile tinted lavender. Text unchanged.
-- Layout editor: `GamepadEditHint` (`lib/core/widgets/gamepad_edit_hint.dart`) floats under the edit toolbar — "Tap a control to select it · Long-press a tool to see its name", then "Drag to move · − / + to resize · Done when finished" once something is selected. It ignores touches and sits behind controls. Toolbar icons and tooltips unchanged (tests rely on them).
-
-### Phase 4 — short screens (done)
-- `ControlBackground` (`lib/core/widgets/control_background.dart`) replaces the three pages' `Image.asset(BG.png)`; the artwork is unchanged. Below 400 px of height a soft lavender radial veil fades the bottom-corner cats (full strength at 340 px) so controls placed there stay readable. Control positions are not touched (users' saved layouts stay valid).
+### Tests
+`test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), plus the existing toolbar/joystick/review tests.
 
 ### Not changed on purpose (Arduino library)
-- Joystick axis direction and Y-/Y+ labels, △○✕□ face buttons, packets, button IDs, CMD/DRV/TRN/X/Y telemetry text.
+Joystick axes and Y-/Y+ labels, △○✕□ face buttons, packets, button IDs, CMD/DRV/TRN/X/Y telemetry text.
 
-Not yet verified on a real device: pulse/hint on low-end Android, iPhone landscape safe areas.
+### Not yet verified on a real device
+Start/Stop from the toolbar while driving (thumb reach in landscape), pulse smoothness on low-end Android, iPhone landscape safe areas, layouts users saved in older versions.
+
+---
+
+## 7. Open questions for the owner
+- △○✕□ face buttons resemble PlayStation symbols — possible trademark question for a store release; left unchanged because the Arduino library uses them.
+- Joystick Y- is "up" (matches the packets); clearer forward/back labelling would need coordination with the library examples.
+- 8 BTN toolbar wraps to two rows on 640 px screens because of its long CMD text; shortening it would change telemetry text (library rule), so it was left.
