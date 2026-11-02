@@ -8,7 +8,8 @@ Branch: `release/2.1.0-android`
   - `assets/Logo/splash_logo.png` — 1152×1152, transparent, D-pad + "PB CONTROLLER" (iOS + Android ≤11, shown at 288dp/pt)
   - `assets/Logo/splash_android12.png` — 1152×1152, transparent, D-pad + PB only, fits inside the 768px Android 12 mask circle
 - Old `assets/Logo/Splash_Screen.png` removed (had a Gemini ✦ watermark, full-bleed square, 3.6 MB).
-- `pubspec.yaml` → `flutter_native_splash`: background `#050910`, no `*_dark` keys (dark = light), `web: false`.
+- `pubspec.yaml` → `flutter_native_splash`: background `#EDE3F6` (lavender, sampled from `BG_Portrait.png` so launch → Home has no colour jump), no `*_dark` keys (dark = light), `web: false`.
+- `splash_logo.png` text "PB CONTROLLER" recoloured to deep violet `#4A308C` without the cyan glow (the glow was unreadable on lavender). D-pad unchanged. The Android 12 icon (`splash_android12.png`) is D-pad only and was not changed.
 - Regenerated with `dart run flutter_native_splash:remove` + `create`.
 - Splash PNG size: Android ~16 MB → 3.7 MB, iOS ~6 MB → 0.7 MB.
 
@@ -65,9 +66,9 @@ Owner approved "keep the BG, restyle everything else, animated BG welcome".
 
 Not yet verified on a real device: blur/animation smoothness on low-end Android, iOS.
 
-### Open decisions (ask owner)
+### Resolved
 
-- Splash is dark neon `#050910` while Home is pastel lavender → visible theme jump on launch. Keep neon splash, or switch splash background to lavender?
+- Splash vs Home theme jump: owner chose a lavender splash (see section 1).
 
 ### How the screenshot was taken
 
