@@ -3,7 +3,7 @@
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
 > รอบล่าสุด: ทำ BLE status sheet ตามแผนหัวข้อ 7 ครบทุกข้อ (หัวข้อตรงกับ badge, Scanning Ns + Stop, Close เห็นเสมอ, แถวหุ่นยนต์แบบหน้า BLE, Diagnostics แบบ A, Forget อยู่ในเมนู ⋯ และถามก่อน, ปุ่ม 48px)
-> PR #2 (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`) ยังเป็นงานรอบก่อน; งาน BLE status sheet อยู่ที่ branch `claude/quirky-albattani-uads8u` (= PR #2 + 5 commit) รอเจ้าของตัดสินใจว่าจะรวมเข้า PR #2 อย่างไร (ดูหัวข้อ 0)
+> งานทั้งหมดรวมงาน BLE status sheet อยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`) แล้ว; `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
 > test ผ่าน 305 ตัว และ `flutter analyze` ไม่เจอปัญหา ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
@@ -13,8 +13,7 @@
 
 | Item | Value |
 |---|---|
-| Latest work | `claude/quirky-albattani-uads8u` = `claude/admiring-tesla-o410lj` (`a4818cb`) + the 5 BLE status sheet commits (`aa0e05c` … `94038e1`) + this note. That session could only push to its own branch, so the sheet commits are **not on PR #2 yet**: fast-forward `claude/admiring-tesla-o410lj` to it (or open a PR into it) once the owner agrees. |
-| PR #2 head | `claude/admiring-tesla-o410lj` = `claude/home-lavender-glass` + the commits from `ea4b98b` on |
+| Working branch | `claude/admiring-tesla-o410lj` (PR #2 head) = `claude/home-lavender-glass` + the commits from `ea4b98b` on, including the BLE status sheet commits (`aa0e05c` … `94038e1`). `claude/quirky-albattani-uads8u` is the same commits (the session that built the sheet pushed there first, then fast-forwarded PR #2 with the owner's OK). |
 | Based on | `origin/release/2.1.0-android` (v2.1.1+21) |
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
@@ -50,7 +49,7 @@
 | `94038e1` | `test/ble_sheet_ui_test.dart` (17 tests, incl. 48 px targets) |
 
 ### Suggested next steps
-1. **Get the BLE status sheet onto PR #2** (section 7 is done on `claude/quirky-albattani-uads8u`): it is a fast-forward of `claude/admiring-tesla-o410lj`. Real-device check of the sheet on Android and iOS (the iOS path uses `showCupertinoModalPopup`).
+1. **Real-device check of the BLE status sheet** (section 7, done and on PR #2) on Android and iOS (the iOS path uses `showCupertinoModalPopup`).
 2. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
 3. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
 4. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
