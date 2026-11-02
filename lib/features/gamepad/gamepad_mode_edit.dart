@@ -1190,7 +1190,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           if (id == 'L:left') _left = false;
           if (id == 'L:right') _right = false;
         } else {
+          _pinActiveLayouts();
           _leftActive.add(id);
+          _placeOnFreeSpot(id);
         }
         _saveActive(_prefsActiveLeft, _leftActive);
       } else {
@@ -1205,7 +1207,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           if (id == 'R:square') _square = false;
           if (id == 'R:circle') _circle = false;
         } else {
+          _pinActiveLayouts();
           _rightActive.add(id);
+          _placeOnFreeSpot(id);
         }
         _saveActive(_prefsActiveRight, _rightActive);
       }
@@ -1216,6 +1220,58 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final id = _selectedId;
     if (id == null) return;
     _toggleActive(id, id.startsWith('L:'));
+  }
+
+  /// Saves where the buttons already on the pad are: their default spots
+  /// depend on which buttons are active, and adding one must not move them.
+  void _pinActiveLayouts() {
+    final panel = _panelSize;
+    if (panel == null) return;
+    final ids = _allActiveIds();
+    final defaults = _defaultLayoutForIds(panel, ids);
+    final next = Map<String, _ButtonLayout>.from(_layoutAll);
+    for (final id in ids) {
+      final def = defaults[id];
+      if (def != null) next.putIfAbsent(id, () => def);
+    }
+    _layoutAll = next;
+  }
+
+  /// Gives a button that was just added the free spot nearest to its
+  /// default one, so it never lands on a button that was moved there.
+  void _placeOnFreeSpot(String id) {
+    final panel = _panelSize;
+    if (panel == null) return;
+    final ids = _allActiveIds();
+    final def = _defaultLayoutForIds(panel, ids)[id];
+    if (def == null) return;
+    final w = panel.width;
+    final h = panel.height;
+    final unit = GamepadEditMetrics.panelUnit(panel);
+    final r = def.size * unit / 2;
+    final spot = GamepadEditMetrics.freeSpotFor(
+      preferred: Offset(def.cx * w, def.cy * h),
+      radius: r,
+      centreArea: Rect.fromLTRB(
+        GamepadEditMetrics.safeEdgePad + r,
+        GamepadEditMetrics.safeTopEdgePad + r,
+        w - GamepadEditMetrics.safeEdgePad - r,
+        h - GamepadEditMetrics.safeEdgePad - r,
+      ),
+      others: [
+        for (final other in ids)
+          if (other != id && _layoutAll[other] != null)
+            (
+              Offset(_layoutAll[other]!.cx * w, _layoutAll[other]!.cy * h),
+              _layoutAll[other]!.size * unit / 2,
+            ),
+      ],
+    );
+    _layoutAll = {
+      ..._layoutAll,
+      id: _ButtonLayout(spot.dx / w, spot.dy / h, def.size),
+    };
+    _saveLayout(_prefsLayoutAll, _layoutAll);
   }
 
   Widget _buildEditMenu({bool compact = false}) {
@@ -1311,8 +1367,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             ],
           ),
         ],
-        isActive: (id) =>
-            _leftActive.contains(id) || _rightActive.contains(id),
+        isActive: (id) => _leftActive.contains(id) || _rightActive.contains(id),
         onToggle: (id) {
           gamepadBuzz();
           _toggleActive(id, id.startsWith('L:'));

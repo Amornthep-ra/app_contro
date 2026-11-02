@@ -1,4 +1,5 @@
 // Layout editor: tool tap areas, grid/snap alignment and control spacing.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -108,6 +109,52 @@ void main() {
       );
       expect(grow(22), isFalse); // 8 dp gap left
       expect(grow(26), isTrue); // 4 dp gap left
+    });
+  });
+
+  group('GamepadEditMetrics.freeSpotFor', () {
+    const area = Rect.fromLTRB(20, 20, 300, 200);
+
+    test('keeps the preferred spot when it is free', () {
+      expect(
+        GamepadEditMetrics.freeSpotFor(
+          preferred: const Offset(100, 100),
+          radius: 20,
+          centreArea: area,
+          others: const [(Offset(200, 100), 20)],
+        ),
+        const Offset(100, 100),
+      );
+    });
+
+    test('moves to the nearest free grid point when taken', () {
+      final spot = GamepadEditMetrics.freeSpotFor(
+        preferred: const Offset(100, 100),
+        radius: 20,
+        centreArea: area,
+        others: const [(Offset(100, 100), 20)],
+      );
+      expect(spot.dx % GamepadEditMetrics.gridStep, 0);
+      expect(spot.dy % GamepadEditMetrics.gridStep, 0);
+      expect(
+        (spot - const Offset(100, 100)).distance - 40,
+        greaterThanOrEqualTo(GamepadEditMetrics.minControlGap),
+      );
+      // Nearest: no free grid point is closer to the preferred spot.
+      expect((spot - const Offset(100, 100)).distance, lessThan(72));
+      expect(area.contains(spot), isTrue);
+    });
+
+    test('falls back to the preferred spot when the pad is full', () {
+      expect(
+        GamepadEditMetrics.freeSpotFor(
+          preferred: const Offset(100, 100),
+          radius: 20,
+          centreArea: area,
+          others: const [(Offset(160, 110), 400)],
+        ),
+        const Offset(100, 100),
+      );
     });
   });
 
@@ -372,6 +419,153 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(controls, findsNWidgets(count));
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
+
+    void expectNoCrowding(WidgetTester tester, Finder controls) {
+      final rects = [
+        for (final element in controls.evaluate())
+          tester.getRect(find.byWidget(element.widget)),
+      ];
+      for (var i = 0; i < rects.length; i++) {
+        for (var j = i + 1; j < rects.length; j++) {
+          expect(
+            _gap(rects[i], rects[j]),
+            greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
+            reason: '${rects[i]} vs ${rects[j]}',
+          );
+        }
+      }
+    }
+
+    testWidgets('joystick: added buttons land on free spots, not on the '
+        'right joystick', (tester) async {
+      await openEditor(tester, const JoystickPage());
+      for (final label in ['Triangle', 'Cross', 'Square', 'Circle']) {
+        await tester.tap(find.byTooltip('Buttons'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text(label));
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+      }
+      expect(_byTypeName('_EditableButtonItem'), findsNWidgets(4));
+      expectNoCrowding(
+        tester,
+        find.byWidgetPredicate(
+          (w) =>
+              w.runtimeType.toString() == '_EditableButtonItem' ||
+              w.runtimeType.toString() == '_EditableJoystick',
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
+    // Saved layout: ↑ (Forward) is hidden and ← sits in ↑'s default spot.
+    final reAdd = <String, (String, String, String, String, List<String>)>{
+      'eight-button': (
+        'gp8_active_left',
+        'gp8_layout_all',
+        'L:up',
+        'L:left',
+        ['L:down', 'L:left', 'L:right'],
+      ),
+      'four-button': (
+        'gp4_active_all',
+        'gp4_layout_all',
+        'F:forward',
+        'F:left',
+        ['F:backward', 'F:left', 'F:right'],
+      ),
+    };
+    for (final entry in reAdd.entries) {
+      final page = _pages[entry.key]!;
+      final (activeKey, layoutKey, hiddenId, moverId, active) = entry.value;
+      testWidgets('${entry.key}: a re-added button does not land on one '
+          'that was moved to its spot', (tester) async {
+        // Where ↑ sits by default, as a fraction of the pad.
+        await openEditor(tester, page.build());
+        final panel = tester.getRect(_byTypeName(page.panelType!));
+        final controls = _byTypeName(page.controlType);
+        final rects = [
+          for (final e in controls.evaluate())
+            tester.getRect(find.byWidget(e.widget)),
+        ];
+        // ↑ is the top-most control on the left half of the pad.
+        final up = rects
+            .where((r) => r.center.dx < panel.center.dx)
+            .reduce((a, b) => a.top < b.top ? a : b);
+        final upFraction = Offset(
+          (up.center.dx - panel.left) / panel.width,
+          (up.center.dy - panel.top) / panel.height,
+        );
+        await closePage(tester);
+
+        SharedPreferences.setMockInitialValues({
+          activeKey: jsonEncode(active),
+          layoutKey: jsonEncode({
+            moverId: {'cx': upFraction.dx, 'cy': upFraction.dy, 'size': 0.30},
+          }),
+        });
+        await openEditor(tester, page.build());
+        final before = [
+          for (final e in controls.evaluate())
+            tester.getRect(find.byWidget(e.widget)),
+        ];
+        expect(
+          before.any((r) => (r.center - up.center).distance < 2),
+          isTrue,
+          reason: 'the mover should start in the hidden button\'s spot',
+        );
+
+        await tester.tap(find.byTooltip('Buttons'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.ancestor(
+            of: find.byIcon(Icons.add_circle_outline_rounded),
+            matching: find.byType(InkWell),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+        expect(
+          jsonDecode(
+            (await SharedPreferences.getInstance()).getString(activeKey)!,
+          ),
+          contains(hiddenId),
+        );
+
+        expect(controls, findsNWidgets(before.length + 1));
+        // The buttons already on the pad stay where they were.
+        final after = [
+          for (final e in controls.evaluate())
+            tester.getRect(find.byWidget(e.widget)),
+        ];
+        for (final rect in before) {
+          expect(
+            after.any((r) => (r.center - rect.center).distance < 0.5),
+            isTrue,
+            reason: 'moved: $rect',
+          );
+        }
+        // The re-added one keeps the minimum gap to every other control.
+        // (Hiding ↑ can let a 4 BTN default overlap another; that saved
+        // state is not what this test checks.)
+        final added = after.singleWhere(
+          (r) => !before.any((b) => (b.center - r.center).distance < 0.5),
+        );
+        for (final other in before) {
+          expect(
+            _gap(added, other),
+            greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
+            reason: '$added vs $other',
+          );
+        }
         expect(tester.takeException(), isNull);
         await closePage(tester);
       });

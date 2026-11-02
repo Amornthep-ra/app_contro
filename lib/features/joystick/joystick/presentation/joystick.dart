@@ -801,18 +801,53 @@ class _JoystickPageState extends State<JoystickPage> {
         if (_isLeftJoy(id)) _resetLeftJoystick();
         if (_isRightJoy(id)) _resetRightJoystick();
       } else {
-        _activeIds.add(id);
-        if (_panelSize != null) {
-          final defaults = _defaultLayout(_panelSize!, _activeIds);
-          final def = defaults[id];
-          if (def != null) {
-            _layout[id] = def;
+        final panel = _panelSize;
+        if (panel != null) {
+          // Pin what is already on the pad: default spots depend on which
+          // controls are active, and adding one must not move the others.
+          final before = _defaultLayout(panel, _activeIds);
+          for (final other in _activeIds) {
+            final def = before[other];
+            if (def != null) _layout.putIfAbsent(other, () => def);
           }
+        }
+        _activeIds.add(id);
+        if (panel != null) {
+          final def = _defaultLayout(panel, _activeIds)[id];
+          if (def != null) _layout[id] = _placeOnFreeSpot(id, def, panel);
         }
       }
     });
     _saveLayout();
     _saveActive();
+  }
+
+  /// [def] moved to the nearest spot that does not crowd the controls
+  /// already on the pad. New buttons used to land on the right joystick.
+  _JoyLayout _placeOnFreeSpot(String id, _JoyLayout def, Size panel) {
+    double radius(String key, _JoyLayout layout) =>
+        (_isButtonId(key) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+        layout.size /
+        2;
+    // Same edge rule as dragging a control on this page.
+    const edge = 16.0;
+    final w = panel.width;
+    final h = panel.height;
+    final r = radius(id, def);
+    final spot = GamepadEditMetrics.freeSpotFor(
+      preferred: Offset(def.cx * w, def.cy * h),
+      radius: r,
+      centreArea: Rect.fromLTRB(edge + r, edge + r, w - edge - r, h - edge - r),
+      others: [
+        for (final other in _activeIds)
+          if (other != id && _layout[other] != null)
+            (
+              Offset(_layout[other]!.cx * w, _layout[other]!.cy * h),
+              radius(other, _layout[other]!),
+            ),
+      ],
+    );
+    return _JoyLayout(spot.dx / w, spot.dy / h, def.size);
   }
 
   void _removeSelected() {

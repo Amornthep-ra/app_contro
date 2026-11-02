@@ -494,7 +494,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         if (id == 'F:left') _l = false;
         if (id == 'F:right') _r = false;
       } else {
+        _pinActiveLayouts();
         _activeIds.add(id);
+        _placeOnFreeSpot(id);
       }
       _saveActive(_prefsActiveAll, _activeIds);
     });
@@ -504,6 +506,72 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final id = _selectedId;
     if (id == null) return;
     _toggleActive(id);
+  }
+
+  Map<String, _BtnSpec> _fourButtonSpecs() => {
+    'F:forward': _BtnSpec('Forward', 'F', cfgForward(context)),
+    'F:backward': _BtnSpec('Backward', 'B', cfgBackward(context)),
+    'F:left': _BtnSpec('Left', 'L', cfgLeft(context)),
+    'F:right': _BtnSpec('Right', 'R', cfgRight(context)),
+  };
+
+  List<String> get _padIds =>
+      _activeIds.intersection(_supportedFourButtonIds).toList();
+
+  /// Saves where the arrows already on the pad are: their default spots
+  /// depend on which arrows are active, and adding one must not move them.
+  void _pinActiveLayouts() {
+    final panel = _panelSize;
+    if (panel == null) return;
+    final defaults = _defaultLayoutForIds(panel, _fourButtonSpecs(), _padIds);
+    final next = Map<String, _ButtonLayout>.from(_layoutAll);
+    for (final id in _padIds) {
+      final def = defaults[id];
+      if (def != null) next.putIfAbsent(id, () => def);
+    }
+    _layoutAll = next;
+  }
+
+  /// Gives an arrow that was just added the free spot nearest to its
+  /// default one, so it never lands on an arrow that was moved there.
+  void _placeOnFreeSpot(String id) {
+    final panel = _panelSize;
+    final cfg = _cfgForId(id);
+    if (panel == null || cfg == null) return;
+    final def = _defaultLayoutForIds(panel, _fourButtonSpecs(), _padIds)[id];
+    if (def == null) return;
+    final w = panel.width;
+    final h = panel.height;
+    final scaled = _scaledHoldCfg(cfg, def, panel);
+    final halfW = scaled.cfg.width / 2;
+    final halfH = scaled.cfg.height / 2;
+    (Offset, double)? circleOf(String other) {
+      final otherCfg = _cfgForId(other);
+      final layout = _layoutAll[other];
+      if (otherCfg == null || layout == null) return null;
+      final o = _scaledHoldCfg(otherCfg, layout, panel);
+      return (o.center, math.min(o.cfg.width, o.cfg.height) / 2);
+    }
+
+    final spot = GamepadEditMetrics.freeSpotFor(
+      preferred: scaled.center,
+      radius: math.min(halfW, halfH),
+      centreArea: Rect.fromLTRB(
+        GamepadEditMetrics.safeEdgePad + halfW,
+        GamepadEditMetrics.safeTopEdgePad + halfH,
+        w - GamepadEditMetrics.safeEdgePad - halfW,
+        h - GamepadEditMetrics.safeEdgePad - halfH,
+      ),
+      others: [
+        for (final other in _padIds)
+          if (other != id) ?circleOf(other),
+      ],
+    );
+    _layoutAll = {
+      ..._layoutAll,
+      id: _ButtonLayout(spot.dx / w, spot.dy / h, def.size),
+    };
+    _saveLayout(_prefsLayoutAll, _layoutAll);
   }
 
   bool _controlsSheetOpen = false;
@@ -2070,28 +2138,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                                                       _supportedFourButtonIds,
                                                     )
                                                     .toList(),
-                                                specs: {
-                                                  'F:forward': _BtnSpec(
-                                                    'Forward',
-                                                    'F',
-                                                    cfgForward(context),
-                                                  ),
-                                                  'F:backward': _BtnSpec(
-                                                    'Backward',
-                                                    'B',
-                                                    cfgBackward(context),
-                                                  ),
-                                                  'F:left': _BtnSpec(
-                                                    'Left',
-                                                    'L',
-                                                    cfgLeft(context),
-                                                  ),
-                                                  'F:right': _BtnSpec(
-                                                    'Right',
-                                                    'R',
-                                                    cfgRight(context),
-                                                  ),
-                                                },
+                                                specs: _fourButtonSpecs(),
                                                 layout: _layoutAll,
                                                 snapToGrid: _showGrid,
                                                 onLayoutChanged: (next) {
@@ -2128,28 +2175,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                                                       _supportedFourButtonIds,
                                                     )
                                                     .toList(),
-                                                specs: {
-                                                  'F:forward': _BtnSpec(
-                                                    'Forward',
-                                                    'F',
-                                                    cfgForward(context),
-                                                  ),
-                                                  'F:backward': _BtnSpec(
-                                                    'Backward',
-                                                    'B',
-                                                    cfgBackward(context),
-                                                  ),
-                                                  'F:left': _BtnSpec(
-                                                    'Left',
-                                                    'L',
-                                                    cfgLeft(context),
-                                                  ),
-                                                  'F:right': _BtnSpec(
-                                                    'Right',
-                                                    'R',
-                                                    cfgRight(context),
-                                                  ),
-                                                },
+                                                specs: _fourButtonSpecs(),
                                                 layout: _layoutAll,
                                                 onPressChanged: _onPressChanged,
                                               ),
