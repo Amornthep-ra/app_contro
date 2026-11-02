@@ -268,6 +268,7 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
         coordinator: _bleCoordinator,
         isBleConnected: () => _isBleConnected,
         enableBlePlatformBindings: widget.enableBlePlatformBindings,
+        presentationState: _presentationState,
       ),
     ).whenComplete(() {
       _sheetOpen = false;
@@ -312,6 +313,7 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
                     coordinator: _bleCoordinator,
                     isBleConnected: () => _isBleConnected,
                     enableBlePlatformBindings: widget.enableBlePlatformBindings,
+                    presentationState: _presentationState,
                   ),
                 ),
               ),

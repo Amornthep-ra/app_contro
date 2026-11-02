@@ -17,26 +17,10 @@ import '../../core/widgets/ble_status_orb.dart';
 import '../../core/widgets/cat_back_button.dart';
 import '../../core/widgets/portrait_background.dart';
 import '../../core/widgets/signal_bars.dart';
+import 'widgets/ble_connection_status.dart';
 import 'widgets/pairing_code_dialog.dart';
 
-@visibleForTesting
-String resolveBleConnectedDeviceName({
-  String? currentName,
-  String? currentId,
-  String? lastDeviceName,
-  String unknownName = 'Unknown',
-}) {
-  final name = currentName?.trim();
-  if (name != null && name.isNotEmpty) return name;
-
-  final id = currentId?.trim();
-  if (id != null && id.isNotEmpty) return id;
-
-  final lastName = lastDeviceName?.trim();
-  if (lastName != null && lastName.isNotEmpty) return lastName;
-
-  return unknownName;
-}
+export 'widgets/ble_connection_status.dart' show resolveBleConnectedDeviceName;
 
 @visibleForTesting
 bool isCurrentBleDeviceId({
@@ -588,7 +572,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
 
     final Widget detail;
     if (connected) {
-      detail = _buildSecurityLine();
+      detail = BleSecurityLine(state: _securityState);
     } else {
       final target = _connectingTargetName;
       final hint = connecting
@@ -670,60 +654,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
           _buildStatusActions(connected, connecting),
         ],
       ),
-    );
-  }
-
-  Widget _buildSecurityLine() {
-    final (label, color, icon) = switch (_securityState) {
-      BleControlSecurityState.ready => (
-        'Connected · ready to control',
-        LavenderPalette.success,
-        Icons.check_circle_rounded,
-      ),
-      BleControlSecurityState.pairingRequired => (
-        'Enter the pairing code to unlock control',
-        LavenderPalette.coral,
-        Icons.lock_outline_rounded,
-      ),
-      BleControlSecurityState.authenticating => (
-        'Connected · verifying…',
-        LavenderPalette.violet,
-        Icons.shield_outlined,
-      ),
-      BleControlSecurityState.authenticationFailed => (
-        'Pairing failed · enter the code again',
-        LavenderPalette.coral,
-        Icons.error_outline_rounded,
-      ),
-      BleControlSecurityState.unsupportedFirmware => (
-        'Secure firmware update required',
-        LavenderPalette.coral,
-        Icons.system_update_alt_rounded,
-      ),
-      BleControlSecurityState.disconnected => (
-        'Connected',
-        LavenderPalette.success,
-        Icons.check_circle_rounded,
-      ),
-    };
-    return Row(
-      children: [
-        Icon(icon, size: 15, color: color),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              height: 1.3,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
     );
   }
 
