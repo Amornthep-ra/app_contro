@@ -1,10 +1,10 @@
-# UI Handoff — PB Controller (updated 2026-11-02)
+# UI Handoff — PB Controller (updated 2026-11-02, BLE status sheet done)
 
-> **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 4 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection และหน้า Controller (4 BTN / 8 BTN / Joystick)
-> รอบล่าสุดเพิ่ม: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed (ไม่ดัน pad), หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริดจัตุรัส 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
-> งานทั้งหมดอยู่ที่ branch `claude/admiring-tesla-o410lj` ซึ่งเปิดเป็น **PR #2 → `release/2.1.0-android`** แล้ว (ยังไม่มี review, repo ไม่มี CI)
-> test ผ่าน 288 ตัว และ `flutter analyze` ไม่เจอปัญหา ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง
-> **งานถัดไปที่รอคำตอบเจ้าของ:** แผน BLE status sheet (หัวข้อ 7) — รีวิวแล้ว เขียนแผนแล้ว ยังไม่ได้แก้โค้ด
+> **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
+> รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
+> รอบล่าสุด: ทำ BLE status sheet ตามแผนหัวข้อ 7 ครบทุกข้อ (หัวข้อตรงกับ badge, Scanning Ns + Stop, Close เห็นเสมอ, แถวหุ่นยนต์แบบหน้า BLE, Diagnostics แบบ A, Forget อยู่ในเมนู ⋯ และถามก่อน, ปุ่ม 48px)
+> PR #2 (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`) ยังเป็นงานรอบก่อน; งาน BLE status sheet อยู่ที่ branch `claude/quirky-albattani-uads8u` (= PR #2 + 5 commit) รอเจ้าของตัดสินใจว่าจะรวมเข้า PR #2 อย่างไร (ดูหัวข้อ 0)
+> test ผ่าน 305 ตัว และ `flutter analyze` ไม่เจอปัญหา ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -13,12 +13,13 @@
 
 | Item | Value |
 |---|---|
-| Working branch | `claude/admiring-tesla-o410lj` (pushed, up to date) = `claude/home-lavender-glass` + the commits from `ea4b98b` on |
+| Latest work | `claude/quirky-albattani-uads8u` = `claude/admiring-tesla-o410lj` (`a4818cb`) + the 5 BLE status sheet commits (`aa0e05c` … `94038e1`) + this note. That session could only push to its own branch, so the sheet commits are **not on PR #2 yet**: fast-forward `claude/admiring-tesla-o410lj` to it (or open a PR into it) once the owner agrees. |
+| PR #2 head | `claude/admiring-tesla-o410lj` = `claude/home-lavender-glass` + the commits from `ea4b98b` on |
 | Based on | `origin/release/2.1.0-android` (v2.1.1+21) |
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 288 passing; `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 305 passing (288 + 17 in `test/ble_sheet_ui_test.dart`); `flutter analyze lib test` → no issues |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
 ### Owner rules (must keep)
@@ -41,10 +42,15 @@
 | `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
 | `ea4b98b` | 4/8 BTN speed panels float under Speed instead of pushing the pad down |
 | `23c28e5`, `a18fdb3`, `cf47bbf`, `9f439de` | Layout editor: full 48 px tool taps, square 24 dp grid aligned with snapping, 6 dp minimum control gap, tests |
-| `38ab1bf`, `08d2696` + this update | Handoff notes |
+| `38ab1bf`, `08d2696`, `a4818cb` | Handoff notes |
+| `aa0e05c` | BLE status sheet moved verbatim to `lib/core/widgets/ble_connection_sheet.dart` (LF), no behaviour change |
+| `b281f23` | Sheet header follows the badge; Scanning Ns + Stop; empty state; Close; fixed header/footer, 85% height in landscape |
+| `a135011` | Robot rows shared with the BLE page (`ble_device_row.dart`); "Connect <name>"; spinner only on the tapped row |
+| `798250e` | Diagnostics behind a footer button (option A) with Copy inside; Forget in a ⋯ menu with confirmation |
+| `94038e1` | `test/ble_sheet_ui_test.dart` (17 tests, incl. 48 px targets) |
 
 ### Suggested next steps
-1. **BLE status sheet** (section 7): reviewed and planned, waiting for the owner's answers (diagnostics option A/B, scope, OK to add to PR #2). The owner's usual reply "ตามที่แนะนำ" means: all commits, diagnostics option A, push to PR #2.
+1. **Get the BLE status sheet onto PR #2** (section 7 is done on `claude/quirky-albattani-uads8u`): it is a fast-forward of `claude/admiring-tesla-o410lj`. Real-device check of the sheet on Android and iOS (the iOS path uses `showCupertinoModalPopup`).
 2. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
 3. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
 4. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
@@ -73,7 +79,7 @@ export PATH=/opt/flutter-sdk/flutter/bin:$PATH
 - If your local branch has another name, push with `git push origin <local-branch>:claude/admiring-tesla-o410lj`, and make sure the local branch does **not** track `claude/home-lavender-glass` (a bare `git push` would land there).
 
 ### Line endings (important)
-Many Dart files are **CRLF** (e.g. `home_page.dart`, `bluetooth_ble_page.dart`, the three control pages, `gamepad_app_bar.dart`); some are LF; `connection_status_badge.dart` and `ble_pairing_prompt_wiring_test.dart` are **mixed**. Preserve each file's endings or the diff explodes. Edit by normalising to LF, changing, then restoring CRLF; for mixed files patch at byte level. Only run `dart format` on files you touched (formatting a whole folder reformats unrelated files).
+Many Dart files are **CRLF** (e.g. `home_page.dart`, `bluetooth_ble_page.dart`, the three control pages, `gamepad_app_bar.dart`); some are LF; `connection_status_badge.dart` and `ble_pairing_prompt_wiring_test.dart` are **mixed** (the badge's LF-only lines are in its pairing code). The BLE status sheet now lives in its own LF file, `ble_connection_sheet.dart`. For a pure-CRLF file, `sed -i 's/\r$//' f`, edit, then `sed -i 's/$/\r/' f` and check `git diff --stat` stays small. Preserve each file's endings or the diff explodes. Edit by normalising to LF, changing, then restoring CRLF; for mixed files patch at byte level. Only run `dart format` on files you touched (formatting a whole folder reformats unrelated files).
 
 ### Rendering screenshots without a device
 Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit it**) that:
@@ -89,7 +95,9 @@ Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit 
 - **Precache images before measuring or tapping controls.** Pad buttons size themselves from their images; until decoded under `flutter_test` they are 0×0, so they are not hit-testable and rects are wrong. (This was the cause of the old "8 BTN edit-mode items are not hit-testable" note; it is not an app bug.) `test/gamepad_edit_layout_test.dart` shows the `runAsync(() => precacheImage(...))` pattern.
 - Taps that call `gamepadBuzz()` need a mock for the `vibration` method channel, or the test fails with `MissingPluginException`.
 - Opening the layout editor in a test: tap the `Settings` tooltip, then the `Edit layout` text.
-- The BLE status sheet can be rendered with a fake `BleConnectionCoordinator` (`enableBlePlatformBindings: false`, `debugEmitForTesting(state)`), see `test/ble_pairing_prompt_wiring_test.dart`; fake `ScanResult`s as in `test/ble_page_ui_test.dart`.
+- The BLE status sheet can be rendered with a fake `BleConnectionCoordinator` (`enableBlePlatformBindings: false`, `debugEmitForTesting(state)`) and an injected badge `presentationState`, see `test/ble_sheet_ui_test.dart`. It has busy spinners while scanning/connecting, so step with `pump(Duration)` instead of `pumpAndSettle`. With `securityState: pairingRequired` and connected, the sheet closes itself for the automatic pairing prompt unless `coordinator.markPairingPromptPresented()` was called first.
+- `ButtonStyle.textStyle` replaces the theme's text style (font family included); give label `Text`s their own size/weight instead, or they fall back to the platform font (boxes under `flutter_test`).
+- A `ListTile` with `tileColor` paints on the nearest `Material`; inside a scroll view, give the scrolled content its own `Material(type: transparency)` or the colours paint outside the viewport.
 
 ---
 
@@ -99,7 +107,8 @@ Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit 
   - `LavenderPalette`: background `#F3EEFF`, ink `#261B39` (+ soft/muted alphas), violet `#7256B6`, violetBright `#8B6CF2`, cyan `#37D8FF`, success `#1FBF95`, warning `#F2A33A`, coral `#F05264`; `brandGradient` violet→cyan; display font `Kanit` (Regular/Bold registered in `pubspec.yaml`, titles only).
   - `GlassPanel` (backdrop blur, white glass, light rim; shadow drawn only outside the rounded shape), `GradientActionButton` / `GlassActionButton` (with `busy` spinner, `accent`), `LavenderChip`, `showLavenderConfirmDialog`, `FrostedBarBackground` (frosted app-bar strip shown when content scrolls under it).
 - `lib/core/ui/ambient_motion.dart` — `AmbientMotion.enabledFor(context)`: decorative loops are off under `flutter test` and when the OS "remove animations" setting is on.
-- `lib/core/widgets/`: `ble_status_orb.dart`, `signal_bars.dart`, `cat_back_button.dart` (40 px `Back.png` in a 48 px target; `leadingWidthFor(padding)` aligns it with content), `control_background.dart`, `control_start_stop.dart`, `gamepad_edit_hint.dart`.
+- `lib/features/bluetooth/widgets/`: `ble_device_row.dart` (`BleDeviceRow`, `BleRoundIcon`, `bleScanResultName`, `sortBleScanResults`) and `ble_connection_status.dart` (`BleSecurityLine`, `resolveBleConnectedDeviceName`), shared by the BLE page and the status sheet. `bluetooth_ble_page.dart` re-exports the helpers its tests import.
+- `lib/core/widgets/`: `ble_connection_sheet.dart` (`BleConnectionSheet`), `ble_status_orb.dart`, `signal_bars.dart`, `cat_back_button.dart` (40 px `Back.png` in a 48 px target; `leadingWidthFor(padding)` aligns it with content), `control_background.dart`, `control_start_stop.dart`, `gamepad_edit_hint.dart`.
 
 ---
 
@@ -175,31 +184,40 @@ Start/Stop from the toolbar while driving (thumb reach in landscape), pulse smoo
 
 ---
 
-## 7. BLE status sheet — REVIEWED, PLAN WAITING FOR THE OWNER (no code changed)
+## 7. BLE status sheet (`lib/core/widgets/ble_connection_sheet.dart`) — DONE
 
-The sheet that opens from the Bluetooth badge (`_ConnectionSheet` in `lib/core/widgets/connection_status_badge.dart`, used by the controller pages and LineSonic). It was not restyled with the BLE Connection page, so it lags behind it. Rendered at 914×411 with a fake coordinator.
+The sheet that opens from the Bluetooth badge (controller pages and LineSonic). Owner answered "ตามที่แนะนำ": all plan items, diagnostics option A. Rendered at 914×411 and 411×914 before and after.
 
-### Findings
-1. Shows "No devices found" while still scanning (`devices.isEmpty` ignores `_scanning`). The owner's device screenshot shows exactly this.
-2. Header says "Not connected" with a crossed-out Bluetooth icon while the toolbar badge says "Scanning…" (amber).
-3. The "Scanning..." pill is a disabled button that still looks tappable; there is no way to stop a scan.
-4. "Cancel" only closes the sheet. With 3 robots, Cancel/Forget and diagnostics fall below the fold (viewport y 138–385, Cancel at y 467): max height is 60% of the screen.
-5. Rows use `platformName` only (no `advName` fallback → MAC shown as the name, MAC repeated in the subtitle), raw "RSSI -52 dBm", unsorted, no "Last used", spinner on every row while connecting.
-6. "Connect last" does not name the robot (`lastDeviceName` is available).
-7. "BLE diagnostics" is a full-width row for everyone; its leading icon is a copy button (tap left = copy, tap elsewhere = expand). Diagnostics exist only in this sheet.
-8. "Forget" sits next to Cancel with no confirmation (the BLE page uses a ⋯ menu + confirmation).
-9. Buttons are 30–31 px tall (`minimumSize: Size(0, 30)`, `shrinkWrap`).
+### Findings (before) → what changed
+1. "No devices found" while still scanning → "Looking for robots…" while scanning, "No robots found yet" after, with the BLE page's hints.
+2. Header "Not connected" while the badge said "Scanning…" → the badge passes its `presentationState`; `resolveBleSheetPresentation` uses it, and the sheet's own scan/connect state only fills in while the badge is idle. Same status orb, title + hint; when connected: robot name + `BleSecurityLine`.
+3. Disabled "Scanning..." pill, no way to stop → "Scanning Ns" (busy) + **Stop** (`coordinator.stopScan()`).
+4. Cancel/diagnostics below the fold → "Close"; header and footer fixed, only the middle scrolls; max height 85% in landscape, 60% in portrait, capped to the safe area.
+5. MAC as the name, raw RSSI, unsorted, no "Last used", spinner on every row → shared `BleDeviceRow` / `sortBleScanResults` / `bleScanResultName`; spinner only on the tapped row (`_connectingDeviceId`), the others locked.
+6. "Connect last" → "Connect <name>" (scan list name, else the remembered name, else "Connect last robot"). On narrow sheets it takes the spare width and Scan shortens to "Scan".
+7. Diagnostics row for everyone with a hidden copy button → option A: "Diagnostics" text button at the left of the footer; opens the panel at the top of the list (scrolled into view) with **Copy** inside, which says "Copied" for 2 s (a snack bar would sit behind the sheet's barrier). Same fields.
+8. Forget next to Cancel with no confirmation → "Forget device" in a ⋯ menu next to Close, `showLavenderConfirmDialog` like the BLE page.
+9. 30 px buttons → every control is ≥ 48 px (Lavender 48 px buttons, 48 px text-button minimum, Material 48 px icon targets, rows ≥ 64 px). This landed with the restyled buttons in `b281f23`/`798250e`; `test/ble_sheet_ui_test.dart` measures it in both orientations.
 
-### Plan (one commit each)
-1. Status and close: header from `resolveBlePresentationState` (same as the badge); empty state copies the BLE page ("Looking for robots…" / "No robots found yet" + hints); "Scanning Ns" + **Stop** (`coordinator.stopScan()`); "Cancel" → "Close"; header and footer fixed, only the list scrolls; max height 85% in landscape (60% portrait).
-2. Rows: move `_DeviceRow`, `bleScanResultName`, `sortBleScanResults` from `bluetooth_ble_page.dart` to `lib/features/bluetooth/widgets/ble_device_row.dart` and use them in both places; track the connecting row; "Connect <lastDeviceName>".
-3. Diagnostics (recommended option A: small "Diagnostics" text button in the footer that expands; "Copy" inside the panel; option B: move to Settings) and Forget into a ⋯ menu with `showLavenderConfirmDialog`.
-4. 48 px tap targets for the sheet buttons.
-5. Tests in `test/ble_sheet_ui_test.dart` (states, Stop calls `stopScan`, Close visible with 5 robots at 914×411, sorting/Last used/spinner, Forget confirmation, diagnostics collapsed, 48 px), plus the existing BLE page tests after moving `_DeviceRow`; before/after screenshots at 914×411 and 411×914.
+### Layout
+```
+[orb] Title / hint                 [actions]     ← wide (landscape)
+───────────────────────────────────────────────
+(diagnostics panel when open)
+robot rows / empty state           ← only this scrolls
+───────────────────────────────────────────────
+[Diagnostics]                [⋯] [Close]
+```
+On narrow sheets (portrait, large text) the actions move under the title.
 
-Notes: `connection_status_badge.dart` has mixed line endings, so patch it at byte level. No coordinator/connection logic changes (Arduino rule safe).
+### Notes
+- Pair code stays a 48 px icon button with tooltip "Pair code"/"Paired" (existing pairing tests rely on it).
+- The status orb only spins when `AmbientMotion.enabledFor(context)` (off under `flutter test`, and with reduce-motion).
+- The sheet's barrier is still `Colors.black87` and the iOS path still uses `showCupertinoModalPopup`; unchanged.
+- No coordinator/connection logic changed (Arduino rule safe).
 
----
+### Not yet verified on a real device
+Opening the sheet from all three controller pages and LineSonic; Stop during a real scan; the iOS sheet (safe areas, height); "Copied" + clipboard on device; the Forget dialog over the sheet.
 
 ## 8. Open questions for the owner
 - △○✕□ face buttons resemble PlayStation symbols — possible trademark question for a store release; left unchanged because the Arduino library uses them.
