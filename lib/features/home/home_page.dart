@@ -1,19 +1,20 @@
 // lib/features/home/home_page.dart
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
+import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode_preference.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/widgets/ble_presentation_icon.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
@@ -21,39 +22,50 @@ import '../gamepad/gamepad_4_button_page.dart';
 import '../gamepad/gamepad_mode_edit.dart';
 import '../joystick/joystick/presentation/joystick.dart';
 import '../linesonic/linesonic_page.dart';
+import 'widgets/home_backdrop.dart';
+import 'widgets/home_glass.dart';
 
-class _HomePalette {
-  static const background = Color(0xFFF5F0FF);
-  static const controller = Color(0xFF6F8FFF);
-  static const lineSonic = Color(0xFF45D6A1);
-  static const guide = Color(0xFFFFB56B);
-  static const scanPurple = Color(0xFF7256B6);
-  static const scanCyan = Color(0xFF37D8FF);
-  static const deepPlum = Color(0xFF261B39);
-  static const coral = Color(0xFFF05264);
-  static const glass = Color(0xEAFDF9FF);
-  static const glassBorder = Color(0xCCFFFFFF);
-}
+const double _kToolbarHeight = 68;
+const double _kPagePadding = 20;
+const double _kContentMaxWidth = 560;
+const double _kSectionGap = 16;
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.blePageBuilder, this.blePresentationState});
+  const HomePage({
+    super.key,
+    this.blePageBuilder,
+    this.blePresentationState,
+    this.animateBackground,
+    this.backgroundFrameTime,
+  });
 
   final WidgetBuilder? blePageBuilder;
   final ValueListenable<BlePresentationState>? blePresentationState;
+
+  /// Ambient background motion. Null follows
+  /// [HomeBackdrop.motionEnabledByDefault].
+  final bool? animateBackground;
+
+  /// Renders one fixed background frame (for previews/screenshots).
+  final Duration? backgroundFrameTime;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage>
+    with SingleTickerProviderStateMixin {
   StreamSubscription<bool>? _connSub;
   Timer? _rssiTimer;
   Future<PackageInfo>? _infoFuture;
   late ValueListenable<BlePresentationState> _blePresentationState;
   BlePresentationStateController? _ownedBlePresentationState;
+  late final AnimationController _entrance;
+  late final List<CurvedAnimation> _reveals;
+  bool _entranceStarted = false;
 
-  bool _connected = false;
   bool _openingPage = false;
+  bool _scrolled = false;
   int? _rssi;
   String? _lastDeviceId;
   String? _lastDeviceName;
@@ -63,16 +75,41 @@ class _HomePageState extends State<HomePage> {
   static final _facebookPageUri = Uri.parse(
     'https://www.facebook.com/PrinceBotAndElectronics',
   );
+  static final _arduinoLibraryUri = Uri.parse(
+    'https://github.com/Amornthep-ra/PB-BLE-And-Line-Follower.git',
+  );
 
   @override
   void initState() {
     super.initState();
     unawaited(OrientationUtils.request(AppOrientation.portrait));
-    _connected = BleManager.instance.isConnected;
     _infoFuture = PackageInfo.fromPlatform();
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _reveals = List<CurvedAnimation>.generate(4, (index) {
+      final start = index * 0.12;
+      return CurvedAnimation(
+        parent: _entrance,
+        curve: Interval(start, start + 0.6, curve: Curves.easeOutCubic),
+      );
+    });
     _bindBlePresentationState();
     _loadLastDevice();
     _bindConnection();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_entranceStarted) return;
+    _entranceStarted = true;
+    if (_motionEnabled) {
+      _entrance.forward();
+    } else {
+      _entrance.value = 1;
+    }
   }
 
   @override
@@ -81,6 +118,10 @@ class _HomePageState extends State<HomePage> {
     _rssiTimer?.cancel();
     _blePresentationState.removeListener(_onBlePresentationChanged);
     _ownedBlePresentationState?.dispose();
+    for (final reveal in _reveals) {
+      reveal.dispose();
+    }
+    _entrance.dispose();
     super.dispose();
   }
 
@@ -93,6 +134,11 @@ class _HomePageState extends State<HomePage> {
       _bindBlePresentationState();
     }
   }
+
+  bool get _motionEnabled =>
+      widget.backgroundFrameTime == null &&
+      (widget.animateBackground ?? HomeBackdrop.motionEnabledByDefault) &&
+      !(MediaQuery.maybeDisableAnimationsOf(context) ?? false);
 
   void _bindBlePresentationState() {
     _ownedBlePresentationState = widget.blePresentationState == null
@@ -110,9 +156,6 @@ class _HomePageState extends State<HomePage> {
   void _bindConnection() {
     _connSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
-      setState(() {
-        _connected = connected;
-      });
       if (connected) {
         _startRssiPolling();
         _loadLastDevice();
@@ -121,7 +164,7 @@ class _HomePageState extends State<HomePage> {
       }
     });
 
-    if (_connected) {
+    if (BleManager.instance.isConnected) {
       _startRssiPolling();
     }
   }
@@ -181,69 +224,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _handleRefresh() async {
-    await _openBlePage();
-  }
-
-  Future<void> _connectLastDevice(bool isThai) async {
-    if (_lastDeviceId == null || _lastDeviceId!.isEmpty) return;
-    _showSnack(
-      isThai
-          ? 'Reconnecting to the last device...'
-          : 'Reconnecting to the last device...',
-    );
-    await BleConnectionCoordinator.instance.autoConnectLastDevice(
-      timeout: const Duration(seconds: 8),
-      source: 'home_reconnect',
-      userInitiated: true,
-    );
-  }
-
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          msg,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        backgroundColor: Colors.black87,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  String _connectedName() {
-    final name = BleManager.instance.currentDeviceName;
-    if (name != null && name.isNotEmpty) return name;
-    final id = BleManager.instance.currentDeviceId;
-    if (id != null && id.isNotEmpty) return id;
-    if (_lastDeviceName != null && _lastDeviceName!.isNotEmpty) {
-      return _lastDeviceName!;
-    }
-    return _lastDeviceId ?? 'Unknown';
-  }
-
-  Color _rssiColor(BuildContext context, int rssi) {
-    if (rssi >= -65) return const Color(0xFF22C55E);
-    if (rssi >= -80) return const Color(0xFFF59E0B);
-    return const Color(0xFFEF4444);
-  }
-
-  Widget _homeIcon(String name, {double size = 24}) {
-    return Image.asset(
-      'assets/icons/HomeUnified/$name',
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-    );
-  }
-
   Future<void> _openLastControl() async {
     if (_openingPage) return;
     setState(() => _openingPage = true);
@@ -271,690 +251,912 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openNavItem(_NavItem item) =>
-      item.onTap?.call() ?? _openPage(item.page!);
-
-  Future<void> _openFacebookPage(bool isThai) async {
-    try {
-      final opened = await launchUrl(
-        _facebookPageUri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened) {
-        _showSnack(
-          isThai ? 'Unable to open Facebook.' : 'Unable to open Facebook.',
-        );
-      }
-    } catch (_) {
-      _showSnack(
-        isThai ? 'Unable to open Facebook.' : 'Unable to open Facebook.',
-      );
-    }
-  }
-
-  Future<void> _openArduinoLibrary() async {
-    try {
-      final opened = await launchUrl(
-        Uri.parse('https://github.com/Amornthep-ra/PB-BLE-And-Line-Follower.git'),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened) _showSnack('Unable to open the library link.');
-    } catch (_) {
-      _showSnack('Unable to open the library link.');
-    }
-  }
-
-  Color _contentTextColor(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? Theme.of(context).colorScheme.onSurface
-      : _HomePalette.deepPlum;
-
-  Widget _rssiBars(BuildContext context, int rssi, {double size = 16}) {
-    final level = rssi >= -55
-        ? 4
-        : rssi >= -65
-        ? 3
-        : rssi >= -75
-        ? 2
-        : rssi >= -85
-        ? 1
-        : 0;
-    final active = _rssiColor(context, rssi);
-    final inactive = active.withAlpha(60);
-    final barWidth = (size / 6).clamp(2.0, 5.0).toDouble();
-    final gap = (size / 10).clamp(2.0, 4.0).toDouble();
-    final heights = <double>[
-      size * 0.35,
-      size * 0.55,
-      size * 0.75,
-      size * 0.95,
-    ];
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(4, (i) {
-        final color = i < level ? active : inactive;
-        return Container(
-          width: barWidth,
-          height: heights[i],
-          margin: EdgeInsets.only(right: i == 3 ? 0 : gap),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
+  Future<void> _connectLastDevice() async {
+    if (!_hasLastDevice) return;
+    _showSnack('Reconnecting to ${_lastDeviceLabel ?? 'the last device'}…');
+    await BleConnectionCoordinator.instance.autoConnectLastDevice(
+      timeout: const Duration(seconds: 8),
+      source: 'home_reconnect',
+      userInitiated: true,
     );
+  }
+
+  Future<void> _openExternal(Uri uri, String failureMessage) async {
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) _showSnack(failureMessage);
+    } catch (_) {
+      _showSnack(failureMessage);
+    }
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            msg,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          backgroundColor: HomePalette.ink.withValues(alpha: 0.92),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+  }
+
+  bool get _hasLastDevice => _lastDeviceId != null && _lastDeviceId!.isNotEmpty;
+
+  String? get _lastDeviceLabel {
+    final name = _lastDeviceName;
+    if (name != null && name.isNotEmpty) return name;
+    return _hasLastDevice ? _lastDeviceId : null;
+  }
+
+  String _connectedName() {
+    final name = BleManager.instance.currentDeviceName;
+    if (name != null && name.isNotEmpty) return name;
+    final id = BleManager.instance.currentDeviceId;
+    if (id != null && id.isNotEmpty) return id;
+    return _lastDeviceLabel ?? 'Unknown device';
+  }
+
+  bool _handleScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final scrolled = notification.metrics.pixels > 4;
+    if (scrolled != _scrolled) setState(() => _scrolled = scrolled);
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: LanguageController.isThai,
-      builder: (context, isThai, _) {
-        final items = _navItems(isThai);
-        final contentTopPadding =
-            MediaQuery.paddingOf(context).top + kToolbarHeight + 16;
+    final media = MediaQuery.of(context);
+    final topInset = media.padding.top + _kToolbarHeight + 6;
 
-        return Scaffold(
-          extendBodyBehindAppBar: true,
-          appBar: AppBar(
-            title: const Text(
-              'PB Controller',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            centerTitle: false,
-            titleSpacing: 16,
-            automaticallyImplyLeading: false,
-            actions: const [],
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            scrolledUnderElevation: 0,
-            systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
-                ? SystemUiOverlayStyle.light
-                : SystemUiOverlayStyle.dark,
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      backgroundColor: HomePalette.background,
+      appBar: AppBar(
+        toolbarHeight: _kToolbarHeight,
+        title: const _BrandHeader(),
+        centerTitle: false,
+        titleSpacing: _kPagePadding,
+        automaticallyImplyLeading: false,
+        actions: const [],
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        flexibleSpace: _FrostedBar(visible: _scrolled),
+        systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          HomeBackdrop(
+            animate: widget.animateBackground,
+            frameTime: widget.backgroundFrameTime,
           ),
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              const ColoredBox(color: _HomePalette.background),
-              Image.asset(
-                AppAssets.controlBackgroundPortrait,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
-              ),
-              RefreshIndicator(
-                onRefresh: _handleRefresh,
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          contentTopPadding,
-                          16,
-                          12,
-                        ),
-                        child: _buildConnectionCard(context, isThai),
-                      ),
+          BackdropGroup(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScroll,
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      _kPagePadding,
+                      topInset,
+                      _kPagePadding,
+                      24 + media.padding.bottom,
                     ),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                        child: _buildNavGrid(context, items),
-                      ),
-                    ),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                        child: _buildRecentCard(context, isThai),
-                      ),
-                    ),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        child: _buildVersionInfo(context),
-                      ),
-                    ),
-                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  List<_NavItem> _navItems(bool isThai) {
-    return [
-      _NavItem(
-        title: isThai ? 'Controller' : 'Controller',
-        iconAsset: 'Controller-Gamepad.png',
-        accent: _HomePalette.controller,
-        onTap: _openLastControl,
-      ),
-      _NavItem(
-        title: isThai ? 'LineSonic' : 'LineSonic',
-        iconAsset: 'LineSonic-PID Tuning.png',
-        accent: _HomePalette.lineSonic,
-        page: const LineSonicPage(),
-      ),
-      _NavItem(
-        title: isThai ? 'Contact' : 'Contact',
-        subtitle: isThai ? 'Follow us on Facebook' : 'Follow us on Facebook',
-        icon: Icons.facebook,
-        accent: _HomePalette.guide,
-        onTap: () => _openFacebookPage(isThai),
-      ),
-      _NavItem(
-        title: 'Arduino IDE Library',
-        subtitle: 'Download from GitHub',
-        icon: Icons.download_rounded,
-        accent: _HomePalette.guide,
-        onTap: _openArduinoLibrary,
-      ),
-    ];
-  }
-
-  Widget _buildConnectionCard(BuildContext context, bool isThai) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final presentation = _blePresentationState.value;
-    final connected = presentation.isConnected;
-    final tone = presentation.tone;
-    final name = _connectedName();
-    final rssi = _rssi;
-    final rssiText = rssi != null ? '$rssi dBm' : '-- dBm';
-
-    final gradient = isDark
-        ? LinearGradient(
-            colors: [
-              Theme.of(context).colorScheme.primaryContainer.withAlpha(220),
-              Theme.of(context).colorScheme.primaryContainer.withAlpha(120),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          )
-        : const LinearGradient(
-            colors: [_HomePalette.glass, Color(0xDDF6F0FF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          );
-
-    return Card(
-      color: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: gradient,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: isDark
-                ? Theme.of(context).colorScheme.outlineVariant
-                : _HomePalette.glassBorder,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _HomePalette.scanPurple.withAlpha(isDark ? 38 : 48),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: switch (tone) {
-                    BlePresentationTone.connected =>
-                      _HomePalette.scanCyan.withAlpha(isDark ? 48 : 60),
-                    BlePresentationTone.busy =>
-                      _HomePalette.scanPurple.withAlpha(isDark ? 44 : 36),
-                    BlePresentationTone.failure => _HomePalette.coral.withAlpha(
-                      isDark ? 44 : 36,
-                    ),
-                    BlePresentationTone.neutral =>
-                      _HomePalette.scanPurple.withAlpha(isDark ? 44 : 36),
-                  },
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: connected
-                    ? _homeIcon('Bluetooth Connected.png', size: 24)
-                    : presentation.kind == BlePresentationKind.bluetoothOff
-                    ? _homeIcon('Bluetooth Disabled.png', size: 24)
-                    : Icon(
-                        materialIconForBlePresentation(presentation.icon),
-                        size: 24,
-                        color: tone == BlePresentationTone.failure
-                            ? _HomePalette.coral
-                            : _HomePalette.scanPurple,
-                      ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Semantics(
-                      container: true,
-                      liveRegion: true,
-                      label: connected
-                          ? '${presentation.semanticLabel}, $name'
-                          : presentation.semanticLabel,
-                      excludeSemantics: true,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isThai ? 'BLE Connection' : 'BLE Connection',
-                            style: TextStyle(
-                              color: isDark
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant
-                                  : _HomePalette.deepPlum.withAlpha(180),
-                              fontSize: isThai ? 15 : 12,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    sliver: SliverToBoxAdapter(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: _kContentMaxWidth,
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            connected
-                                ? '${presentation.label} · $name'
-                                : presentation.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: connected
-                                  ? _contentTextColor(context)
-                                  : tone == BlePresentationTone.failure
-                                  ? _HomePalette.coral
-                                  : _HomePalette.deepPlum,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _Reveal(
+                                animation: _reveals[0],
+                                child: _buildConnectionCard(),
+                              ),
+                              const SizedBox(height: _kSectionGap),
+                              _Reveal(
+                                animation: _reveals[1],
+                                child: _buildDestinations(),
+                              ),
+                              const SizedBox(height: _kSectionGap + 8),
+                              _Reveal(
+                                animation: _reveals[2],
+                                child: _buildResources(),
+                              ),
+                              const SizedBox(height: _kSectionGap + 4),
+                              _Reveal(
+                                animation: _reveals[3],
+                                child: _buildVersionInfo(),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (connected)
-                      Row(
-                        children: [
-                          _rssiBars(context, rssi ?? -100, size: 16),
-                          const SizedBox(width: 6),
-                          Text(
-                            rssiText,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant
-                                  : _HomePalette.deepPlum.withAlpha(170),
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-              if (!connected)
-                Flexible(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          _HomePalette.scanPurple,
-                          _HomePalette.scanCyan,
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _HomePalette.scanPurple.withAlpha(92),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
                         ),
-                      ],
-                    ),
-                    child: FilledButton.icon(
-                      onPressed: _openBlePage,
-                      icon: _homeIcon('Search-Scan.png', size: 21),
-                      label: Text(
-                        isThai ? 'Scan devices' : 'Scan devices',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
-                        textStyle: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0,
-                        ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ),
-                )
-              else
-                Column(
-                  children: [
-                    _rssiBars(context, rssi ?? -100, size: 26),
-                    const SizedBox(height: 4),
-                    Text(
-                      isThai ? 'RSSI' : 'RSSI',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark
-                            ? Theme.of(context).colorScheme.onSurfaceVariant
-                            : _HomePalette.deepPlum.withAlpha(170),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavGrid(BuildContext context, List<_NavItem> items) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final spacing = 12.0;
-        final width = constraints.maxWidth;
-        final half = (width - spacing) / 2;
-        final singleColumn = half < 140;
-
-        return Column(
-          children: [
-            if (singleColumn) ...[
-              SizedBox(
-                width: width,
-                child: _NavCard(
-                  item: items[0],
-                  height: 104,
-                  wide: true,
-                  enabled: !_openingPage,
-                  onTap: () => _openNavItem(items[0]),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: width,
-                child: _NavCard(
-                  item: items[1],
-                  height: 104,
-                  wide: true,
-                  enabled: !_openingPage,
-                  onTap: () => _openNavItem(items[1]),
-                ),
-              ),
-            ] else
-              Row(
-                children: [
-                  SizedBox(
-                    width: half,
-                    child: _NavCard(
-                      item: items[0],
-                      height: 112,
-                      enabled: !_openingPage,
-                      onTap: () => _openNavItem(items[0]),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: half,
-                    child: _NavCard(
-                      item: items[1],
-                      height: 112,
-                      enabled: !_openingPage,
-                      onTap: () => _openNavItem(items[1]),
                     ),
                   ),
                 ],
               ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.center,
-              child: SizedBox(
-                width: width > 420 ? 420 : width,
-                child: _SecondaryNavAction(
-                  item: items[2],
-                  enabled: !_openingPage,
-                  onTap: () => _openNavItem(items[2]),
-                ),
-              ),
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.center,
-              child: SizedBox(
-                width: width > 420 ? 420 : width,
-                child: _SecondaryNavAction(
-                  actionKey: const ValueKey('home-arduino-library-action'),
-                  item: items[3],
-                  enabled: !_openingPage,
-                  onTap: () => _openNavItem(items[3]),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildRecentCard(BuildContext context, bool isThai) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hasLast = _lastDeviceId != null && _lastDeviceId!.isNotEmpty;
+  // ---------------------------------------------------------------------------
+  // BLE connection hero card
+  // ---------------------------------------------------------------------------
 
-    if (!hasLast) {
-      return Card(
-        color: isDark ? null : _HomePalette.glass,
-        surfaceTintColor: isDark ? null : Colors.transparent,
-        elevation: isDark ? 1 : 0,
-        shadowColor: _HomePalette.scanPurple.withAlpha(34),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Row(
-            children: [
-              _homeIcon('Recent Activity-History.png', size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isThai ? 'No recent device yet' : 'No recent device yet',
+  String? _connectionHint(BlePresentationState presentation) {
+    final last = _lastDeviceLabel;
+    return switch (presentation.kind) {
+      BlePresentationKind.notConnected =>
+        last != null
+            ? 'Last device · $last'
+            : 'Power on your robot, then scan to pair.',
+      BlePresentationKind.bluetoothOff =>
+        'Turn on Bluetooth to find your robot.',
+      BlePresentationKind.permissionNeeded =>
+        'Allow Bluetooth access to continue.',
+      BlePresentationKind.unavailable =>
+        'Bluetooth LE is not available on this phone.',
+      BlePresentationKind.reconnectFailed =>
+        last != null ? 'Could not reach $last.' : 'Try scanning again.',
+      BlePresentationKind.scanning => 'Looking for nearby robots…',
+      BlePresentationKind.connecting ||
+      BlePresentationKind.reconnecting => last,
+      _ => null,
+    };
+  }
+
+  Widget _buildConnectionCard() {
+    final presentation = _blePresentationState.value;
+    final connected = presentation.isConnected;
+    final failure = presentation.tone == BlePresentationTone.failure;
+    final name = connected ? _connectedName() : null;
+    final hint = connected ? null : _connectionHint(presentation);
+    final canReconnect =
+        !connected &&
+        _hasLastDevice &&
+        (presentation.kind == BlePresentationKind.notConnected ||
+            presentation.kind == BlePresentationKind.reconnectFailed);
+
+    final status = Semantics(
+      container: true,
+      liveRegion: true,
+      label: connected
+          ? '${presentation.semanticLabel}, $name'
+          : presentation.semanticLabel,
+      excludeSemantics: true,
+      child: Row(
+        children: [
+          _StatusOrb(presentation: presentation, animate: _motionEnabled),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'BLE Connection',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: HomePalette.inkSoft,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
                   ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  connected ? name! : presentation.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: HomePalette.displayFont,
+                    fontSize: 21,
+                    height: 1.25,
+                    fontWeight: FontWeight.w700,
+                    color: failure ? HomePalette.coral : HomePalette.ink,
+                  ),
+                ),
+                if (connected) ...[
+                  const SizedBox(height: 4),
+                  _ConnectedLine(rssi: _rssi),
+                ] else if (hint != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    hint,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: HomePalette.inkSoft,
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return GlassPanel(
+      radius: 28,
+      padding: const EdgeInsets.all(18),
+      tint: HomePalette.violetBright,
+      tintStrength: 0.08,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (connected)
+            Row(
+              children: [
+                Expanded(child: status),
+                const SizedBox(width: 8),
+                _RoundGlassIconButton(
+                  icon: Icons.tune_rounded,
+                  tooltip: 'Manage connection',
+                  onPressed: _openBlePage,
+                ),
+              ],
+            )
+          else ...[
+            status,
+            const SizedBox(height: 18),
+            if (canReconnect)
+              Row(
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: GlassActionButton(
+                      label: 'Reconnect',
+                      icon: Icons.refresh_rounded,
+                      onPressed: _connectLastDevice,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 5,
+                    child: GradientActionButton(
+                      label: 'Scan devices',
+                      icon: Icons.search_rounded,
+                      onPressed: _openBlePage,
+                    ),
+                  ),
+                ],
+              )
+            else
+              GradientActionButton(
+                label: 'Scan devices',
+                icon: Icons.search_rounded,
+                onPressed: _openBlePage,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main destinations
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDestinations() {
+    _DestinationTile controller({bool wide = false}) => _DestinationTile(
+      title: 'Controller',
+      subtitle: 'Gamepad · Joystick',
+      iconAsset: 'Controller-Gamepad.png',
+      tint: HomePalette.violetBright,
+      accentInk: HomePalette.violet,
+      enabled: !_openingPage,
+      onTap: _openLastControl,
+      wide: wide,
+    );
+    _DestinationTile lineSonic({bool wide = false}) => _DestinationTile(
+      title: 'LineSonic',
+      subtitle: 'PID tuning · Sensors',
+      iconAsset: 'LineSonic-PID Tuning.png',
+      tint: HomePalette.cyan,
+      tintStrength: 0.15,
+      accentInk: HomePalette.cyanDeep,
+      enabled: !_openingPage,
+      onTap: () => _openPage(const LineSonicPage()),
+      wide: wide,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 14.0;
+        final singleColumn = (constraints.maxWidth - gap) / 2 < 150;
+        if (singleColumn) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              controller(wide: true),
+              const SizedBox(height: gap),
+              lineSonic(wide: true),
+            ],
+          );
+        }
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: controller()),
+              const SizedBox(width: gap),
+              Expanded(child: lineSonic()),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resources (external links)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildResources() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 6, bottom: 10),
+          child: Text(
+            'Resources',
+            style: TextStyle(
+              color: HomePalette.inkSoft,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+        GlassPanel(
+          radius: 24,
+          shadowStrength: 0.75,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _LinkRow(
+                actionKey: const ValueKey('home-contact-action'),
+                icon: Icons.facebook_rounded,
+                title: 'Contact',
+                subtitle: 'Follow us on Facebook',
+                enabled: !_openingPage,
+                onTap: () =>
+                    _openExternal(_facebookPageUri, 'Unable to open Facebook.'),
+              ),
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 72,
+                endIndent: 18,
+                color: HomePalette.ink.withValues(alpha: 0.07),
+              ),
+              _LinkRow(
+                actionKey: const ValueKey('home-arduino-library-action'),
+                icon: Icons.download_rounded,
+                title: 'Arduino IDE Library',
+                subtitle: 'Download from GitHub',
+                enabled: !_openingPage,
+                onTap: () => _openExternal(
+                  _arduinoLibraryUri,
+                  'Unable to open the library link.',
                 ),
               ),
             ],
           ),
         ),
-      );
-    }
+      ],
+    );
+  }
 
-    return Card(
-      color: isDark ? null : _HomePalette.glass,
-      surfaceTintColor: isDark ? null : Colors.transparent,
-      elevation: isDark ? 2 : 0,
-      shadowColor: _HomePalette.scanPurple.withAlpha(34),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _homeIcon('Recent Activity-History.png', size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  isThai ? 'Recent Activity' : 'Recent Activity',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (!hasLast)
-              Text(
-                isThai ? 'No recent device yet' : 'No recent device yet',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              )
-            else
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _lastDeviceName ?? _lastDeviceId ?? '-',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+  Widget _buildVersionInfo() {
+    return FutureBuilder<PackageInfo>(
+      future: _infoFuture,
+      builder: (context, snapshot) {
+        final version = snapshot.data?.version;
+        return SizedBox(
+          height: 20,
+          child: version == null
+              ? null
+              : Center(
+                  child: Text(
+                    'PB Controller  ·  v$version',
                     style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _lastDeviceId ?? '-',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                      color: HomePalette.inkMuted,
                       fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonal(
-                        onPressed: () => _connectLastDevice(isThai),
-                        child: Text(isThai ? 'Reconnect' : 'Reconnect'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _openBlePage,
-                        icon: _homeIcon('Search-Scan.png', size: 36),
-                        label: Text(isThai ? 'Scan' : 'Scan'),
-                      ),
+                ),
+        );
+      },
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Header
+// -----------------------------------------------------------------------------
+
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    const logoSize = 40.0;
+    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: logoSize,
+          height: logoSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: HomePalette.violetDeep.withValues(alpha: 0.30),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: ClipOval(
+            child: Image.asset(
+              AppAssets.cornerLogo,
+              fit: BoxFit.cover,
+              // The source is 2048 px; decode only what is displayed.
+              cacheWidth: (logoSize * dpr).round(),
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        const Flexible(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PB Controller',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: HomePalette.displayFont,
+                  fontSize: 23,
+                  height: 1.15,
+                  fontWeight: FontWeight.w700,
+                  color: HomePalette.ink,
+                ),
+              ),
+              Text(
+                'Robot remote by PrinceBot',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.2,
+                  fontWeight: FontWeight.w500,
+                  color: HomePalette.inkSoft,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Frosted strip behind the header, shown only once content scrolls under it.
+class _FrostedBar extends StatelessWidget {
+  const _FrostedBar({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: ClipRect(
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: SizedBox.expand(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      HomePalette.background.withValues(alpha: 0.88),
+                      HomePalette.background.withValues(alpha: 0.70),
                     ],
                   ),
-                ],
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
               ),
-          ],
+            ),
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildVersionInfo(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: FutureBuilder<PackageInfo>(
-        future: _infoFuture,
-        builder: (context, snapshot) {
-          final version = snapshot.data?.version ?? '2.1.0';
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Opacity(
-                opacity: 0.42,
-                child: ClipOval(
-                  child: Image.asset(
-                    AppAssets.cornerLogo,
-                    width: 24,
-                    height: 24,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'v$version',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : _HomePalette.deepPlum.withAlpha(176),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          );
-        },
+class _Reveal extends StatelessWidget {
+  const _Reveal({required this.animation, required this.child});
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: animation,
+      alwaysIncludeSemantics: true,
+      child: AnimatedBuilder(
+        animation: animation,
+        child: child,
+        builder: (context, child) => Transform.translate(
+          offset: Offset(0, 18 * (1 - animation.value)),
+          child: child,
+        ),
       ),
     );
   }
 }
 
-class _NavItem {
-  final String title;
-  final String? subtitle;
-  final String? iconAsset;
-  final IconData? icon;
-  final Color accent;
-  final Widget? page;
-  final Future<void> Function()? onTap;
+// -----------------------------------------------------------------------------
+// Connection pieces
+// -----------------------------------------------------------------------------
 
-  const _NavItem({
-    required this.title,
-    this.subtitle,
-    this.iconAsset,
-    this.icon,
-    required this.accent,
-    this.page,
-    this.onTap,
-  });
+class _StatusOrb extends StatefulWidget {
+  const _StatusOrb({required this.presentation, required this.animate});
+
+  final BlePresentationState presentation;
+  final bool animate;
+
+  @override
+  State<_StatusOrb> createState() => _StatusOrbState();
 }
 
-class _NavCard extends StatefulWidget {
-  final _NavItem item;
-  final double height;
-  final bool wide;
-  final bool enabled;
-  final VoidCallback onTap;
+class _StatusOrbState extends State<_StatusOrb>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
 
-  const _NavCard({
-    required this.item,
-    required this.height,
+  @override
+  void initState() {
+    super.initState();
+    _syncSpin();
+  }
+
+  @override
+  void didUpdateWidget(_StatusOrb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncSpin();
+  }
+
+  void _syncSpin() {
+    final busy = widget.presentation.isBusy && widget.animate;
+    if (busy && !_spin.isAnimating) {
+      _spin.repeat();
+    } else if (!busy && _spin.isAnimating) {
+      _spin.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 58.0;
+    final presentation = widget.presentation;
+    final tone = presentation.tone;
+    final icon = materialIconForBlePresentation(presentation.icon);
+    final filled =
+        tone == BlePresentationTone.connected ||
+        tone == BlePresentationTone.busy;
+
+    final Decoration decoration = switch (tone) {
+      BlePresentationTone.connected ||
+      BlePresentationTone.busy => BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [HomePalette.violet, HomePalette.cyan],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: HomePalette.cyan.withValues(alpha: 0.45),
+            blurRadius: 18,
+            spreadRadius: -2,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      BlePresentationTone.failure => BoxDecoration(
+        shape: BoxShape.circle,
+        color: HomePalette.coral.withValues(alpha: 0.12),
+        border: Border.all(color: HomePalette.coral.withValues(alpha: 0.30)),
+      ),
+      BlePresentationTone.neutral => BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.95),
+            const Color(0xFFEDE5FF),
+          ],
+        ),
+        border: Border.all(color: Colors.white),
+        boxShadow: [
+          BoxShadow(
+            color: HomePalette.violetDeep.withValues(alpha: 0.14),
+            blurRadius: 18,
+            spreadRadius: -4,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+    };
+
+    final iconColor = switch (tone) {
+      BlePresentationTone.failure => HomePalette.coral,
+      BlePresentationTone.neutral => HomePalette.violet,
+      _ => Colors.white,
+    };
+
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(child: DecoratedBox(decoration: decoration)),
+          if (filled)
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(3),
+                child: RotationTransition(
+                  turns: _spin,
+                  child: CustomPaint(
+                    painter: _OrbRingPainter(sweep: presentation.isBusy),
+                  ),
+                ),
+              ),
+            ),
+          Icon(icon, size: 26, color: iconColor),
+        ],
+      ),
+    );
+  }
+}
+
+/// Inner light ring: a full soft ring when connected, a comet arc when busy.
+class _OrbRingPainter extends CustomPainter {
+  const _OrbRingPainter({required this.sweep});
+
+  final bool sweep;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    if (sweep) {
+      paint.shader = SweepGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0.95),
+        ],
+      ).createShader(rect);
+      canvas.drawArc(rect.deflate(1), 0, math.pi * 1.6, false, paint);
+    } else {
+      paint.color = Colors.white.withValues(alpha: 0.45);
+      canvas.drawOval(rect.deflate(1), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_OrbRingPainter oldDelegate) => oldDelegate.sweep != sweep;
+}
+
+class _ConnectedLine extends StatelessWidget {
+  const _ConnectedLine({required this.rssi});
+
+  final int? rssi;
+
+  static Color _signalColor(int rssi) {
+    if (rssi >= -65) return HomePalette.success;
+    if (rssi >= -80) return HomePalette.warning;
+    return HomePalette.coral;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = rssi;
+    final color = value == null ? HomePalette.inkMuted : _signalColor(value);
+    final level = value == null
+        ? 0
+        : value >= -55
+        ? 4
+        : value >= -65
+        ? 3
+        : value >= -75
+        ? 2
+        : value >= -85
+        ? 1
+        : 0;
+
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: HomePalette.success,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: HomePalette.success.withValues(alpha: 0.55),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        const Text(
+          'Connected',
+          style: TextStyle(
+            color: HomePalette.success,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: List.generate(4, (i) {
+            return Container(
+              width: 3.5,
+              height: 5.0 + i * 3,
+              margin: EdgeInsets.only(right: i == 3 ? 0 : 2),
+              decoration: BoxDecoration(
+                color: i < level ? color : color.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            value != null ? '$value dBm' : '-- dBm',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: HomePalette.inkSoft,
+              fontSize: 12.5,
+              fontFeatures: [ui.FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoundGlassIconButton extends StatelessWidget {
+  const _RoundGlassIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.7),
+        shape: CircleBorder(
+          side: BorderSide(color: HomePalette.violet.withValues(alpha: 0.18)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: 44,
+            child: Icon(icon, size: 21, color: HomePalette.violet),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Destination tiles
+// -----------------------------------------------------------------------------
+
+class _DestinationTile extends StatefulWidget {
+  const _DestinationTile({
+    required this.title,
+    required this.subtitle,
+    required this.iconAsset,
+    required this.tint,
+    required this.accentInk,
     required this.enabled,
     required this.onTap,
+    this.tintStrength = 0.20,
     this.wide = false,
   });
 
+  final String title;
+  final String subtitle;
+  final String iconAsset;
+  final Color tint;
+  final Color accentInk;
+  final double tintStrength;
+  final bool enabled;
+  final Future<void> Function() onTap;
+  final bool wide;
+
   @override
-  State<_NavCard> createState() => _NavCardState();
+  State<_DestinationTile> createState() => _DestinationTileState();
 }
 
-class _NavCardState extends State<_NavCard> {
+class _DestinationTileState extends State<_DestinationTile> {
   bool _pressed = false;
 
   void _setPressed(bool value) {
@@ -964,248 +1166,236 @@ class _NavCardState extends State<_NavCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accent = widget.item.accent;
-
-    final gradient = LinearGradient(
-      colors: [
-        accent.withAlpha(isDark ? 52 : 72),
-        accent.withAlpha(isDark ? 24 : 32),
+    final icon = Image.asset(
+      'assets/icons/HomeUnified/${widget.iconAsset}',
+      width: 54,
+      height: 54,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
+    );
+    final arrow = Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.78),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white),
+      ),
+      child: Icon(
+        Icons.arrow_forward_rounded,
+        size: 17,
+        color: widget.accentInk,
+      ),
+    );
+    final texts = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontFamily: HomePalette.displayFont,
+            fontSize: 19,
+            height: 1.2,
+            fontWeight: FontWeight.w700,
+            color: HomePalette.ink,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          widget.subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.3,
+            color: HomePalette.inkSoft,
+          ),
+        ),
       ],
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
     );
 
-    return AnimatedScale(
-      scale: _pressed && widget.enabled ? 0.98 : 1.0,
-      duration: const Duration(milliseconds: 90),
-      curve: Curves.easeOut,
-      child: AnimatedOpacity(
-        opacity: widget.enabled ? 1.0 : 0.62,
-        duration: const Duration(milliseconds: 120),
-        child: Card(
-          color: isDark ? null : _HomePalette.glass,
-          surfaceTintColor: isDark ? null : Colors.transparent,
-          elevation: isDark ? 3 : 0,
-          shadowColor: accent.withAlpha(isDark ? 60 : 92),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: widget.enabled ? widget.onTap : null,
-            onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
-            onTapCancel: () => _setPressed(false),
-            onTapUp: (_) => _setPressed(false),
-            child: Ink(
-              height: widget.height,
-              decoration: BoxDecoration(
-                gradient: gradient,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isDark
-                      ? Theme.of(context).colorScheme.outlineVariant
-                      : accent.withAlpha(88),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: accent.withAlpha(_pressed ? 100 : 58),
-                    blurRadius: _pressed ? 18 : 14,
-                    offset: const Offset(0, 7),
-                  ),
-                ],
+    final content = widget.wide
+        ? Row(
+            children: [
+              icon,
+              const SizedBox(width: 14),
+              Expanded(child: texts),
+              const SizedBox(width: 8),
+              arrow,
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [icon, const Spacer(), arrow],
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact =
-                      constraints.maxWidth < 150 || constraints.maxHeight < 150;
-                  final compactWide =
-                      widget.wide && constraints.maxHeight < 150;
-                  final padding = compact
-                      ? (compactWide
-                            ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
-                            : const EdgeInsets.fromLTRB(6, 6, 6, 6))
-                      : const EdgeInsets.fromLTRB(16, 14, 16, 14);
-                  final iconBox = compact ? (compactWide ? 36.0 : 30.0) : 44.0;
-                  final iconSize = compact ? (compactWide ? 24.0 : 18.0) : 28.0;
-                  final gapTop = compact ? (compactWide ? 6.0 : 2.0) : 12.0;
-                  final gapMid = compact ? (compactWide ? 2.0 : 0.0) : 6.0;
-                  final defaultTitleSize = 16.0;
-                  final defaultSubtitleSize = 12.0;
-                  final titleSize = defaultTitleSize;
-                  final subtitleSize = defaultSubtitleSize;
-                  final subtitleLines = compact ? 1 : (widget.wide ? 2 : 3);
+              const SizedBox(height: 22),
+              texts,
+            ],
+          );
 
-                  return Padding(
-                    padding: padding,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: iconBox,
-                              height: iconBox,
-                              decoration: BoxDecoration(
-                                color: accent.withAlpha(isDark ? 52 : 74),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: widget.item.iconAsset != null
-                                    ? Image.asset(
-                                        'assets/icons/HomeUnified/${widget.item.iconAsset}',
-                                        width: iconSize,
-                                        height: iconSize,
-                                        fit: BoxFit.contain,
-                                      )
-                                    : Icon(
-                                        widget.item.icon!,
-                                        size: iconSize,
-                                        color: accent,
-                                      ),
-                              ),
-                            ),
-                            const Spacer(),
-                            Icon(
-                              Icons.chevron_right_rounded,
-                              size: compact ? 18 : 22,
-                              color: accent.withAlpha(isDark ? 176 : 196),
-                            ),
-                          ],
+    final radius = BorderRadius.circular(26);
+    return AnimatedScale(
+      scale: _pressed ? 0.97 : 1,
+      duration: const Duration(milliseconds: 110),
+      curve: Curves.easeOut,
+      child: GlassPanel(
+        radius: 26,
+        tint: widget.tint,
+        tintStrength: widget.tintStrength,
+        shadowColor: Color.lerp(widget.tint, HomePalette.violetDeep, 0.5)!,
+        child: Stack(
+          // Fill the stretched grid cell so the whole tile is tappable.
+          fit: StackFit.passthrough,
+          children: [
+            // Soft colored light in the corner for depth.
+            Positioned(
+              right: -46,
+              bottom: -56,
+              child: IgnorePointer(
+                child: Container(
+                  width: 150,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        widget.tint.withValues(
+                          alpha: widget.tintStrength * 1.4,
                         ),
-                        SizedBox(height: gapTop),
-                        Text(
-                          widget.item.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: titleSize,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? Theme.of(context).colorScheme.onSurface
-                                : _HomePalette.deepPlum,
-                          ),
-                        ),
-                        if (widget.item.subtitle != null) ...[
-                          SizedBox(height: gapMid),
-                          Text(
-                            widget.item.subtitle!,
-                            maxLines: subtitleLines,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: subtitleSize,
-                              height: compact ? 1.05 : 1.2,
-                              color: isDark
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant
-                                  : _HomePalette.deepPlum.withAlpha(182),
-                            ),
-                          ),
-                        ],
+                        widget.tint.withValues(alpha: 0),
                       ],
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
-          ),
+            Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                borderRadius: radius,
+                splashColor: widget.tint.withValues(alpha: 0.16),
+                highlightColor: widget.tint.withValues(alpha: 0.08),
+                onTap: widget.enabled ? widget.onTap : null,
+                onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
+                onTapUp: (_) => _setPressed(false),
+                onTapCancel: () => _setPressed(false),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: widget.wide ? 92 : 158,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: content,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _SecondaryNavAction extends StatelessWidget {
-  final Key actionKey;
-  final _NavItem item;
-  final bool enabled;
-  final VoidCallback onTap;
+// -----------------------------------------------------------------------------
+// Resource rows
+// -----------------------------------------------------------------------------
 
-  const _SecondaryNavAction({
-    this.actionKey = const ValueKey('home-contact-action'),
-    required this.item,
+class _LinkRow extends StatelessWidget {
+  const _LinkRow({
+    required this.actionKey,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
     required this.enabled,
     required this.onTap,
   });
 
+  final Key actionKey;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final subtitle = item.subtitle;
-    final label = subtitle == null ? item.title : '${item.title}. $subtitle';
-
     return Semantics(
       key: actionKey,
       button: true,
       enabled: enabled,
-      label: label,
+      label: '$title. $subtitle',
       excludeSemantics: true,
       child: Material(
-        color: isDark
-            ? item.accent.withAlpha(24)
-            : _HomePalette.glass.withAlpha(190),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: item.accent.withAlpha(isDark ? 88 : 72)),
-        ),
-        clipBehavior: Clip.antiAlias,
+        type: MaterialType.transparency,
         child: InkWell(
           onTap: enabled ? onTap : null,
+          splashColor: HomePalette.violet.withValues(alpha: 0.10),
+          highlightColor: HomePalette.violet.withValues(alpha: 0.05),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            padding: const EdgeInsets.fromLTRB(16, 13, 18, 13),
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: item.accent.withAlpha(isDark ? 44 : 48),
-                    borderRadius: BorderRadius.circular(12),
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        HomePalette.violetBright.withValues(alpha: 0.18),
+                        HomePalette.cyan.withValues(alpha: 0.14),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
                   ),
-                  child: Icon(item.icon, size: 22, color: item.accent),
+                  child: Icon(icon, size: 22, color: HomePalette.violet),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item.title,
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
+                        style: const TextStyle(
+                          fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? Theme.of(context).colorScheme.onSurface
-                              : _HomePalette.deepPlum,
+                          color: HomePalette.ink,
                         ),
                       ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 1),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark
-                                ? Theme.of(context).colorScheme.onSurfaceVariant
-                                : _HomePalette.deepPlum.withAlpha(176),
-                          ),
+                      const SizedBox(height: 1),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: HomePalette.inkSoft,
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(
-                  Icons.open_in_new_rounded,
+                const Icon(
+                  Icons.arrow_outward_rounded,
                   size: 18,
-                  color: item.accent.withAlpha(isDark ? 184 : 204),
+                  color: HomePalette.inkMuted,
                 ),
               ],
             ),

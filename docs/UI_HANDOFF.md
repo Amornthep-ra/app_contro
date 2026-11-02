@@ -19,7 +19,7 @@ Gotchas when regenerating:
 
 Not yet verified on a real device: Android ≤11, Android 12+, iOS small screen (SE/mini), dark mode.
 
-## 2. Home page (`lib/features/home/home_page.dart`) — REVIEWED, NOT STARTED
+## 2. Home page (`lib/features/home/home_page.dart`) — IMPLEMENTED (Lavender Glass)
 
 Constraint from owner: **keep `assets/BG_Portrait.png` as is** (pastel lavender, cat theme). Everything else must match the BG and feel premium.
 
@@ -47,9 +47,26 @@ Keep: information hierarchy (BLE status → main nav → secondary links), purpl
 - Merge recent device into the BLE card (Reconnect when a last device exists, hide otherwise).
 - Fix the shadow bug; delete dark-mode branches.
 
+### Implemented (2026-11-02)
+
+Owner approved "keep the BG, restyle everything else, animated BG welcome".
+
+- `widgets/home_glass.dart` — `HomePalette` (violet `#7256B6` → cyan `#37D8FF`, ink `#261B39`), `GlassPanel` (backdrop blur + white glass + light rim; shadow painted only *outside* the rounded shape, so finding 1 is gone), `GradientActionButton`, `GlassActionButton`.
+- `widgets/home_backdrop.dart` — `HomeBackdrop`: the untouched `BG_Portrait.png` plus an optional ambient-motion layer (drifting aurora light, twinkles on the sparkles already painted in the art, breathing glow on the collar / paw sign / cat-house door, floating motes). ~30 fps timer; stops when Home is covered by another page, when the app is backgrounded, and when the OS "remove animations" setting is on. `HomePage(animateBackground: false)` turns it off. Off by default under `flutter test`.
+- Header: logo badge + Kanit title + "Robot remote by PrinceBot". The transparent AppBar gets a frosted strip once content scrolls under it (no more text overlapping the title).
+- BLE hero card: status orb (spins while busy), device name as title when connected + signal bars + "Manage connection" button; hint line when not connected; **Reconnect** next to **Scan devices** when a last device exists. The separate "No recent device yet" card is removed.
+- Controller / LineSonic: glass tiles tinted violet / cyan, 3D icon at 54 px, subtitles, arrow badge; single-column fallback below 314 px width.
+- Contact + Arduino Library merged into one "Resources" glass list with matching violet line icons.
+- Version line is text only (`PB Controller · vX`), no fallback version string.
+- Content is capped at 560 px wide on tablets; spacing is on a 16 px rhythm.
+- Pull-to-refresh (which used to open the BLE page) was removed; Scan devices is the entry point.
+- Kanit Regular/Bold registered in `pubspec.yaml` (used for titles only).
+- Dead `isDark` / `isThai` branches removed from Home.
+
+Not yet verified on a real device: blur/animation smoothness on low-end Android, iOS.
+
 ### Open decisions (ask owner)
 
-- Approve "Lavender Glass" direction before implementing?
 - Splash is dark neon `#050910` while Home is pastel lavender → visible theme jump on launch. Keep neon splash, or switch splash background to lavender?
 
 ### How the screenshot was taken

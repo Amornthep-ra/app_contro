@@ -59,6 +59,11 @@ flutter:
         - asset: assets/fonts/Roboto/static/Roboto-BoldItalic.ttf
           weight: 700
           style: italic
+    - family: Kanit
+      fonts:
+        - asset: assets/fonts/Kanit/Kanit-Regular.ttf
+        - asset: assets/fonts/Kanit/Kanit-Bold.ttf
+          weight: 700
 
 flutter_native_splash:
   android: true
