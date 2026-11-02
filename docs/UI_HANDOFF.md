@@ -1,9 +1,10 @@
 # UI Handoff — PB Controller (updated 2026-11-02)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 4 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection และหน้า Controller (4 BTN / 8 BTN / Joystick)
-> งานทั้งหมดอยู่ที่ branch `claude/home-lavender-glass` (แตกจาก `release/2.1.0-android`) และ push แล้ว แต่ยังไม่ได้เปิด PR
-> test ผ่าน 260 ตัว และ `flutter analyze` ไม่เจอปัญหา
-> ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง หน้าถัดไปที่ยังไม่ได้รีวิวคือ LineSonic (PID Tuning / Read Sensor)
+> รอบล่าสุดเพิ่ม: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed (ไม่ดัน pad), หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริดจัตุรัส 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
+> งานทั้งหมดอยู่ที่ branch `claude/admiring-tesla-o410lj` ซึ่งเปิดเป็น **PR #2 → `release/2.1.0-android`** แล้ว (ยังไม่มี review, repo ไม่มี CI)
+> test ผ่าน 288 ตัว และ `flutter analyze` ไม่เจอปัญหา ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง
+> **งานถัดไปที่รอคำตอบเจ้าของ:** แผน BLE status sheet (หัวข้อ 7) — รีวิวแล้ว เขียนแผนแล้ว ยังไม่ได้แก้โค้ด
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -12,11 +13,12 @@
 
 | Item | Value |
 |---|---|
-| Working branch | `claude/home-lavender-glass` (pushed, up to date) |
+| Working branch | `claude/admiring-tesla-o410lj` (pushed, up to date) = `claude/home-lavender-glass` + the commits from `ea4b98b` on |
 | Based on | `origin/release/2.1.0-android` (v2.1.1+21) |
-| PR | **not opened yet** — target would be `release/2.1.0-android` |
-| `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use) |
-| Tests | `flutter test` → 260 passing; `flutter analyze lib test` → no issues |
+| PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
+| `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
+| `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
+| Tests | `flutter test` → 288 passing; `flutter analyze lib test` → no issues |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
 ### Owner rules (must keep)
@@ -39,11 +41,17 @@
 | `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
 | `ea4b98b` | 4/8 BTN speed panels float under Speed instead of pushing the pad down |
 | `23c28e5`, `a18fdb3`, `cf47bbf`, `9f439de` | Layout editor: full 48 px tool taps, square 24 dp grid aligned with snapping, 6 dp minimum control gap, tests |
+| `38ab1bf`, `08d2696` + this update | Handoff notes |
 
 ### Suggested next steps
-1. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android and iPhone landscape safe areas.
-2. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
-3. Open a PR `claude/home-lavender-glass` → `release/2.1.0-android` when the owner asks.
+1. **BLE status sheet** (section 7): reviewed and planned, waiting for the owner's answers (diagnostics option A/B, scope, OK to add to PR #2). The owner's usual reply "ตามที่แนะนำ" means: all commits, diagnostics option A, push to PR #2.
+2. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
+3. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
+4. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
+5. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
+
+### How the owner likes to work
+Review first (render real sizes, measure, list findings with numbers) → written plan with recommended defaults and the decisions they need to make → implement only after "ตามที่แนะนำ" or explicit choices → one commit per fix, tests, before/after screenshots. Answers in Thai; code, commits and PR text in English.
 
 ---
 
@@ -58,6 +66,11 @@ git config --global --add safe.directory /opt/flutter-sdk/flutter
 export PATH=/opt/flutter-sdk/flutter/bin:$PATH
 ```
 - `flutter pub get` / `flutter analyze` rewrite `analysis_options.yaml` and bump SDK-pinned entries in `pubspec.lock`. **Revert both before committing**: `git checkout -- analysis_options.yaml pubspec.lock`.
+- `flutter pub get` also leaves generated `linux/`, `macos/`, `windows/` folders behind (this release deleted those platforms in `13077ee`). Delete them; never commit them.
+
+### Git / pushing
+- The session can only push to its designated branch. Rewriting it (force push) is blocked by the permission system unless the owner explicitly types or approves the exact command.
+- If your local branch has another name, push with `git push origin <local-branch>:claude/admiring-tesla-o410lj`, and make sure the local branch does **not** track `claude/home-lavender-glass` (a bare `git push` would land there).
 
 ### Line endings (important)
 Many Dart files are **CRLF** (e.g. `home_page.dart`, `bluetooth_ble_page.dart`, the three control pages, `gamepad_app_bar.dart`); some are LF; `connection_status_badge.dart` and `ble_pairing_prompt_wiring_test.dart` are **mixed**. Preserve each file's endings or the diff explodes. Edit by normalising to LF, changing, then restoring CRLF; for mixed files patch at byte level. Only run `dart format` on files you touched (formatting a whole folder reformats unrelated files).
@@ -73,7 +86,10 @@ Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit 
 ### Testing gotchas found
 - The default test font is much wider than real fonts. Layout-fit tests (toolbar rows) must load Roboto (see `test/control_start_stop_test.dart`).
 - A `Completer` created in `setUp` completes outside the fake-async zone; create it inside the test body.
-- 8 BTN edit-mode items are not hit-testable by `tester.tap` at 844×390 (true before these changes too).
+- **Precache images before measuring or tapping controls.** Pad buttons size themselves from their images; until decoded under `flutter_test` they are 0×0, so they are not hit-testable and rects are wrong. (This was the cause of the old "8 BTN edit-mode items are not hit-testable" note; it is not an app bug.) `test/gamepad_edit_layout_test.dart` shows the `runAsync(() => precacheImage(...))` pattern.
+- Taps that call `gamepadBuzz()` need a mock for the `vibration` method channel, or the test fails with `MissingPluginException`.
+- Opening the layout editor in a test: tap the `Settings` tooltip, then the `Edit layout` text.
+- The BLE status sheet can be rendered with a fake `BleConnectionCoordinator` (`enableBlePlatformBindings: false`, `debugEmitForTesting(state)`), see `test/ble_pairing_prompt_wiring_test.dart`; fake `ScanResult`s as in `test/ble_page_ui_test.dart`.
 
 ---
 
@@ -142,8 +158,14 @@ Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dar
 - Layout editor: `GamepadEditHint` under the edit toolbar ("Tap a control to select it · Long-press a tool to see its name" → "Drag to move · − / + to resize · Done when finished"). Edit toolbar icons/tooltips unchanged.
 - Layout editor spacing: each edit tool takes taps over its whole 48 px slot; the grid is a square `GamepadEditMetrics.gridStep` (24 dp) drawn by `GamepadEditGrid` over exactly the box controls snap in (`snapToGrid`, from the pad's top-left); `GamepadEditMetrics.crowdsNeighbour` keeps `minControlGap` (6 dp) between touch areas but always lets already-closer controls move apart (the Joystick's default face buttons are ~1 dp apart). Tests: `test/gamepad_edit_layout_test.dart`.
 
+### Layout editor — not done (owner has not picked these yet)
+- Group the edit toolbar: [Done] | [Lock − +] | [Grid] | [Undo Redo] | [Reset Delete], 8 px inside a group, 16 px between groups (needs a group-gap option in `GamepadCenteredToolbar` / `GamepadToolbarLayout.calculate`). Reset sits next to Redo today and wipes the layout without asking (Undo can bring it back). Optional "Done" text label.
+- Top edge: `GamepadEditMetrics.safeTopEdgePad` is 4 px vs 12 px on the other edges, so controls can sit right under the toolbar/hint (and, while driving, under the floating speed panel). Proposed: 12 px, clamp saved layouts on load for 4/8 BTN.
+- 4 BTN default spacing is uneven (914×411: ↑↓ 15 px apart vs ←→ 30 px; 640×360: 22.5 vs 13.6).
+- Unused file noticed: `lib/features/gamepad/controllers/gamepad_edit_controller.dart` (no imports).
+
 ### Tests
-`test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), plus the existing toolbar/joystick/review tests.
+`test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), `test/control_speed_panel_test.dart` (floating speed panels, `slotLeft`), `test/gamepad_edit_layout_test.dart` (editor tool taps, grid/snap, 6 dp gap), plus the existing toolbar/joystick/review tests.
 
 ### Not changed on purpose (Arduino library)
 Joystick axes and Y-/Y+ labels, △○✕□ face buttons, packets, button IDs, CMD/DRV/TRN/X/Y telemetry text.
@@ -153,7 +175,33 @@ Start/Stop from the toolbar while driving (thumb reach in landscape), pulse smoo
 
 ---
 
-## 7. Open questions for the owner
+## 7. BLE status sheet — REVIEWED, PLAN WAITING FOR THE OWNER (no code changed)
+
+The sheet that opens from the Bluetooth badge (`_ConnectionSheet` in `lib/core/widgets/connection_status_badge.dart`, used by the controller pages and LineSonic). It was not restyled with the BLE Connection page, so it lags behind it. Rendered at 914×411 with a fake coordinator.
+
+### Findings
+1. Shows "No devices found" while still scanning (`devices.isEmpty` ignores `_scanning`). The owner's device screenshot shows exactly this.
+2. Header says "Not connected" with a crossed-out Bluetooth icon while the toolbar badge says "Scanning…" (amber).
+3. The "Scanning..." pill is a disabled button that still looks tappable; there is no way to stop a scan.
+4. "Cancel" only closes the sheet. With 3 robots, Cancel/Forget and diagnostics fall below the fold (viewport y 138–385, Cancel at y 467): max height is 60% of the screen.
+5. Rows use `platformName` only (no `advName` fallback → MAC shown as the name, MAC repeated in the subtitle), raw "RSSI -52 dBm", unsorted, no "Last used", spinner on every row while connecting.
+6. "Connect last" does not name the robot (`lastDeviceName` is available).
+7. "BLE diagnostics" is a full-width row for everyone; its leading icon is a copy button (tap left = copy, tap elsewhere = expand). Diagnostics exist only in this sheet.
+8. "Forget" sits next to Cancel with no confirmation (the BLE page uses a ⋯ menu + confirmation).
+9. Buttons are 30–31 px tall (`minimumSize: Size(0, 30)`, `shrinkWrap`).
+
+### Plan (one commit each)
+1. Status and close: header from `resolveBlePresentationState` (same as the badge); empty state copies the BLE page ("Looking for robots…" / "No robots found yet" + hints); "Scanning Ns" + **Stop** (`coordinator.stopScan()`); "Cancel" → "Close"; header and footer fixed, only the list scrolls; max height 85% in landscape (60% portrait).
+2. Rows: move `_DeviceRow`, `bleScanResultName`, `sortBleScanResults` from `bluetooth_ble_page.dart` to `lib/features/bluetooth/widgets/ble_device_row.dart` and use them in both places; track the connecting row; "Connect <lastDeviceName>".
+3. Diagnostics (recommended option A: small "Diagnostics" text button in the footer that expands; "Copy" inside the panel; option B: move to Settings) and Forget into a ⋯ menu with `showLavenderConfirmDialog`.
+4. 48 px tap targets for the sheet buttons.
+5. Tests in `test/ble_sheet_ui_test.dart` (states, Stop calls `stopScan`, Close visible with 5 robots at 914×411, sorting/Last used/spinner, Forget confirmation, diagnostics collapsed, 48 px), plus the existing BLE page tests after moving `_DeviceRow`; before/after screenshots at 914×411 and 411×914.
+
+Notes: `connection_status_badge.dart` has mixed line endings, so patch it at byte level. No coordinator/connection logic changes (Arduino rule safe).
+
+---
+
+## 8. Open questions for the owner
 - △○✕□ face buttons resemble PlayStation symbols — possible trademark question for a store release; left unchanged because the Arduino library uses them.
 - Joystick Y- is "up" (matches the packets); clearer forward/back labelling would need coordination with the library examples.
 - 8 BTN toolbar wraps to two rows on 640 px screens because of its long CMD text; shortening it would change telemetry text (library rule), so it was left.
