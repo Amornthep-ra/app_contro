@@ -312,5 +312,36 @@ void main() {
         await closePage(tester);
       });
     }
+
+    for (final active in [
+      '["joy_left","btn_triangle"]',
+      // Saved layouts can have a button on top of the right joystick.
+      '["joy_left","joy_right","btn_triangle"]',
+    ]) {
+      testWidgets('joystick: a face button can be selected, moved and '
+          'deleted ($active)', (tester) async {
+        SharedPreferences.setMockInitialValues({'joy_dual_active': active});
+        await openEditor(tester, const JoystickPage());
+        final triangle = _byTypeName('_EditableButtonItem');
+        final joysticks = _byTypeName('_EditableJoystick');
+        expect(triangle, findsOneWidget);
+        final joystickCount = joysticks.evaluate().length;
+
+        await tester.tapAt(tester.getRect(triangle).center);
+        await tester.pumpAndSettle();
+        final before = tester.getRect(triangle);
+        await tester.drag(triangle, const Offset(-96, 0));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(triangle).center.dx, lessThan(before.center.dx));
+
+        // Delete removes the selected button, not a joystick under it.
+        await tester.tap(find.byTooltip('Delete'));
+        await tester.pumpAndSettle();
+        expect(triangle, findsNothing);
+        expect(joysticks, findsNWidgets(joystickCount));
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
   });
 }

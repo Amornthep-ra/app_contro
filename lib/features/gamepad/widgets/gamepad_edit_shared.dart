@@ -594,6 +594,11 @@ class GamepadEditableButtonFrame extends StatelessWidget {
       left: left,
       top: top,
       child: GestureDetector(
+        // The whole frame takes taps and drags. The Joystick page wraps its
+        // buttons in IgnorePointer (so they do not fire while editing); with
+        // the default deferToChild nothing in the frame was hittable and
+        // those buttons could never be selected, moved or deleted.
+        behavior: HitTestBehavior.opaque,
         onScaleStart: locked ? null : onScaleStart,
         onScaleUpdate: locked ? null : onScaleUpdate,
         onScaleEnd: locked ? null : onScaleEnd,
