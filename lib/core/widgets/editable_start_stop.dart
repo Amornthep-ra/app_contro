@@ -335,7 +335,13 @@ class EditableStartStopSurfaceState extends State<EditableStartStopSurface> {
                 : button,
           ),
           if (waitingForStart && hint != null && !_displayRect.isEmpty)
-            _StartHint(label: hint, anchor: _displayRect, area: _size),
+            ?_StartHint.place(
+              context: context,
+              label: hint,
+              anchor: _displayRect,
+              area: _size,
+              obstacles: _obstacles,
+            ),
         ],
       );
     },
@@ -346,75 +352,118 @@ class EditableStartStopSurfaceState extends State<EditableStartStopSurface> {
 class _StartHint extends StatelessWidget {
   const _StartHint({
     required this.label,
-    required this.anchor,
-    required this.area,
+    required this.rect,
+    required this.above,
+    required this.textScaler,
   });
 
   final String label;
-  final Rect anchor;
-  final Size area;
+  final Rect rect;
+  final bool above;
+  final TextScaler textScaler;
+
+  static const double _height = 34;
+  static const double _gap = 8;
+  static const TextStyle _style = TextStyle(
+    color: Color(0xFF261B39),
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Places the label above Start, else below; returns null when neither
+  /// spot is free, so it never covers a control.
+  static Widget? place({
+    required BuildContext context,
+    required String label,
+    required Rect anchor,
+    required Size area,
+    required List<Rect> obstacles,
+  }) {
+    // Keep the label compact even with very large system text.
+    final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3);
+    // Measure with the same style the Text below resolves to.
+    final style = DefaultTextStyle.of(context).style.merge(_style);
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    // Text + horizontal padding + icon + gap + border, rounded up.
+    final width = (painter.width + 14 * 2 + 16 + 6 + 2).ceilToDouble() + 2;
+    painter.dispose();
+    if (width > area.width - 8) return null;
+    final left = (anchor.center.dx - width / 2).clamp(
+      4.0,
+      area.width - width - 4,
+    );
+    Rect at(double top) => Rect.fromLTWH(left, top, width, _height);
+    // Labels around controls (e.g. joystick X+/Y-) grow with system text.
+    final clearance = 12 * MediaQuery.textScalerOf(context).scale(1);
+    final candidates = [
+      (at(anchor.top - _gap - _height), true),
+      (at(anchor.bottom + _gap), false),
+    ];
+    for (final (rect, above) in candidates) {
+      final inside = rect.top >= 4 && rect.bottom <= area.height - 4;
+      // Keep clear of controls and the labels drawn just outside them.
+      final clear = !obstacles.any((o) => o.inflate(clearance).overlaps(rect));
+      if (inside && clear) {
+        return _StartHint(
+          label: label,
+          rect: rect,
+          above: above,
+          textScaler: scaler,
+        );
+      }
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
-    const height = 34.0;
-    const gap = 8.0;
-    final above = anchor.top - gap - height >= 4;
-    final top = above ? anchor.top - gap - height : anchor.bottom + gap;
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: top,
-      height: height,
+    return Positioned.fromRect(
+      rect: rect,
       child: IgnorePointer(
-        child: Align(
-          alignment: Alignment(
-            area.width <= 0 ? 0 : (anchor.center.dx / area.width) * 2 - 1,
-            0,
-          ),
-          child: Semantics(
-            liveRegion: true,
-            label: label,
-            child: Container(
-              key: const ValueKey('start-hint'),
-              height: height,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.86),
-                borderRadius: BorderRadius.circular(height / 2),
-                border: Border.all(color: Colors.white),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF22C55E).withValues(alpha: 0.28),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
+        child: Semantics(
+          liveRegion: true,
+          label: label,
+          child: Container(
+            key: const ValueKey('start-hint'),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(_height / 2),
+              border: Border.all(color: Colors.white),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF22C55E).withValues(alpha: 0.28),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  above
+                      ? Icons.arrow_downward_rounded
+                      : Icons.arrow_upward_rounded,
+                  size: 16,
+                  color: const Color(0xFF15803D),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textScaler: textScaler,
+                    style: _style,
                   ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    above
-                        ? Icons.arrow_downward_rounded
-                        : Icons.arrow_upward_rounded,
-                    size: 16,
-                    color: const Color(0xFF15803D),
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF261B39),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

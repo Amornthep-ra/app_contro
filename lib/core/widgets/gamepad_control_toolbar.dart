@@ -138,6 +138,11 @@ class GamepadControlScope extends InheritedWidget {
       layout != oldWidget.layout;
 }
 
+/// Lays out the control toolbar.
+///
+/// The first item (Back) is pinned to the left edge and the last item
+/// (Settings) to the right edge, like a normal app bar; everything else is
+/// centred between them. Rows wrap when the text is too large to fit.
 class GamepadControlRows extends StatelessWidget {
   const GamepadControlRows({
     super.key,
@@ -146,33 +151,91 @@ class GamepadControlRows extends StatelessWidget {
   });
   final GamepadControlLayout layout;
   final List<Widget> children;
+
+  Widget _slot(int i) => SizedBox(
+    key: ValueKey('gamepad-control-slot-$i'),
+    width: layout.widths[i],
+    height: layout.itemHeight,
+    child: children[i],
+  );
+
+  Widget _centredRun(List<int> items) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (final i in items) ...[
+        if (i != items.first) SizedBox(width: layout.gapBefore(i)),
+        _slot(i),
+      ],
+    ],
+  );
+
+  Widget _row(List<int> row, {required bool pinEdges}) {
+    final last = layout.widths.length - 1;
+    final pinStart = pinEdges && row.first == 0;
+    final pinEnd = pinEdges && row.last == last;
+    if (!pinStart && !pinEnd) return _centredRun(row);
+    final middle = [
+      for (final i in row)
+        if (!(pinStart && i == 0) && !(pinEnd && i == last)) i,
+    ];
+    if (middle.isEmpty) {
+      return Row(
+        mainAxisAlignment: pinStart && pinEnd
+            ? MainAxisAlignment.spaceBetween
+            : (pinStart ? MainAxisAlignment.start : MainAxisAlignment.end),
+        children: [if (pinStart) _slot(0), if (pinEnd) _slot(last)],
+      );
+    }
+    // Widths and gaps match GamepadControlLayout.measure, so a row that fit
+    // there fits here; the spare width is split evenly around the middle.
+    return Row(
+      children: [
+        if (pinStart) _slot(0),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: pinStart ? layout.gapBefore(middle.first) : 0,
+              right: pinEnd ? layout.gapBefore(last) : 0,
+            ),
+            child: Center(child: _centredRun(middle)),
+          ),
+        ),
+        if (pinEnd) _slot(last),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     assert(children.length == layout.widths.length);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Pinning needs a bounded width and at least Back + Settings.
+        final pinEdges =
+            constraints.hasBoundedWidth && layout.widths.length >= 2;
+        final rows = [
           for (var r = 0; r < layout.rows.length; r++) ...[
             if (r > 0) const SizedBox(height: GamepadControlLayout.controlGap),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final i in layout.rows[r]) ...[
-                  if (i != layout.rows[r].first)
-                    SizedBox(width: layout.gapBefore(i)),
-                  SizedBox(
-                    key: ValueKey('gamepad-control-slot-$i'),
-                    width: layout.widths[i],
-                    height: layout.itemHeight,
-                    child: children[i],
-                  ),
-                ],
-              ],
-            ),
+            _row(layout.rows[r], pinEdges: pinEdges),
           ],
-        ],
-      ),
+        ];
+        if (!pinEdges) {
+          return Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: rows),
+          );
+        }
+        return Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: rows,
+            ),
+          ),
+        );
+      },
     );
   }
 }

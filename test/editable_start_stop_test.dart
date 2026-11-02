@@ -384,4 +384,64 @@ void main() {
       expect(actions, 2);
     },
   );
+
+  group('Start hint', () {
+    Widget surface({required bool started, required bool blocked}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 300,
+                child: EditableStartStopSurface(
+                  placement: const StartStopPlacement(),
+                  editing: false,
+                  selected: false,
+                  snapToGrid: false,
+                  started: started,
+                  busy: false,
+                  onPressed: () {},
+                  onSelect: () {},
+                  onBeginChange: () {},
+                  onChanged: (_) {},
+                  onBlocked: () {},
+                  child: Stack(
+                    children: [
+                      if (blocked)
+                        // A control right where the label would go.
+                        const Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 90,
+                          height: 50,
+                          child: StartStopObstacle(child: SizedBox.expand()),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('shows "Tap Start to drive" until control starts', (
+      tester,
+    ) async {
+      await tester.pumpWidget(surface(started: false, blocked: false));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('start-hint')), findsOneWidget);
+      expect(find.text('Tap Start to drive'), findsOneWidget);
+
+      await tester.pumpWidget(surface(started: true, blocked: false));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('start-hint')), findsNothing);
+    });
+
+    testWidgets('never covers a control', (tester) async {
+      await tester.pumpWidget(surface(started: false, blocked: true));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('start-hint')), findsNothing);
+    });
+  });
 }

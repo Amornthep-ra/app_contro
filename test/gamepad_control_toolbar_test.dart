@@ -101,7 +101,9 @@ void main() {
     },
   );
 
-  testWidgets('Back and Settings keep a larger safety gap', (tester) async {
+  testWidgets('Back and Settings sit at the edges with a safety gap', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -147,7 +149,17 @@ void main() {
       4,
       (index) => slots[index + 1].left - slots[index].right,
     );
-    expect(gaps, const [16, 6, 6, 16]);
+    // Back and Settings keep at least the larger safety gap; the middle
+    // controls keep the tight gap.
+    expect(gaps.first, greaterThanOrEqualTo(16));
+    expect(gaps.last, greaterThanOrEqualTo(16));
+    expect(gaps.sublist(1, 3), const [6, 6]);
+    // Back is pinned left, Settings right, and the middle group is centred.
+    final screen = tester.getRect(find.byType(GamepadControlRows));
+    expect(slots.first.left, screen.left);
+    expect(slots.last.right, screen.right);
+    final middleCenter = (slots[1].left + slots[3].right) / 2;
+    expect(middleCenter, closeTo(screen.center.dx, 1));
   });
   testWidgets('4BTN menu shows only speed names and updates current mode', (
     tester,

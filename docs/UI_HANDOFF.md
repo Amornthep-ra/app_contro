@@ -114,7 +114,11 @@ Rule from owner: **do not change anything the Arduino library depends on** — p
 - While control is off: "Tap Start to drive" label next to Start and a breathing green ring (ring respects reduce-motion and is off under `flutter test`, via `lib/core/ui/ambient_motion.dart`, which Home's backdrop now uses too).
 - `ControlInputGate`: locked controls are desaturated at 0.72 opacity instead of 0.4 grey; a tap on the locked pad shows the "Tap Start to drive" notice (`onLockedTap`). Child state is kept across lock/unlock with a GlobalKey.
 
+### Phase 2 — control toolbar (done)
+- `GamepadControlRows`: Back is pinned to the left edge and Settings to the right edge; Speed / telemetry / BLE stay centred between them. Widths and gaps still come from `GamepadControlLayout.measure`, so wrapping at large text is unchanged (each row pins whichever end it holds).
+- Back/Settings in this toolbar were already 48 px icons, so their size is unchanged. Telemetry chips already use the light glass pill and keep their exact text and 12 pt font.
+- "Tap Start to drive" label: measured with the real text style, text capped at 1.3×, and only placed above/below Start where it clears every control by 12 px × text scale; otherwise it is hidden (the tap notice still explains).
+
 ### Next
-- Phase 2: toolbar — Back pinned left, Settings pinned right, 40 px back cat, glass telemetry chips (same text).
 - Phase 3: speed panel / Settings page / edit bar to Lavender Glass.
 - Phase 4: soft veil over bottom-corner cat art on short screens.
