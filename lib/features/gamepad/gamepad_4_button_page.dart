@@ -15,6 +15,7 @@ import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
+import '../../core/widgets/gamepad_edit_grid.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/widgets/connection_status_badge.dart';
@@ -44,7 +45,6 @@ const int kMaxSendHz = 40;
 const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;
-const double _gridStep = 0.05;
 const Set<String> _supportedFourButtonIds = {
   'F:forward',
   'F:backward',
@@ -53,10 +53,6 @@ const Set<String> _supportedFourButtonIds = {
 };
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());
-double _snapToGrid(double value) {
-  if (_gridStep <= 0) return value;
-  return (value / _gridStep).round() * _gridStep;
-}
 
 class _S {
   final double _sx;
@@ -695,30 +691,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       }
     }
     return false;
-  }
-
-  Widget _buildGridOverlay() {
-    if (!_editMode || !_showGrid) return const SizedBox.shrink();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final minor = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.14 : 0.16,
-    );
-    final major = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.24 : 0.30,
-    );
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(
-          painter: _GridPainter(
-            step: _gridStep,
-            minorColor: minor,
-            majorColor: major,
-          ),
-        ),
-      ),
-    );
   }
 
   void _resetLayouts() async {
@@ -2010,7 +1982,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                       Expanded(
                         child: Stack(
                           children: [
-                            _buildGridOverlay(),
                             if (_editMode)
                               GamepadEditHint(
                                 hasSelection: _selectedId != null,
@@ -2144,43 +2115,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         ],
       ),
     );
-  }
-}
-
-class _GridPainter extends CustomPainter {
-  final double step;
-  final Color minorColor;
-  final Color majorColor;
-  const _GridPainter({
-    required this.step,
-    required this.minorColor,
-    required this.majorColor,
-  });
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (step <= 0) return;
-    final paint = Paint()..strokeWidth = 1;
-    final dx = size.width * step;
-    final dy = size.height * step;
-    if (dx <= 0 || dy <= 0) return;
-    const int majorEvery = 4;
-    int ix = 1;
-    for (double x = dx; x < size.width; x += dx, ix++) {
-      paint.color = (ix % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    int iy = 1;
-    for (double y = dy; y < size.height; y += dy, iy++) {
-      paint.color = (iy % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GridPainter oldDelegate) {
-    return oldDelegate.step != step ||
-        oldDelegate.minorColor != minorColor ||
-        oldDelegate.majorColor != majorColor;
   }
 }
 
@@ -2522,6 +2456,9 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
             : _opacity(const Color(0xFFFACC15), 0.60);
         return Stack(
           children: [
+            // Same box the buttons are placed and snapped in.
+            if (widget.snapToGrid)
+              const Positioned.fill(child: GamepadEditGrid()),
             IgnorePointer(
               child: CustomPaint(
                 painter: _EditGuidePainter(
@@ -2760,10 +2697,8 @@ class _EditableButtonState extends State<_EditableButton> {
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
     if (widget.snapToGrid) {
-      double nx = _snapToGrid(cx / w);
-      double ny = _snapToGrid(cy / h);
-      cx = nx * w;
-      cy = ny * h;
+      cx = GamepadEditMetrics.snapToGrid(cx);
+      cy = GamepadEditMetrics.snapToGrid(cy);
     }
     final centerX = w / 2;
     final centerY = h / 2;

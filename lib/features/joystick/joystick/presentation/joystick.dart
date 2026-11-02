@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
 import '../../../../core/widgets/control_background.dart';
 import '../../../../core/widgets/gamepad_edit_hint.dart';
+import '../../../../core/ui/gamepad_edit_metrics.dart';
+import '../../../../core/widgets/gamepad_edit_grid.dart';
 import '../../../../core/widgets/control_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
@@ -40,7 +42,6 @@ const double kJoyMinSize = 0.6;
 const double kJoyMaxSize = 1.6;
 const double kJoyBtnMinSize = 0.6;
 const double kJoyBtnMaxSize = 1.6;
-const double _gridStep = 0.05;
 const String kJoyLeftId = 'joy_left';
 const String kJoyRightId = 'joy_right';
 const String kJoyYOnlyId = 'joy_y_only';
@@ -50,10 +51,6 @@ const String kBtnCrossId = 'btn_cross';
 const String kBtnSquareId = 'btn_square';
 const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
-double _snapToGrid(double value) {
-  if (_gridStep <= 0) return value;
-  return (value / _gridStep).round() * _gridStep;
-}
 
 class JoystickPage extends StatefulWidget {
   const JoystickPage({super.key, this.acquireControl});
@@ -1615,26 +1612,8 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Widget _buildGridOverlay() {
     if (!_editMode || !_showGrid) return const SizedBox.shrink();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final minor = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.14 : 0.16,
-    );
-    final major = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.24 : 0.30,
-    );
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(
-          painter: _GridPainter(
-            step: _gridStep,
-            minorColor: minor,
-            majorColor: major,
-          ),
-        ),
-      ),
-    );
+    // The joystick pad fills this Stack, so the grid lines up with snapping.
+    return const Positioned.fill(child: GamepadEditGrid());
   }
 
   bool _isButtonId(String id) {
@@ -2591,43 +2570,6 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 }
 
-class _GridPainter extends CustomPainter {
-  final double step;
-  final Color minorColor;
-  final Color majorColor;
-  const _GridPainter({
-    required this.step,
-    required this.minorColor,
-    required this.majorColor,
-  });
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (step <= 0) return;
-    final paint = Paint()..strokeWidth = 1;
-    final dx = size.width * step;
-    final dy = size.height * step;
-    if (dx <= 0 || dy <= 0) return;
-    const int majorEvery = 4;
-    int ix = 1;
-    for (double x = dx; x < size.width; x += dx, ix++) {
-      paint.color = (ix % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    int iy = 1;
-    for (double y = dy; y < size.height; y += dy, iy++) {
-      paint.color = (iy % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GridPainter oldDelegate) {
-    return oldDelegate.step != step ||
-        oldDelegate.minorColor != minorColor ||
-        oldDelegate.majorColor != majorColor;
-  }
-}
-
 class _GuideState {
   final bool showVertical;
   final bool showHorizontal;
@@ -2909,10 +2851,8 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
     if (widget.snapToGrid) {
-      double nx = _snapToGrid(cx / w);
-      double ny = _snapToGrid(cy / h);
-      cx = nx * w;
-      cy = ny * h;
+      cx = GamepadEditMetrics.snapToGrid(cx);
+      cy = GamepadEditMetrics.snapToGrid(cy);
     }
     final normalizedCx = cx / w;
     final normalizedCy = cy / h;
@@ -3138,10 +3078,8 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
     if (widget.snapToGrid) {
-      double nx = _snapToGrid(cx / w);
-      double ny = _snapToGrid(cy / h);
-      cx = nx * w;
-      cy = ny * h;
+      cx = GamepadEditMetrics.snapToGrid(cx);
+      cy = GamepadEditMetrics.snapToGrid(cy);
     }
     double? snapX;
     double? snapY;

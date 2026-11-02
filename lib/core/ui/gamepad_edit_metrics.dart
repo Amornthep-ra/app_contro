@@ -9,6 +9,15 @@ class GamepadEditMetrics {
   static const double maxPanelUnit = 520.0;
   static const double phoneLandscapeAspect = 844.0 / 390.0;
 
+  /// Side of one square cell of the layout-editor grid, in logical pixels.
+  static const double gridStep = 24.0;
+
+  /// Snaps [offset] (logical pixels from the pad's top or left edge) to the
+  /// nearest grid line. The grid is drawn from the same pad corner, so a
+  /// snapped control centre sits exactly on a drawn line.
+  static double snapToGrid(double offset) =>
+      (offset / gridStep).roundToDouble() * gridStep;
+
   static double panelUnit(Size panel) {
     return math.min(panel.width, panel.height).clamp(0.0, maxPanelUnit);
   }
