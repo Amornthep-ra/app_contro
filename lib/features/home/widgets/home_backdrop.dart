@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_assets.dart';
-import 'home_glass.dart';
+import '../../../core/ui/lavender_glass.dart';
 
 /// Home background: the original `BG_Portrait.png` artwork, unchanged, with
 /// an optional ambient-motion layer painted on top of it.
@@ -151,7 +151,7 @@ class _HomeBackdropState extends State<HomeBackdrop> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: HomePalette.background),
+        const ColoredBox(color: LavenderPalette.background),
         Image.asset(
           AppAssets.controlBackgroundPortrait,
           fit: BoxFit.cover,

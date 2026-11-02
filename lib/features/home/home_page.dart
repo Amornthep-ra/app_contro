@@ -1,6 +1,5 @@
 // lib/features/home/home_page.dart
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -16,14 +15,15 @@ import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/utils/orientation_utils.dart';
-import '../../core/widgets/ble_presentation_icon.dart';
+import '../../core/widgets/ble_status_orb.dart';
+import '../../core/widgets/signal_bars.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
 import '../gamepad/gamepad_4_button_page.dart';
 import '../gamepad/gamepad_mode_edit.dart';
 import '../joystick/joystick/presentation/joystick.dart';
 import '../linesonic/linesonic_page.dart';
 import 'widgets/home_backdrop.dart';
-import 'widgets/home_glass.dart';
+import '../../core/ui/lavender_glass.dart';
 
 const double _kToolbarHeight = 68;
 const double _kPagePadding = 20;
@@ -283,7 +283,7 @@ class _HomePageState extends State<HomePage>
               fontWeight: FontWeight.w600,
             ),
           ),
-          backgroundColor: HomePalette.ink.withValues(alpha: 0.92),
+          backgroundColor: LavenderPalette.ink.withValues(alpha: 0.92),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           shape: RoundedRectangleBorder(
@@ -323,7 +323,7 @@ class _HomePageState extends State<HomePage>
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      backgroundColor: HomePalette.background,
+      backgroundColor: LavenderPalette.background,
       appBar: AppBar(
         toolbarHeight: _kToolbarHeight,
         title: const _BrandHeader(),
@@ -449,7 +449,7 @@ class _HomePageState extends State<HomePage>
       excludeSemantics: true,
       child: Row(
         children: [
-          _StatusOrb(presentation: presentation, animate: _motionEnabled),
+          BleStatusOrb(presentation: presentation, animate: _motionEnabled),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -461,7 +461,7 @@ class _HomePageState extends State<HomePage>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: HomePalette.inkSoft,
+                    color: LavenderPalette.inkSoft,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.3,
@@ -473,11 +473,13 @@ class _HomePageState extends State<HomePage>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontFamily: HomePalette.displayFont,
+                    fontFamily: LavenderPalette.displayFont,
                     fontSize: 21,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
-                    color: failure ? HomePalette.coral : HomePalette.ink,
+                    color: failure
+                        ? LavenderPalette.coral
+                        : LavenderPalette.ink,
                   ),
                 ),
                 if (connected) ...[
@@ -490,7 +492,7 @@ class _HomePageState extends State<HomePage>
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: HomePalette.inkSoft,
+                      color: LavenderPalette.inkSoft,
                       fontSize: 13,
                       height: 1.3,
                     ),
@@ -506,7 +508,7 @@ class _HomePageState extends State<HomePage>
     return GlassPanel(
       radius: 28,
       padding: const EdgeInsets.all(18),
-      tint: HomePalette.violetBright,
+      tint: LavenderPalette.violetBright,
       tintStrength: 0.08,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -569,8 +571,8 @@ class _HomePageState extends State<HomePage>
       title: 'Controller',
       subtitle: 'Gamepad · Joystick',
       iconAsset: 'Controller-Gamepad.png',
-      tint: HomePalette.violetBright,
-      accentInk: HomePalette.violet,
+      tint: LavenderPalette.violetBright,
+      accentInk: LavenderPalette.violet,
       enabled: !_openingPage,
       onTap: _openLastControl,
       wide: wide,
@@ -579,9 +581,9 @@ class _HomePageState extends State<HomePage>
       title: 'LineSonic',
       subtitle: 'PID tuning · Sensors',
       iconAsset: 'LineSonic-PID Tuning.png',
-      tint: HomePalette.cyan,
+      tint: LavenderPalette.cyan,
       tintStrength: 0.15,
-      accentInk: HomePalette.cyanDeep,
+      accentInk: LavenderPalette.cyanDeep,
       enabled: !_openingPage,
       onTap: () => _openPage(const LineSonicPage()),
       wide: wide,
@@ -628,7 +630,7 @@ class _HomePageState extends State<HomePage>
           child: Text(
             'Resources',
             style: TextStyle(
-              color: HomePalette.inkSoft,
+              color: LavenderPalette.inkSoft,
               fontSize: 13,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.6,
@@ -655,7 +657,7 @@ class _HomePageState extends State<HomePage>
                 thickness: 1,
                 indent: 72,
                 endIndent: 18,
-                color: HomePalette.ink.withValues(alpha: 0.07),
+                color: LavenderPalette.ink.withValues(alpha: 0.07),
               ),
               _LinkRow(
                 actionKey: const ValueKey('home-arduino-library-action'),
@@ -688,7 +690,7 @@ class _HomePageState extends State<HomePage>
                   child: Text(
                     'PB Controller  ·  v$version',
                     style: const TextStyle(
-                      color: HomePalette.inkMuted,
+                      color: LavenderPalette.inkMuted,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.4,
@@ -723,7 +725,7 @@ class _BrandHeader extends StatelessWidget {
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: HomePalette.violetDeep.withValues(alpha: 0.30),
+                color: LavenderPalette.violetDeep.withValues(alpha: 0.30),
                 blurRadius: 14,
                 offset: const Offset(0, 5),
               ),
@@ -750,11 +752,11 @@ class _BrandHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontFamily: HomePalette.displayFont,
+                  fontFamily: LavenderPalette.displayFont,
                   fontSize: 23,
                   height: 1.15,
                   fontWeight: FontWeight.w700,
-                  color: HomePalette.ink,
+                  color: LavenderPalette.ink,
                 ),
               ),
               Text(
@@ -765,7 +767,7 @@ class _BrandHeader extends StatelessWidget {
                   fontSize: 12.5,
                   height: 1.2,
                   fontWeight: FontWeight.w500,
-                  color: HomePalette.inkSoft,
+                  color: LavenderPalette.inkSoft,
                 ),
               ),
             ],
@@ -799,8 +801,8 @@ class _FrostedBar extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      HomePalette.background.withValues(alpha: 0.88),
-                      HomePalette.background.withValues(alpha: 0.70),
+                      LavenderPalette.background.withValues(alpha: 0.88),
+                      LavenderPalette.background.withValues(alpha: 0.70),
                     ],
                   ),
                   border: Border(
@@ -845,205 +847,25 @@ class _Reveal extends StatelessWidget {
 // Connection pieces
 // -----------------------------------------------------------------------------
 
-class _StatusOrb extends StatefulWidget {
-  const _StatusOrb({required this.presentation, required this.animate});
-
-  final BlePresentationState presentation;
-  final bool animate;
-
-  @override
-  State<_StatusOrb> createState() => _StatusOrbState();
-}
-
-class _StatusOrbState extends State<_StatusOrb>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _spin = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _syncSpin();
-  }
-
-  @override
-  void didUpdateWidget(_StatusOrb oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _syncSpin();
-  }
-
-  void _syncSpin() {
-    final busy = widget.presentation.isBusy && widget.animate;
-    if (busy && !_spin.isAnimating) {
-      _spin.repeat();
-    } else if (!busy && _spin.isAnimating) {
-      _spin.stop();
-    }
-  }
-
-  @override
-  void dispose() {
-    _spin.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 58.0;
-    final presentation = widget.presentation;
-    final tone = presentation.tone;
-    final icon = materialIconForBlePresentation(presentation.icon);
-    final filled =
-        tone == BlePresentationTone.connected ||
-        tone == BlePresentationTone.busy;
-
-    final Decoration decoration = switch (tone) {
-      BlePresentationTone.connected ||
-      BlePresentationTone.busy => BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [HomePalette.violet, HomePalette.cyan],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: HomePalette.cyan.withValues(alpha: 0.45),
-            blurRadius: 18,
-            spreadRadius: -2,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      BlePresentationTone.failure => BoxDecoration(
-        shape: BoxShape.circle,
-        color: HomePalette.coral.withValues(alpha: 0.12),
-        border: Border.all(color: HomePalette.coral.withValues(alpha: 0.30)),
-      ),
-      BlePresentationTone.neutral => BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withValues(alpha: 0.95),
-            const Color(0xFFEDE5FF),
-          ],
-        ),
-        border: Border.all(color: Colors.white),
-        boxShadow: [
-          BoxShadow(
-            color: HomePalette.violetDeep.withValues(alpha: 0.14),
-            blurRadius: 18,
-            spreadRadius: -4,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-    };
-
-    final iconColor = switch (tone) {
-      BlePresentationTone.failure => HomePalette.coral,
-      BlePresentationTone.neutral => HomePalette.violet,
-      _ => Colors.white,
-    };
-
-    return SizedBox.square(
-      dimension: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(child: DecoratedBox(decoration: decoration)),
-          if (filled)
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(3),
-                child: RotationTransition(
-                  turns: _spin,
-                  child: CustomPaint(
-                    painter: _OrbRingPainter(sweep: presentation.isBusy),
-                  ),
-                ),
-              ),
-            ),
-          Icon(icon, size: 26, color: iconColor),
-        ],
-      ),
-    );
-  }
-}
-
-/// Inner light ring: a full soft ring when connected, a comet arc when busy.
-class _OrbRingPainter extends CustomPainter {
-  const _OrbRingPainter({required this.sweep});
-
-  final bool sweep;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round;
-    if (sweep) {
-      paint.shader = SweepGradient(
-        colors: [
-          Colors.white.withValues(alpha: 0),
-          Colors.white.withValues(alpha: 0.95),
-        ],
-      ).createShader(rect);
-      canvas.drawArc(rect.deflate(1), 0, math.pi * 1.6, false, paint);
-    } else {
-      paint.color = Colors.white.withValues(alpha: 0.45);
-      canvas.drawOval(rect.deflate(1), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_OrbRingPainter oldDelegate) => oldDelegate.sweep != sweep;
-}
-
 class _ConnectedLine extends StatelessWidget {
   const _ConnectedLine({required this.rssi});
 
   final int? rssi;
 
-  static Color _signalColor(int rssi) {
-    if (rssi >= -65) return HomePalette.success;
-    if (rssi >= -80) return HomePalette.warning;
-    return HomePalette.coral;
-  }
-
   @override
   Widget build(BuildContext context) {
     final value = rssi;
-    final color = value == null ? HomePalette.inkMuted : _signalColor(value);
-    final level = value == null
-        ? 0
-        : value >= -55
-        ? 4
-        : value >= -65
-        ? 3
-        : value >= -75
-        ? 2
-        : value >= -85
-        ? 1
-        : 0;
-
     return Row(
       children: [
         Container(
           width: 8,
           height: 8,
           decoration: BoxDecoration(
-            color: HomePalette.success,
+            color: LavenderPalette.success,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: HomePalette.success.withValues(alpha: 0.55),
+                color: LavenderPalette.success.withValues(alpha: 0.55),
                 blurRadius: 6,
               ),
             ],
@@ -1053,27 +875,13 @@ class _ConnectedLine extends StatelessWidget {
         const Text(
           'Connected',
           style: TextStyle(
-            color: HomePalette.success,
+            color: LavenderPalette.success,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(width: 10),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: List.generate(4, (i) {
-            return Container(
-              width: 3.5,
-              height: 5.0 + i * 3,
-              margin: EdgeInsets.only(right: i == 3 ? 0 : 2),
-              decoration: BoxDecoration(
-                color: i < level ? color : color.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            );
-          }),
-        ),
+        SignalBars(rssi: value),
         const SizedBox(width: 6),
         Flexible(
           child: Text(
@@ -1081,7 +889,7 @@ class _ConnectedLine extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: HomePalette.inkSoft,
+              color: LavenderPalette.inkSoft,
               fontSize: 12.5,
               fontFeatures: [ui.FontFeature.tabularFigures()],
             ),
@@ -1110,14 +918,16 @@ class _RoundGlassIconButton extends StatelessWidget {
       child: Material(
         color: Colors.white.withValues(alpha: 0.7),
         shape: CircleBorder(
-          side: BorderSide(color: HomePalette.violet.withValues(alpha: 0.18)),
+          side: BorderSide(
+            color: LavenderPalette.violet.withValues(alpha: 0.18),
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
           child: SizedBox.square(
             dimension: 44,
-            child: Icon(icon, size: 21, color: HomePalette.violet),
+            child: Icon(icon, size: 21, color: LavenderPalette.violet),
           ),
         ),
       ),
@@ -1196,11 +1006,11 @@ class _DestinationTileState extends State<_DestinationTile> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontFamily: HomePalette.displayFont,
+            fontFamily: LavenderPalette.displayFont,
             fontSize: 19,
             height: 1.2,
             fontWeight: FontWeight.w700,
-            color: HomePalette.ink,
+            color: LavenderPalette.ink,
           ),
         ),
         const SizedBox(height: 2),
@@ -1211,7 +1021,7 @@ class _DestinationTileState extends State<_DestinationTile> {
           style: const TextStyle(
             fontSize: 13,
             height: 1.3,
-            color: HomePalette.inkSoft,
+            color: LavenderPalette.inkSoft,
           ),
         ),
       ],
@@ -1249,7 +1059,7 @@ class _DestinationTileState extends State<_DestinationTile> {
         radius: 26,
         tint: widget.tint,
         tintStrength: widget.tintStrength,
-        shadowColor: Color.lerp(widget.tint, HomePalette.violetDeep, 0.5)!,
+        shadowColor: Color.lerp(widget.tint, LavenderPalette.violetDeep, 0.5)!,
         child: Stack(
           // Fill the stretched grid cell so the whole tile is tappable.
           fit: StackFit.passthrough,
@@ -1337,8 +1147,8 @@ class _LinkRow extends StatelessWidget {
         type: MaterialType.transparency,
         child: InkWell(
           onTap: enabled ? onTap : null,
-          splashColor: HomePalette.violet.withValues(alpha: 0.10),
-          highlightColor: HomePalette.violet.withValues(alpha: 0.05),
+          splashColor: LavenderPalette.violet.withValues(alpha: 0.10),
+          highlightColor: LavenderPalette.violet.withValues(alpha: 0.05),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 13, 18, 13),
             child: Row(
@@ -1352,15 +1162,15 @@ class _LinkRow extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        HomePalette.violetBright.withValues(alpha: 0.18),
-                        HomePalette.cyan.withValues(alpha: 0.14),
+                        LavenderPalette.violetBright.withValues(alpha: 0.18),
+                        LavenderPalette.cyan.withValues(alpha: 0.14),
                       ],
                     ),
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.9),
                     ),
                   ),
-                  child: Icon(icon, size: 22, color: HomePalette.violet),
+                  child: Icon(icon, size: 22, color: LavenderPalette.violet),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1375,7 +1185,7 @@ class _LinkRow extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: HomePalette.ink,
+                          color: LavenderPalette.ink,
                         ),
                       ),
                       const SizedBox(height: 1),
@@ -1385,7 +1195,7 @@ class _LinkRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 12.5,
-                          color: HomePalette.inkSoft,
+                          color: LavenderPalette.inkSoft,
                         ),
                       ),
                     ],
@@ -1395,7 +1205,7 @@ class _LinkRow extends StatelessWidget {
                 const Icon(
                   Icons.arrow_outward_rounded,
                   size: 18,
-                  color: HomePalette.inkMuted,
+                  color: LavenderPalette.inkMuted,
                 ),
               ],
             ),
