@@ -119,6 +119,10 @@ Rule from owner: **do not change anything the Arduino library depends on** — p
 - Back/Settings in this toolbar were already 48 px icons, so their size is unchanged. Telemetry chips already use the light glass pill and keep their exact text and 12 pt font.
 - "Tap Start to drive" label: measured with the real text style, text capped at 1.3×, and only placed above/below Start where it clears every control by 12 px × text scale; otherwise it is hidden (the tap notice still explains).
 
+### Phase 3 — chrome to Lavender Glass (done)
+- 8 BTN speed panel: dark slab → light glass panel; DRV / TRN labels kept (dark ink now) with small "Drive" / "Turn" captions underneath; slider ticks in violet. Cat assets unchanged. The 4 BTN Lo/Med/Hi menu was already light and its green/amber/red speed colours stay.
+- Settings page: pink selection (`#F472D0`) → `LavenderPalette.violet`, selected tile tinted lavender. Text unchanged.
+- Layout editor: `GamepadEditHint` (`lib/core/widgets/gamepad_edit_hint.dart`) floats under the edit toolbar — "Tap a control to select it · Long-press a tool to see its name", then "Drag to move · − / + to resize · Done when finished" once something is selected. It ignores touches and sits behind controls. Toolbar icons and tooltips unchanged (tests rely on them).
+
 ### Next
-- Phase 3: speed panel / Settings page / edit bar to Lavender Glass.
 - Phase 4: soft veil over bottom-corner cat art on short screens.

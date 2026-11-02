@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/widgets/control_input_gate.dart';
+import '../../core/widgets/gamepad_edit_hint.dart';
 import '../../core/widgets/editable_start_stop.dart';
 import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
@@ -2037,6 +2038,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                         child: Stack(
                           children: [
                             _buildGridOverlay(),
+                            if (_editMode)
+                              GamepadEditHint(hasSelection: _selectedId != null),
                             LayoutBuilder(
                               builder: (context, cons) {
                                 return Padding(

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/widgets/control_input_gate.dart';
+import '../../core/widgets/gamepad_edit_hint.dart';
 import '../../core/widgets/editable_start_stop.dart';
 import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,7 @@ import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
 import '../../core/ui/app_assets.dart';
+import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
 import '../../core/widgets/control_preset_dialog.dart';
 import '../../core/widgets/cat_glass_popup.dart';
@@ -2280,23 +2282,24 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               margin: const EdgeInsets.only(bottom: 8),
               height: 72,
               padding: const EdgeInsets.symmetric(horizontal: 8),
+              // Lavender Glass panel (light), matching Home and Settings.
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color(0xD92E215F),
-                    Color(0xE14C3D97),
-                    Color(0xDE25376D),
+                    Colors.white.withValues(alpha: 0.90),
+                    const Color(0xFFF1EBFF).withValues(alpha: 0.88),
                   ],
                 ),
-                border: Border.all(color: const Color(0xFFBEA7FF), width: 1.2),
+                border: Border.all(color: Colors.white, width: 1.2),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF9B7BFF).withAlpha(78),
-                    blurRadius: 14,
-                    spreadRadius: 1,
+                    color: LavenderPalette.violetDeep.withValues(alpha: 0.18),
+                    blurRadius: 18,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
@@ -2304,6 +2307,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                 children: [
                   _buildSpeedTarget(
                     label: 'DRV',
+                    caption: 'Drive',
                     value: _driveSpeed,
                     asset: AppAssets.speedValueCat,
                     accent: const Color(0xFF22C55E),
@@ -2343,6 +2347,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   ),
                   _buildSpeedTarget(
                     label: 'TRN',
+                    caption: 'Turn',
                     value: _turnSpeed,
                     asset: AppAssets.speedValueCat,
                     accent: const Color(0xFF38BDF8),
@@ -2405,7 +2410,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                       width: 2,
                       height: 2,
                       decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(150),
+                        color: LavenderPalette.violet.withValues(alpha: 0.35),
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -2463,6 +2468,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Widget _buildSpeedTarget({
     required String label,
+    required String caption,
     required int value,
     required String asset,
     required Color accent,
@@ -2550,15 +2556,24 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                     child: Text(
                       label,
                       style: TextStyle(
-                        color: selected ? accent : Colors.white.withAlpha(180),
+                        color: selected
+                            ? Color.lerp(accent, LavenderPalette.ink, 0.35)
+                            : LavenderPalette.inkMuted,
                         fontSize: 9,
                         fontWeight: FontWeight.w900,
-                        shadows: [
-                          Shadow(
-                            color: const Color(0xFF12082F).withAlpha(200),
-                            blurRadius: 3,
-                          ),
-                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: -8,
+                    child: Text(
+                      caption,
+                      style: TextStyle(
+                        color: selected
+                            ? LavenderPalette.inkSoft
+                            : LavenderPalette.inkMuted,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -2777,6 +2792,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   child: Stack(
                     children: [
                       _buildGridOverlay(),
+                      if (_editMode)
+                        GamepadEditHint(hasSelection: _selectedId != null),
                       LayoutBuilder(
                         builder: (context, cons) {
                           return Padding(

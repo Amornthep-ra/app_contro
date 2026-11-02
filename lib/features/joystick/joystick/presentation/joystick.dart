@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
+import '../../../../core/widgets/gamepad_edit_hint.dart';
 import '../../../../core/widgets/editable_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
@@ -2317,6 +2318,8 @@ class _JoystickPageState extends State<JoystickPage> {
                     clipBehavior: Clip.none,
                     children: [
                       _buildGridOverlay(),
+                      if (_editMode)
+                        GamepadEditHint(hasSelection: _selectedId != null),
                       _buildAlignmentGuides(),
                       LayoutBuilder(
                         builder: (context, c) {

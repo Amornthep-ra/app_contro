@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/ui/app_assets.dart';
+import '../../core/ui/lavender_glass.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/language_controller.dart';
 
@@ -529,7 +530,8 @@ class _CatSettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = const Color(0xFFF472D0);
+    // Same violet as the rest of the app (was pink).
+    const accent = LavenderPalette.violet;
     final semanticLabel = selected ? '$title, $selectedLabel' : title;
     final tileHeight = compact ? 56.0 : 66.0;
     final iconSize = compact ? 40.0 : 48.0;
@@ -553,7 +555,7 @@ class _CatSettingsTile extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 color: selected
-                    ? const Color(0xFFFFEEF9).withAlpha(210)
+                    ? const Color(0xFFF1EBFF).withAlpha(225)
                     : Colors.white.withAlpha(148),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
