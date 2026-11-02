@@ -37,6 +37,7 @@
 | `bab2601` | Controller phase 3 — speed panel / Settings / editor hint to glass |
 | `a7c2aaf` | Controller phase 4 — veil over corner cats on short screens |
 | `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
+| `ea4b98b` | 4/8 BTN speed panels float under Speed instead of pushing the pad down |
 
 ### Suggested next steps
 1. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android and iPhone landscape safe areas.
@@ -135,6 +136,7 @@ Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dar
 
 ### Chrome
 - 8 BTN speed panel: light glass; DRV / TRN labels kept, small "Drive" / "Turn" captions added. 4 BTN Lo/Med/Hi menu unchanged.
+- Both speed panels float over the pad (`GamepadToolbarDropdown`, left edge under the Speed slot via `GamepadControlLayout.slotLeft`, kept on screen), so opening them never moves or resizes the drive buttons. Trade-off: while open, the 8 BTN panel covers the top of ↑ / △ (fully at 640×360, where the toolbar wraps).
 - Settings page: violet selection instead of pink.
 - Layout editor: `GamepadEditHint` under the edit toolbar ("Tap a control to select it · Long-press a tool to see its name" → "Drag to move · − / + to resize · Done when finished"). Edit toolbar icons/tooltips unchanged.
 
