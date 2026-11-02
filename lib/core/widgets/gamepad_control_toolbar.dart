@@ -149,6 +149,62 @@ class GamepadControlLayout {
     );
   }
 
+  /// Left edge of slot [index] inside a toolbar [rowWidth] wide, measured
+  /// from the start of the toolbar's content area (inside its 12 px padding).
+  ///
+  /// Mirrors how [GamepadControlRows] places pinned and centred items, so a
+  /// panel can be lined up under a toolbar control without measuring it.
+  double slotLeft(int index, double rowWidth) {
+    final row = rows.firstWhere((r) => r.contains(index));
+    final last = widths.length - 1;
+    final pinEdges = widths.length >= 2;
+    final leading = [
+      if (pinEdges)
+        for (final i in row)
+          if (i < leadingCount && i != last) i,
+    ];
+    final pinEnd = pinEdges && row.last == last && last >= leadingCount;
+    final middle = [
+      for (final i in row)
+        if (!leading.contains(i) && !(pinEnd && i == last)) i,
+    ];
+
+    double runWidth(List<int> items) {
+      var width = 0.0;
+      for (final i in items) {
+        if (i != items.first) width += gapBefore(i);
+        width += widths[i];
+      }
+      return width;
+    }
+
+    double leftIn(List<int> items, double start) {
+      var x = start;
+      for (final i in items) {
+        if (i != items.first) x += gapBefore(i);
+        if (i == index) return x;
+        x += widths[i];
+      }
+      throw ArgumentError.value(index, 'index', 'not in this run');
+    }
+
+    if (pinEnd && index == last) return rowWidth - widths[last];
+    if (leading.contains(index)) return leftIn(leading, 0);
+    if (leading.isEmpty && !pinEnd) {
+      return leftIn(row, (rowWidth - runWidth(row)) / 2);
+    }
+    final regionStart = leading.isEmpty
+        ? 0.0
+        : runWidth(leading) + gapBefore(middle.first);
+    final regionEnd = pinEnd
+        ? rowWidth - widths[last] - gapBefore(last)
+        : rowWidth;
+    return leftIn(
+      middle,
+      regionStart + (regionEnd - regionStart - runWidth(middle)) / 2,
+    );
+  }
+
   /// Pinned items (the leading group and the last item) get [edgeGap] on
   /// their inner side; items in the middle get [controlGap].
   static double gapBeforeIndex(
@@ -159,6 +215,53 @@ class GamepadControlLayout {
   }) => (index >= 1 && index <= leadingCount) || index == itemCount - 1
       ? edgeGap
       : controlGap;
+}
+
+/// Floats a dropdown panel just under the control toolbar, its left edge
+/// lined up with toolbar slot [slotIndex] and kept inside the screen.
+///
+/// Put it in the page's top-level [Stack], after the [Scaffold], so it covers
+/// the controls instead of pushing them down while it is open.
+class GamepadToolbarDropdown extends StatelessWidget {
+  const GamepadToolbarDropdown({
+    super.key,
+    required this.layout,
+    required this.slotIndex,
+    required this.panelWidth,
+    required this.child,
+    this.gap = 4,
+  });
+
+  final GamepadControlLayout layout;
+  final int slotIndex;
+  final double panelWidth;
+  final Widget child;
+
+  /// Space between the bottom of the toolbar and the top of the panel.
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    // The toolbar content sits inside the safe area plus 12 px each side.
+    final contentLeft = padding.left + 12;
+    final rowWidth = size.width - padding.horizontal - 24;
+    final maxLeft = math.max(
+      contentLeft,
+      size.width - padding.right - 12 - panelWidth,
+    );
+    final left = (contentLeft + layout.slotLeft(slotIndex, rowWidth)).clamp(
+      contentLeft,
+      maxLeft,
+    );
+    return Positioned(
+      left: left,
+      top: padding.top + layout.height + gap,
+      // Outside the Scaffold, so give sliders and ink splashes a Material.
+      child: Material(type: MaterialType.transparency, child: child),
+    );
+  }
 }
 
 class GamepadControlScope extends InheritedWidget {

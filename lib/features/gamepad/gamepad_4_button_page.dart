@@ -317,6 +317,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   bool _editMode = false;
   bool _showGrid = false;
   bool _speedMenuOpen = false;
+
+  /// Position of the Speed button in the control toolbar items.
+  static const int _speedSlotIndex = 2;
   Map<String, _ButtonLayout> _layoutAll = {};
   Set<String> _activeIds = {'F:forward', 'F:backward', 'F:left', 'F:right'};
   final Set<String> _lockedIds = {};
@@ -1364,7 +1367,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _sendSpeed(value);
   }
 
-  Widget _buildInlineSpeedMenu() {
+  /// Lo / Med / Hi menu. It floats under the Speed button over the pad, so
+  /// opening it never moves or resizes the drive buttons.
+  Widget _buildSpeedMenuOverlay(GamepadControlLayout layout) {
     final availableWidth =
         MediaQuery.sizeOf(context).width -
         MediaQuery.paddingOf(context).horizontal -
@@ -1381,66 +1386,65 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       3,
     );
     final panelWidth = columns * (tileWidth + 2) + 6;
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      alignment: Alignment.topCenter,
-      child: !_speedMenuOpen || _editMode
-          ? const SizedBox.shrink()
-          : Container(
-              width: panelWidth,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFFDF9FF), Color(0xFFEDE5FF)],
-                ),
-                borderRadius: BorderRadius.circular(35),
-                border: Border.all(color: const Color(0xFFD5A0F5)),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFD66DFF).withAlpha(56),
-                    blurRadius: 16,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 4),
+    return GamepadToolbarDropdown(
+      layout: layout,
+      slotIndex: _speedSlotIndex,
+      panelWidth: panelWidth,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        alignment: Alignment.topCenter,
+        child: !_speedMenuOpen || _editMode
+            ? const SizedBox.shrink()
+            : Container(
+                width: panelWidth,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFFDF9FF), Color(0xFFEDE5FF)],
                   ),
-                ],
-              ),
-              constraints: BoxConstraints(
-                maxHeight: math.max(
-                  48.0,
-                  math.min(
-                    150.0,
-                    MediaQuery.sizeOf(context).height -
-                        MediaQuery.paddingOf(context).vertical -
-                        GamepadControlLayout.measure(context, [
-                          '',
-                          '@speed:Speed',
-                          'CMD = 255 | Med = 2',
-                          '@ble',
-                          '',
-                        ]).height -
-                        100,
-                  ),
-                ),
-              ),
-              child: SingleChildScrollView(
-                child: Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 2,
-                  runSpacing: 2,
-                  children: [
-                    for (final label in const ['Lo', 'Med', 'Hi']) ...[
-                      SizedBox(
-                        width: tileWidth,
-                        child: _buildInlineSpeedOption(label),
-                      ),
-                    ],
+                  borderRadius: BorderRadius.circular(35),
+                  border: Border.all(color: const Color(0xFFD5A0F5)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFD66DFF).withAlpha(56),
+                      blurRadius: 16,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 4),
+                    ),
                   ],
                 ),
+                constraints: BoxConstraints(
+                  maxHeight: math.max(
+                    48.0,
+                    math.min(
+                      150.0,
+                      MediaQuery.sizeOf(context).height -
+                          MediaQuery.paddingOf(context).vertical -
+                          layout.height -
+                          100,
+                    ),
+                  ),
+                ),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 2,
+                    runSpacing: 2,
+                    children: [
+                      for (final label in const ['Lo', 'Med', 'Hi']) ...[
+                        SizedBox(
+                          width: tileWidth,
+                          child: _buildInlineSpeedOption(label),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-            ),
+      ),
     );
   }
 
@@ -2003,7 +2007,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                 SafeArea(
                   child: Column(
                     children: [
-                      if (!_editMode) _buildInlineSpeedMenu(),
                       Expanded(
                         child: Stack(
                           children: [
@@ -2137,6 +2140,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
               ],
             ),
           ),
+          if (controlLayout != null) _buildSpeedMenuOverlay(controlLayout),
         ],
       ),
     );

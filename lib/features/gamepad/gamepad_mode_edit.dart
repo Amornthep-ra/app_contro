@@ -215,6 +215,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   int _turnSpeed = 50;
   bool _speedPanelEditingDrive = true;
   bool _speedPanelOpen = false;
+
+  /// Position of the Speed button in the control toolbar items.
+  static const int _speedSlotIndex = 2;
   bool _isThai = true;
   late final VoidCallback _langListener;
   bool _editMode = false;
@@ -2268,100 +2271,110 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     }
   }
 
-  Widget _buildInlineSpeedPanel() {
-    final availableWidth = MediaQuery.of(context).size.width - 24;
+  /// DRV / TRN panel. It floats under the Speed button over the pad, so
+  /// opening it never moves or resizes the drive buttons.
+  Widget _buildSpeedPanelOverlay(GamepadControlLayout layout) {
+    final availableWidth =
+        MediaQuery.sizeOf(context).width -
+        MediaQuery.paddingOf(context).horizontal -
+        24;
     final panelWidth = math.min(availableWidth, 560.0);
     final compact = panelWidth < 360;
     final editingDrive = _speedPanelEditingDrive;
     final activeValue = editingDrive ? _driveSpeed : _turnSpeed;
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      alignment: Alignment.topCenter,
-      child: !_speedPanelOpen || _editMode
-          ? const SizedBox.shrink()
-          : Container(
-              width: panelWidth,
-              margin: const EdgeInsets.only(bottom: 8),
-              height: 72,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              // Lavender Glass panel (light), matching Home and Settings.
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.90),
-                    const Color(0xFFF1EBFF).withValues(alpha: 0.88),
+    return GamepadToolbarDropdown(
+      layout: layout,
+      slotIndex: _speedSlotIndex,
+      panelWidth: panelWidth,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        alignment: Alignment.topCenter,
+        child: !_speedPanelOpen || _editMode
+            ? const SizedBox.shrink()
+            : Container(
+                width: panelWidth,
+                height: 72,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                // Lavender Glass panel (light), matching Home and Settings.
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.90),
+                      const Color(0xFFF1EBFF).withValues(alpha: 0.88),
+                    ],
+                  ),
+                  border: Border.all(color: Colors.white, width: 1.2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: LavenderPalette.violetDeep.withValues(alpha: 0.18),
+                      blurRadius: 18,
+                      spreadRadius: -4,
+                      offset: const Offset(0, 8),
+                    ),
                   ],
                 ),
-                border: Border.all(color: Colors.white, width: 1.2),
-                boxShadow: [
-                  BoxShadow(
-                    color: LavenderPalette.violetDeep.withValues(alpha: 0.18),
-                    blurRadius: 18,
-                    spreadRadius: -4,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  _buildSpeedTarget(
-                    label: 'DRV',
-                    caption: 'Drive',
-                    value: _driveSpeed,
-                    asset: AppAssets.speedValueCat,
-                    accent: const Color(0xFF22C55E),
-                    selected: editingDrive,
-                    compact: compact,
-                    onTap: () => setState(() => _speedPanelEditingDrive = true),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        _buildSpeedStepCat(
-                          asset: AppAssets.speedPanelDash,
-                          tooltip: 'Decrease by 5',
-                          onTap: () =>
-                              _adjustSpeed(drive: editingDrive, delta: -5),
-                        ),
-                        Expanded(
-                          child: _buildGradientSpeedSlider(
-                            value: activeValue,
-                            onChanged: (value) {
-                              if (editingDrive) {
-                                _setDriveSpeed(value);
-                              } else {
-                                _setTurnSpeed(value);
-                              }
-                            },
-                          ),
-                        ),
-                        _buildSpeedStepCat(
-                          asset: AppAssets.speedPanelPlus,
-                          tooltip: 'Increase by 5',
-                          onTap: () =>
-                              _adjustSpeed(drive: editingDrive, delta: 5),
-                        ),
-                      ],
+                child: Row(
+                  children: [
+                    _buildSpeedTarget(
+                      label: 'DRV',
+                      caption: 'Drive',
+                      value: _driveSpeed,
+                      asset: AppAssets.speedValueCat,
+                      accent: const Color(0xFF22C55E),
+                      selected: editingDrive,
+                      compact: compact,
+                      onTap: () =>
+                          setState(() => _speedPanelEditingDrive = true),
                     ),
-                  ),
-                  _buildSpeedTarget(
-                    label: 'TRN',
-                    caption: 'Turn',
-                    value: _turnSpeed,
-                    asset: AppAssets.speedValueCat,
-                    accent: const Color(0xFF38BDF8),
-                    selected: !editingDrive,
-                    compact: compact,
-                    onTap: () =>
-                        setState(() => _speedPanelEditingDrive = false),
-                  ),
-                ],
+                    Expanded(
+                      child: Row(
+                        children: [
+                          _buildSpeedStepCat(
+                            asset: AppAssets.speedPanelDash,
+                            tooltip: 'Decrease by 5',
+                            onTap: () =>
+                                _adjustSpeed(drive: editingDrive, delta: -5),
+                          ),
+                          Expanded(
+                            child: _buildGradientSpeedSlider(
+                              value: activeValue,
+                              onChanged: (value) {
+                                if (editingDrive) {
+                                  _setDriveSpeed(value);
+                                } else {
+                                  _setTurnSpeed(value);
+                                }
+                              },
+                            ),
+                          ),
+                          _buildSpeedStepCat(
+                            asset: AppAssets.speedPanelPlus,
+                            tooltip: 'Increase by 5',
+                            onTap: () =>
+                                _adjustSpeed(drive: editingDrive, delta: 5),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _buildSpeedTarget(
+                      label: 'TRN',
+                      caption: 'Turn',
+                      value: _turnSpeed,
+                      asset: AppAssets.speedValueCat,
+                      accent: const Color(0xFF38BDF8),
+                      selected: !editingDrive,
+                      compact: compact,
+                      onTap: () =>
+                          setState(() => _speedPanelEditingDrive = false),
+                    ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 
@@ -2774,7 +2787,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                             child: Column(
                               children: [
-                                if (!_editMode) _buildInlineSpeedPanel(),
                                 Expanded(
                                   child: ControlInputGate(
                                     started: _controlStarted,
@@ -2915,6 +2927,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               ],
             ),
           ),
+          if (controlLayout != null) _buildSpeedPanelOverlay(controlLayout),
         ],
       ),
     );
