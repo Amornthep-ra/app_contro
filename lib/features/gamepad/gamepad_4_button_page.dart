@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/widgets/control_input_gate.dart';
 import '../../core/widgets/control_background.dart';
 import '../../core/widgets/gamepad_edit_hint.dart';
-import '../../core/widgets/editable_start_stop.dart';
+import '../../core/widgets/control_start_stop.dart';
 import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -321,8 +321,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   Set<String> _activeIds = {'F:forward', 'F:backward', 'F:left', 'F:right'};
   final Set<String> _lockedIds = {};
   String? _selectedId;
-  StartStopPlacement _startStop = const StartStopPlacement();
-  final _startStopKey = GlobalKey<EditableStartStopSurfaceState>();
   String? _editWarningId;
   Size? _panelSize;
   Timer? _editWarningTimer;
@@ -393,12 +391,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   Future<void> _loadLayouts() async {
     final prefs = await SharedPreferences.getInstance();
-    final systemRaw = prefs.getString('${_prefsLayoutAll}_start_stop');
-    if (systemRaw != null) {
-      try {
-        _startStop = StartStopPlacement.fromJson(jsonDecode(systemRaw));
-      } catch (_) {}
-    }
     final layoutRaw = prefs.getString(_prefsLayoutAll);
     final activeRaw = prefs.getString(_prefsActiveAll);
     if (layoutRaw != null && layoutRaw.isNotEmpty) {
@@ -427,10 +419,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
-    await prefs.setString(
-      '${_prefsLayoutAll}_start_stop',
-      jsonEncode(_startStop.toJson()),
-    );
   }
 
   Future<void> _saveActive(String key, Set<String> ids) async {
@@ -514,7 +502,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   void _removeSelected() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     _toggleActive(id);
   }
 
@@ -528,7 +516,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
-      startStop: _startStop,
       layoutAll: _cloneLayout(_layoutAll),
       activeIds: Set<String>.from(_activeIds),
       lockedIds: Set<String>.from(_lockedIds),
@@ -537,7 +524,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
-    _startStop = snap.startStop;
     _layoutAll = _cloneLayout(snap.layoutAll);
     _activeIds
       ..clear()
@@ -582,10 +568,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   void _changeSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
-    if (id == startStopEditId) {
-      _startStopKey.currentState?.adjustSize(delta);
-      return;
-    }
     if (_lockedIds.contains(id)) return;
     final panelSize = _panelSize;
     if (panelSize == null) return;
@@ -626,15 +608,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       return;
     }
     final candidate = _ButtonLayout(cx / w, cy / h, nextSize);
-    if ((_startStopKey.currentState?.blocksRect(
-              Rect.fromCenter(
-                center: Offset(cx, cy),
-                width: nextCfg.width,
-                height: nextCfg.height,
-              ),
-            ) ??
-            false) ||
-        _wouldOverlapAny(id, candidate, panelSize)) {
+    if (_wouldOverlapAny(id, candidate, panelSize)) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showOverlapWarning();
@@ -652,7 +626,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   void _toggleSelectedLock() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     setState(() {
       if (_lockedIds.contains(id)) {
         _lockedIds.remove(id);
@@ -746,7 +720,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   void _resetLayouts() async {
     _pushHistory();
-    _startStop = const StartStopPlacement();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);
     await prefs.remove('${_prefsLayoutAll}_start_stop');
@@ -827,7 +800,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'startStop': _startStop.toJson(),
       'layout': _encodeLayout(_layoutAll),
       'active': _activeIds.toList(),
       'speed': _speedLabel,
@@ -846,7 +818,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return;
-      _startStop = StartStopPlacement.fromJson(obj['startStop']);
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       final speed = obj['speed'];
@@ -1173,6 +1144,45 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       context,
       message: 'Tap Start to drive',
       style: GamepadNoticeStyle.warning,
+    );
+  }
+
+  Widget _buildToolbarStartStop() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => ControlStartStopButton(
+        started: _controlStarted && !suspended,
+        busy: _startInProgress,
+        onPressed: _controlStarted && !suspended
+            ? _stopControl
+            : (_canStartControl ? _startControl : null),
+      ),
+    );
+  }
+
+  Widget _buildStartHint(GamepadControlLayout layout) {
+    final padding = MediaQuery.paddingOf(context);
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => Positioned(
+        left: padding.left,
+        right: padding.right,
+        top: padding.top + layout.height,
+        bottom: 0,
+        child: Stack(
+          children: [
+            ControlStartHint(
+              // Only under a one-row toolbar, where it sits right below Start.
+              visible:
+                  layout.rows.length == 1 &&
+                  !(_controlStarted && !suspended) &&
+                  !_startInProgress &&
+                  !_speedMenuOpen,
+              anchorX: ControlStartHint.anchorXFor(layout),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1677,9 +1687,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           label: isThai ? 'ลบ' : 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? _removeSelected
-              : null,
+          onTap: hasSelection ? _removeSelected : null,
         ),
         GamepadOverflowAction(
           label: 'Reset',
@@ -1711,9 +1719,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? _toggleSelectedLock
-              : null,
+          onTap: hasSelection ? _toggleSelectedLock : null,
         ),
       ],
     );
@@ -1769,9 +1775,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
-        onTap: hasSelection && _selectedId != startStopEditId
-            ? _removeSelected
-            : null,
+        onTap: hasSelection ? _removeSelected : null,
       ),
       _actionPill(
         label: isThai ? 'Reset' : 'Reset',
@@ -1805,9 +1809,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
         accent: const Color(0xFFFBBF24),
         active: selectedLocked,
-        onTap: hasSelection && _selectedId != startStopEditId
-            ? _toggleSelectedLock
-            : null,
+        onTap: hasSelection ? _toggleSelectedLock : null,
       ),
       _actionPill(
         label: isThai ? 'Done' : 'Done',
@@ -1864,9 +1866,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? _toggleSelectedLock
-              : null,
+          onTap: hasSelection ? _toggleSelectedLock : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
@@ -1909,42 +1909,24 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           icon: Icons.delete_outline,
           label: isThai ? 'ลบ' : 'Delete',
           accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? _removeSelected
-              : null,
+          onTap: hasSelection ? _removeSelected : null,
         ),
       ],
     );
   }
 
-  Widget _buildStartStopSurface({required Widget child}) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: BleManager.instance.controlSuspendedListenable,
-      builder: (context, suspended, _) => EditableStartStopSurface(
-        key: _startStopKey,
-        placement: _startStop,
-        editing: _editMode,
-        selected: _selectedId == startStopEditId,
-        snapToGrid: _showGrid,
-        started: _controlStarted && !suspended,
-        busy: _startInProgress,
-        onPressed: _controlStarted && !suspended
-            ? _stopControl
-            : (_canStartControl ? _startControl : null),
-        onSelect: () => setState(() => _selectedId = startStopEditId),
-        onBeginChange: _pushHistory,
-        onChanged: (next) {
-          setState(() => _startStop = next);
-          _saveLayout(_prefsLayoutAll, _layoutAll);
-        },
-        onBlocked: _showBoundaryWarning,
-        child: child,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final controlLayout = _editMode
+        ? null
+        : GamepadControlLayout.measure(context, [
+            '',
+            '',
+            '@speed:Speed',
+            'CMD = 255 | Med = 2',
+            '@ble',
+            '',
+          ], leadingCount: 2);
     final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
@@ -1959,15 +1941,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           Scaffold(
             extendBodyBehindAppBar: true,
             appBar: GamepadUnifiedAppBar(
-              controlLayout: _editMode
-                  ? null
-                  : GamepadControlLayout.measure(context, [
-                      '',
-                      '@speed:Speed',
-                      'CMD = 255 | Med = 2',
-                      '@ble',
-                      '',
-                    ]),
+              controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: media.size.width - media.padding.horizontal,
               toolbarItemCount: _editMode ? 9 : null,
@@ -1975,6 +1949,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
               useGlassBackground: false,
               glassOpacity: 0.18,
               leading: _editMode ? null : _buildAppBarBackButton(),
+              startStop: _editMode ? null : _buildToolbarStartStop(),
               toolbarContent: _editMode
                   ? _buildCenteredEditAppBar(isThai)
                   : null,
@@ -2024,9 +1999,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
             ),
             body: Stack(
               children: [
-                Positioned.fill(
-                  child: const ControlBackground(),
-                ),
+                Positioned.fill(child: const ControlBackground()),
                 SafeArea(
                   child: Column(
                     children: [
@@ -2036,7 +2009,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                           children: [
                             _buildGridOverlay(),
                             if (_editMode)
-                              GamepadEditHint(hasSelection: _selectedId != null),
+                              GamepadEditHint(
+                                hasSelection: _selectedId != null,
+                              ),
                             LayoutBuilder(
                               builder: (context, cons) {
                                 return Padding(
@@ -2048,107 +2023,103 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                                   ),
                                   child: Center(
                                     child: SizedBox.expand(
-                                      child: _buildStartStopSurface(
-                                        child: ControlInputGate(
-                                          started: _controlStarted,
-                                          editing: _editMode,
-                                          suspended: BleManager
-                                              .instance
-                                              .controlSuspendedListenable,
-                                          onLockedTap: _showStartFirstNotice,
-                                          child: _editMode
-                                              ? _EditablePadPanel(
-                                                  ids: _activeIds
-                                                      .intersection(
-                                                        _supportedFourButtonIds,
-                                                      )
-                                                      .toList(),
-                                                  specs: {
-                                                    'F:forward': _BtnSpec(
-                                                      'Forward',
-                                                      'F',
-                                                      cfgForward(context),
-                                                    ),
-                                                    'F:backward': _BtnSpec(
-                                                      'Backward',
-                                                      'B',
-                                                      cfgBackward(context),
-                                                    ),
-                                                    'F:left': _BtnSpec(
-                                                      'Left',
-                                                      'L',
-                                                      cfgLeft(context),
-                                                    ),
-                                                    'F:right': _BtnSpec(
-                                                      'Right',
-                                                      'R',
-                                                      cfgRight(context),
-                                                    ),
-                                                  },
-                                                  layout: _layoutAll,
-                                                  snapToGrid: _showGrid,
-                                                  onLayoutChanged: (next) {
-                                                    _layoutAll = next;
-                                                    _saveLayout(
-                                                      _prefsLayoutAll,
-                                                      _layoutAll,
+                                      child: ControlInputGate(
+                                        started: _controlStarted,
+                                        editing: _editMode,
+                                        suspended: BleManager
+                                            .instance
+                                            .controlSuspendedListenable,
+                                        onLockedTap: _showStartFirstNotice,
+                                        child: _editMode
+                                            ? _EditablePadPanel(
+                                                ids: _activeIds
+                                                    .intersection(
+                                                      _supportedFourButtonIds,
+                                                    )
+                                                    .toList(),
+                                                specs: {
+                                                  'F:forward': _BtnSpec(
+                                                    'Forward',
+                                                    'F',
+                                                    cfgForward(context),
+                                                  ),
+                                                  'F:backward': _BtnSpec(
+                                                    'Backward',
+                                                    'B',
+                                                    cfgBackward(context),
+                                                  ),
+                                                  'F:left': _BtnSpec(
+                                                    'Left',
+                                                    'L',
+                                                    cfgLeft(context),
+                                                  ),
+                                                  'F:right': _BtnSpec(
+                                                    'Right',
+                                                    'R',
+                                                    cfgRight(context),
+                                                  ),
+                                                },
+                                                layout: _layoutAll,
+                                                snapToGrid: _showGrid,
+                                                onLayoutChanged: (next) {
+                                                  _layoutAll = next;
+                                                  _saveLayout(
+                                                    _prefsLayoutAll,
+                                                    _layoutAll,
+                                                  );
+                                                },
+                                                selectedId: _selectedId,
+                                                warningId: _editWarningId,
+                                                lockedIds: _lockedIds,
+                                                onSelect: _selectButton,
+                                                onPanelSize: (size) {
+                                                  _panelSize = size;
+                                                },
+                                                onStart: () {
+                                                  if (_editWarningId != null) {
+                                                    setState(
+                                                      () =>
+                                                          _editWarningId = null,
                                                     );
-                                                  },
-                                                  selectedId: _selectedId,
-                                                  warningId: _editWarningId,
-                                                  lockedIds: _lockedIds,
-                                                  onSelect: _selectButton,
-                                                  onPanelSize: (size) {
-                                                    _panelSize = size;
-                                                  },
-                                                  onStart: () {
-                                                    if (_editWarningId !=
-                                                        null) {
-                                                      setState(
-                                                        () => _editWarningId =
-                                                            null,
-                                                      );
-                                                    }
-                                                    _pushHistory();
-                                                  },
-                                                  onCollision:
-                                                      _showOverlapWarning,
-                                                  onBoundaryWarning:
-                                                      _showBoundaryWarning,
-                                                )
-                                              : _LayoutPadPanel(
-                                                  ids: _activeIds
-                                                      .intersection(
-                                                        _supportedFourButtonIds,
-                                                      )
-                                                      .toList(),
-                                                  specs: {
-                                                    'F:forward': _BtnSpec(
-                                                      'Forward',
-                                                      'F',
-                                                      cfgForward(context),
-                                                    ),
-                                                    'F:backward': _BtnSpec(
-                                                      'Backward',
-                                                      'B',
-                                                      cfgBackward(context),
-                                                    ),
-                                                    'F:left': _BtnSpec(
-                                                      'Left',
-                                                      'L',
-                                                      cfgLeft(context),
-                                                    ),
-                                                    'F:right': _BtnSpec(
-                                                      'Right',
-                                                      'R',
-                                                      cfgRight(context),
-                                                    ),
-                                                  },
-                                                  layout: _layoutAll,
-                                                  onPressChanged:
-                                                      _onPressChanged,
-                                                ),
-                                        ),
+                                                  }
+                                                  _pushHistory();
+                                                },
+                                                onCollision:
+                                                    _showOverlapWarning,
+                                                onBoundaryWarning:
+                                                    _showBoundaryWarning,
+                                              )
+                                            : _LayoutPadPanel(
+                                                ids: _activeIds
+                                                    .intersection(
+                                                      _supportedFourButtonIds,
+                                                    )
+                                                    .toList(),
+                                                specs: {
+                                                  'F:forward': _BtnSpec(
+                                                    'Forward',
+                                                    'F',
+                                                    cfgForward(context),
+                                                  ),
+                                                  'F:backward': _BtnSpec(
+                                                    'Backward',
+                                                    'B',
+                                                    cfgBackward(context),
+                                                  ),
+                                                  'F:left': _BtnSpec(
+                                                    'Left',
+                                                    'L',
+                                                    cfgLeft(context),
+                                                  ),
+                                                  'F:right': _BtnSpec(
+                                                    'Right',
+                                                    'R',
+                                                    cfgRight(context),
+                                                  ),
+                                                },
+                                                layout: _layoutAll,
+                                                onPressChanged: _onPressChanged,
+                                              ),
                                       ),
                                     ),
                                   ),
@@ -2161,6 +2132,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                     ],
                   ),
                 ),
+
+                if (controlLayout != null) _buildStartHint(controlLayout),
               ],
             ),
           ),
@@ -2382,13 +2355,11 @@ class _ButtonLayout {
 }
 
 class _EditSnapshot {
-  final StartStopPlacement startStop;
   final Map<String, _ButtonLayout> layoutAll;
   final Set<String> activeIds;
   final Set<String> lockedIds;
   final String? selectedId;
   const _EditSnapshot({
-    this.startStop = const StartStopPlacement(),
     required this.layoutAll,
     required this.activeIds,
     required this.lockedIds,
@@ -2649,15 +2620,13 @@ class _LayoutPadPanel extends StatelessWidget {
                 width: scaled.cfg.width,
                 height: scaled.cfg.height,
                 child: Center(
-                  child: StartStopObstacle(
-                    child: GamepadImageHoldButton(
-                      label: spec.label,
-                      sendValue: spec.sendValue,
-                      asset: scaled.cfg.iconAsset ?? '',
-                      diameter: math.min(scaled.cfg.width, scaled.cfg.height),
-                      showLabel: false,
-                      onPressChanged: (id, down) => onPressChanged(id, down),
-                    ),
+                  child: GamepadImageHoldButton(
+                    label: spec.label,
+                    sendValue: spec.sendValue,
+                    asset: scaled.cfg.iconAsset ?? '',
+                    diameter: math.min(scaled.cfg.width, scaled.cfg.height),
+                    showLabel: false,
+                    onPressChanged: (id, down) => onPressChanged(id, down),
                   ),
                 ),
               ),
@@ -2845,22 +2814,6 @@ class _EditableButtonState extends State<_EditableButton> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-    final systemBounds = _scaledHoldCfg(
-      widget.cfg,
-      candidate,
-      widget.panelSize,
-    );
-    if (EditableStartStopSurface.blocks(
-      context,
-      Rect.fromCenter(
-        center: systemBounds.center,
-        width: systemBounds.cfg.width,
-        height: systemBounds.cfg.height,
-      ),
-    )) {
-      widget.onCollision?.call();
-      return;
-    }
     widget.onChanged(candidate);
   }
 
@@ -2928,9 +2881,7 @@ class _EditableButtonState extends State<_EditableButton> {
         child: SizedBox(
           width: scaled.cfg.width,
           height: scaled.cfg.height,
-          child: StartStopObstacle(
-            child: Center(child: IgnorePointer(child: buttonContent)),
-          ),
+          child: Center(child: IgnorePointer(child: buttonContent)),
         ),
       ),
     );

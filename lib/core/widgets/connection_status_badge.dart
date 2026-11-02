@@ -386,14 +386,15 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
                 BlePresentationTone.neutral => const Color(0xFF60A5FA),
               }
             : Colors.black54;
-        if (GamepadControlScope.of(context) != null) {
+        final controlLayout = GamepadControlScope.of(context);
+        if (controlLayout != null) {
           return Semantics(
             liveRegion: true,
             child: GamepadControlPill(
               accent: accentColor,
               backgroundColor: statusColor,
               color: statusColor == null ? null : Colors.black87,
-              label: text,
+              label: controlLayout.compactBle ? presentation.shortLabel : text,
               semanticLabel: presentation.semanticLabel,
               onTap: _openSheet,
               onTapDown: (details) => _sheetAnchor = details.globalPosition,

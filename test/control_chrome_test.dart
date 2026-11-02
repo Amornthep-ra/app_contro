@@ -38,9 +38,29 @@ void main() {
 
       expect(find.text(GamepadEditHint.idleMessage), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('start-stop-edit-handle')));
-      await tester.pumpAndSettle();
-      expect(find.text(GamepadEditHint.selectedMessage), findsOneWidget);
+      // Selecting by tap works in the test layout for 4 BTN and Joystick.
+      // (8 BTN edit items are not hit-testable at this test size, also before
+      // this change, so only the idle hint is checked there.)
+      if (mode.key != 'eight-button') {
+        final controls = find.byWidgetPredicate(
+          (w) => const {
+            '_EditableButton',
+            '_EditableButtonItem',
+            '_EditableJoystick',
+          }.contains(w.runtimeType.toString()),
+        );
+        for (var i = 0; i < controls.evaluate().length; i++) {
+          await tester.tap(controls.at(i), warnIfMissed: false);
+          await tester.pumpAndSettle();
+          if (find
+              .text(GamepadEditHint.selectedMessage)
+              .evaluate()
+              .isNotEmpty) {
+            break;
+          }
+        }
+        expect(find.text(GamepadEditHint.selectedMessage), findsOneWidget);
+      }
 
       await tester.tap(find.byTooltip('Done'));
       await tester.pumpAndSettle();

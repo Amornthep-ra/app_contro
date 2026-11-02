@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/widgets/control_input_gate.dart';
 import '../../core/widgets/control_background.dart';
 import '../../core/widgets/gamepad_edit_hint.dart';
-import '../../core/widgets/editable_start_stop.dart';
+import '../../core/widgets/control_start_stop.dart';
 import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -227,8 +227,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   final Set<String> _pressedIds = {};
   DateTime _lastRejectHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _selectedId;
-  StartStopPlacement _startStop = const StartStopPlacement();
-  final _startStopKey = GlobalKey<EditableStartStopSurfaceState>();
   String? _editWarningId;
   int _lastBoundaryWarningMs = 0;
   int _lastOverlapWarningMs = 0;
@@ -512,6 +510,45 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
+  Widget _buildToolbarStartStop() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => ControlStartStopButton(
+        started: _controlStarted && !suspended,
+        busy: _startInProgress,
+        onPressed: _controlStarted && !suspended
+            ? _stopControl
+            : (_canStartControl ? _startControl : null),
+      ),
+    );
+  }
+
+  Widget _buildStartHint(GamepadControlLayout layout) {
+    final padding = MediaQuery.paddingOf(context);
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => Positioned(
+        left: padding.left,
+        right: padding.right,
+        top: padding.top + layout.height,
+        bottom: 0,
+        child: Stack(
+          children: [
+            ControlStartHint(
+              // Only under a one-row toolbar, where it sits right below Start.
+              visible:
+                  layout.rows.length == 1 &&
+                  !(_controlStarted && !suspended) &&
+                  !_startInProgress &&
+                  !_speedPanelOpen,
+              anchorX: ControlStartHint.anchorXFor(layout),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _editWarningTimer?.cancel();
@@ -650,7 +687,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'startStop': _startStop.toJson(),
       'layout': _encodeLayout(_layoutAll),
       'leftActive': _leftActive.toList(),
       'rightActive': _rightActive.toList(),
@@ -671,7 +707,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return;
-      _startStop = StartStopPlacement.fromJson(obj['startStop']);
       final layoutRaw = obj['layout'];
       final leftRaw = obj['leftActive'];
       final rightRaw = obj['rightActive'];
@@ -800,12 +835,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Future<void> _loadLayouts() async {
     final prefs = await SharedPreferences.getInstance();
-    final systemRaw = prefs.getString('${_prefsLayoutAll}_start_stop');
-    if (systemRaw != null) {
-      try {
-        _startStop = StartStopPlacement.fromJson(jsonDecode(systemRaw));
-      } catch (_) {}
-    }
     final leftRaw = prefs.getString(_prefsLayoutLeft);
     final rightRaw = prefs.getString(_prefsLayoutRight);
     final allRaw = prefs.getString(_prefsLayoutAll);
@@ -860,10 +889,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
-    await prefs.setString(
-      '${_prefsLayoutAll}_start_stop',
-      jsonEncode(_startStop.toJson()),
-    );
   }
 
   Future<void> _saveActive(String key, Set<String> ids) async {
@@ -948,7 +973,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
-      startStop: _startStop,
       layoutAll: _cloneLayout(_layoutAll),
       leftActive: Set<String>.from(_leftActive),
       rightActive: Set<String>.from(_rightActive),
@@ -958,7 +982,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
-    _startStop = snap.startStop;
     _layoutAll = _cloneLayout(snap.layoutAll);
     _leftActive = Set<String>.from(snap.leftActive);
     _rightActive = Set<String>.from(snap.rightActive);
@@ -1024,10 +1047,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   void _adjustSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
-    if (id == startStopEditId) {
-      _startStopKey.currentState?.adjustSize(delta);
-      return;
-    }
     if (_lockedIds.contains(id)) return;
     final panelSize = _panelSize;
     final current = _layoutAll[id];
@@ -1076,15 +1095,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         break;
       }
     }
-    if (collides ||
-        ((_startStopKey.currentState?.blocksRect(
-              Rect.fromCenter(
-                center: Offset(cx, cy),
-                width: sizePx,
-                height: sizePx,
-              ),
-            ) ??
-            false))) {
+    if (collides) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showOverlapWarning();
@@ -1102,7 +1113,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   void _toggleSelectedLock() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     setState(() {
       if (_lockedIds.contains(id)) {
         _lockedIds.remove(id);
@@ -1159,7 +1170,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   void _resetLayouts() async {
     _pushHistory();
-    _startStop = const StartStopPlacement();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);
     await prefs.remove('${_prefsLayoutAll}_start_stop');
@@ -1226,7 +1236,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   void _removeSelected() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     _toggleActive(id, id.startsWith('L:'));
   }
 
@@ -1799,9 +1809,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           label: isThai ? 'ลบ' : 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_removeSelected)
-              : null,
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
         GamepadOverflowAction(
           label: 'Reset',
@@ -1835,9 +1843,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_toggleSelectedLock)
-              : null,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
       ],
     );
@@ -2201,9 +2207,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_toggleSelectedLock)
-              : null,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
@@ -2248,9 +2252,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           icon: Icons.delete_outline,
           label: isThai ? 'ลบ' : 'Delete',
           accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_removeSelected)
-              : null,
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
       ],
     );
@@ -2676,34 +2678,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return [..._leftActive, ..._rightActive];
   }
 
-  Widget _buildStartStopSurface({required Widget child}) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: BleManager.instance.controlSuspendedListenable,
-      builder: (context, suspended, _) => EditableStartStopSurface(
-        key: _startStopKey,
-        placement: _startStop,
-        editing: _editMode,
-        selected: _selectedId == startStopEditId,
-        snapToGrid: _showGrid,
-        started: _controlStarted && !suspended,
-        busy: _startInProgress,
-        onPressed: _controlStarted && !suspended
-            ? _stopControl
-            : (_canStartControl ? _startControl : null),
-        onSelect: () => setState(() => _selectedId = startStopEditId),
-        onBeginChange: _pushHistory,
-        onChanged: (next) {
-          setState(() => _startStop = next);
-          _saveLayout(_prefsLayoutAll, _layoutAll);
-        },
-        onBlocked: _showBoundaryWarning,
-        child: child,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final controlLayout = _editMode
+        ? null
+        : GamepadControlLayout.measure(context, [
+            '',
+            '',
+            '@speed:Speed',
+            'CMD = 255 | DRV = 100% | TRN = 100%',
+            '@ble',
+            '',
+          ], leadingCount: 2);
     final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
@@ -2718,15 +2704,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           Scaffold(
             extendBodyBehindAppBar: true,
             appBar: GamepadUnifiedAppBar(
-              controlLayout: _editMode
-                  ? null
-                  : GamepadControlLayout.measure(context, [
-                      '',
-                      '@speed:Speed',
-                      'CMD = 255 | DRV = 100% | TRN = 100%',
-                      '@ble',
-                      '',
-                    ]),
+              controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: media.size.width - media.padding.horizontal,
               toolbarItemCount: _editMode ? 9 : null,
@@ -2737,6 +2715,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   ? _buildCenteredEditAppBar(isThai)
                   : null,
               leading: _editMode ? null : _buildAppBarBackButton(),
+              startStop: _editMode ? null : _buildToolbarStartStop(),
               speedToggle: _editMode ? null : _speedToggle(),
               cmdChip: _editMode
                   ? null
@@ -2782,9 +2761,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             ),
             body: Stack(
               children: [
-                Positioned.fill(
-                  child: const ControlBackground(),
-                ),
+                Positioned.fill(child: const ControlBackground()),
                 SafeArea(
                   child: Stack(
                     children: [
@@ -2799,131 +2776,129 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                               children: [
                                 if (!_editMode) _buildInlineSpeedPanel(),
                                 Expanded(
-                                  child: _buildStartStopSurface(
-                                    child: ControlInputGate(
-                                      started: _controlStarted,
-                                      editing: _editMode,
-                                      suspended: BleManager
-                                          .instance
-                                          .controlSuspendedListenable,
-                                      onLockedTap: _showStartFirstNotice,
-                                      child: _editMode
-                                          ? _EditablePadPanel(
-                                              ids: _allActiveIds(),
-                                              specs: const {
-                                                'L:up': _BtnSpec(
-                                                  'Up',
-                                                  kCmdUp,
-                                                  kGamepad8AssetUp,
-                                                ),
-                                                'L:down': _BtnSpec(
-                                                  'Down',
-                                                  kCmdDown,
-                                                  kGamepad8AssetDown,
-                                                ),
-                                                'L:left': _BtnSpec(
-                                                  'Left',
-                                                  kCmdLeft,
-                                                  kGamepad8AssetLeft,
-                                                ),
-                                                'L:right': _BtnSpec(
-                                                  'Right',
-                                                  kCmdRight,
-                                                  kGamepad8AssetRight,
-                                                ),
-                                                'R:triangle': _BtnSpec(
-                                                  'Triangle',
-                                                  kCmdTriangle,
-                                                  kGamepad8AssetTriangle,
-                                                ),
-                                                'R:cross': _BtnSpec(
-                                                  'Cross',
-                                                  kCmdCross,
-                                                  kGamepad8AssetCross,
-                                                ),
-                                                'R:square': _BtnSpec(
-                                                  'Square',
-                                                  kCmdSquare,
-                                                  kGamepad8AssetSquare,
-                                                ),
-                                                'R:circle': _BtnSpec(
-                                                  'Circle',
-                                                  kCmdCircle,
-                                                  kGamepad8AssetCircle,
-                                                ),
-                                              },
-                                              layout: _layoutAll,
-                                              onLayoutChanged: (next) {
-                                                setState(() {
-                                                  _layoutAll = next;
-                                                  _editWarningId = null;
-                                                });
-                                                _saveLayout(
-                                                  _prefsLayoutAll,
-                                                  _layoutAll,
-                                                );
-                                              },
-                                              selectedId: _selectedId,
-                                              lockedIds: _lockedIds,
-                                              snapToGrid: _showGrid,
-                                              onSelect: _selectButton,
-                                              onPanelSize: (size) {
-                                                _panelSize = size;
-                                              },
-                                              onStart: _startEditTransform,
-                                              onCollision: _showOverlapWarning,
-                                              onBoundaryWarning:
-                                                  _showBoundaryWarning,
-                                              warningId: _editWarningId,
-                                            )
-                                          : _LayoutPadPanel(
-                                              ids: _allActiveIds(),
-                                              specs: const {
-                                                'L:up': _BtnSpec(
-                                                  'Up',
-                                                  kCmdUp,
-                                                  kGamepad8AssetUp,
-                                                ),
-                                                'L:down': _BtnSpec(
-                                                  'Down',
-                                                  kCmdDown,
-                                                  kGamepad8AssetDown,
-                                                ),
-                                                'L:left': _BtnSpec(
-                                                  'Left',
-                                                  kCmdLeft,
-                                                  kGamepad8AssetLeft,
-                                                ),
-                                                'L:right': _BtnSpec(
-                                                  'Right',
-                                                  kCmdRight,
-                                                  kGamepad8AssetRight,
-                                                ),
-                                                'R:triangle': _BtnSpec(
-                                                  'Triangle',
-                                                  kCmdTriangle,
-                                                  kGamepad8AssetTriangle,
-                                                ),
-                                                'R:cross': _BtnSpec(
-                                                  'Cross',
-                                                  kCmdCross,
-                                                  kGamepad8AssetCross,
-                                                ),
-                                                'R:square': _BtnSpec(
-                                                  'Square',
-                                                  kCmdSquare,
-                                                  kGamepad8AssetSquare,
-                                                ),
-                                                'R:circle': _BtnSpec(
-                                                  'Circle',
-                                                  kCmdCircle,
-                                                  kGamepad8AssetCircle,
-                                                ),
-                                              },
-                                              layout: _layoutAll,
-                                              onPressChanged: _onAnyPress,
-                                            ),
-                                    ),
+                                  child: ControlInputGate(
+                                    started: _controlStarted,
+                                    editing: _editMode,
+                                    suspended: BleManager
+                                        .instance
+                                        .controlSuspendedListenable,
+                                    onLockedTap: _showStartFirstNotice,
+                                    child: _editMode
+                                        ? _EditablePadPanel(
+                                            ids: _allActiveIds(),
+                                            specs: const {
+                                              'L:up': _BtnSpec(
+                                                'Up',
+                                                kCmdUp,
+                                                kGamepad8AssetUp,
+                                              ),
+                                              'L:down': _BtnSpec(
+                                                'Down',
+                                                kCmdDown,
+                                                kGamepad8AssetDown,
+                                              ),
+                                              'L:left': _BtnSpec(
+                                                'Left',
+                                                kCmdLeft,
+                                                kGamepad8AssetLeft,
+                                              ),
+                                              'L:right': _BtnSpec(
+                                                'Right',
+                                                kCmdRight,
+                                                kGamepad8AssetRight,
+                                              ),
+                                              'R:triangle': _BtnSpec(
+                                                'Triangle',
+                                                kCmdTriangle,
+                                                kGamepad8AssetTriangle,
+                                              ),
+                                              'R:cross': _BtnSpec(
+                                                'Cross',
+                                                kCmdCross,
+                                                kGamepad8AssetCross,
+                                              ),
+                                              'R:square': _BtnSpec(
+                                                'Square',
+                                                kCmdSquare,
+                                                kGamepad8AssetSquare,
+                                              ),
+                                              'R:circle': _BtnSpec(
+                                                'Circle',
+                                                kCmdCircle,
+                                                kGamepad8AssetCircle,
+                                              ),
+                                            },
+                                            layout: _layoutAll,
+                                            onLayoutChanged: (next) {
+                                              setState(() {
+                                                _layoutAll = next;
+                                                _editWarningId = null;
+                                              });
+                                              _saveLayout(
+                                                _prefsLayoutAll,
+                                                _layoutAll,
+                                              );
+                                            },
+                                            selectedId: _selectedId,
+                                            lockedIds: _lockedIds,
+                                            snapToGrid: _showGrid,
+                                            onSelect: _selectButton,
+                                            onPanelSize: (size) {
+                                              _panelSize = size;
+                                            },
+                                            onStart: _startEditTransform,
+                                            onCollision: _showOverlapWarning,
+                                            onBoundaryWarning:
+                                                _showBoundaryWarning,
+                                            warningId: _editWarningId,
+                                          )
+                                        : _LayoutPadPanel(
+                                            ids: _allActiveIds(),
+                                            specs: const {
+                                              'L:up': _BtnSpec(
+                                                'Up',
+                                                kCmdUp,
+                                                kGamepad8AssetUp,
+                                              ),
+                                              'L:down': _BtnSpec(
+                                                'Down',
+                                                kCmdDown,
+                                                kGamepad8AssetDown,
+                                              ),
+                                              'L:left': _BtnSpec(
+                                                'Left',
+                                                kCmdLeft,
+                                                kGamepad8AssetLeft,
+                                              ),
+                                              'L:right': _BtnSpec(
+                                                'Right',
+                                                kCmdRight,
+                                                kGamepad8AssetRight,
+                                              ),
+                                              'R:triangle': _BtnSpec(
+                                                'Triangle',
+                                                kCmdTriangle,
+                                                kGamepad8AssetTriangle,
+                                              ),
+                                              'R:cross': _BtnSpec(
+                                                'Cross',
+                                                kCmdCross,
+                                                kGamepad8AssetCross,
+                                              ),
+                                              'R:square': _BtnSpec(
+                                                'Square',
+                                                kCmdSquare,
+                                                kGamepad8AssetSquare,
+                                              ),
+                                              'R:circle': _BtnSpec(
+                                                'Circle',
+                                                kCmdCircle,
+                                                kGamepad8AssetCircle,
+                                              ),
+                                            },
+                                            layout: _layoutAll,
+                                            onPressChanged: _onAnyPress,
+                                          ),
                                   ),
                                 ),
                               ],
@@ -2935,6 +2910,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                   ),
                 ),
                 _buildDimOverlay(),
+
+                if (controlLayout != null) _buildStartHint(controlLayout),
               ],
             ),
           ),
@@ -3061,14 +3038,12 @@ class _ButtonLayout {
 }
 
 class _EditSnapshot {
-  final StartStopPlacement startStop;
   final Map<String, _ButtonLayout> layoutAll;
   final Set<String> leftActive;
   final Set<String> rightActive;
   final Set<String> lockedIds;
   final String? selectedId;
   const _EditSnapshot({
-    this.startStop = const StartStopPlacement(),
     required this.layoutAll,
     required this.leftActive,
     required this.rightActive,
@@ -3311,16 +3286,14 @@ class _LayoutPadPanel extends StatelessWidget {
             return Positioned(
               left: cx - d / 2,
               top: cy - d / 2,
-              child: StartStopObstacle(
-                child: GamepadImageHoldButton(
-                  label: spec.label,
-                  sendValue: spec.sendValue,
-                  asset: spec.asset,
-                  diameter: d,
-                  showLabel: false,
-                  lightImpactBeforeBuzz: true,
-                  onPressChanged: onPressChanged,
-                ),
+              child: GamepadImageHoldButton(
+                label: spec.label,
+                sendValue: spec.sendValue,
+                asset: spec.asset,
+                diameter: d,
+                showLabel: false,
+                lightImpactBeforeBuzz: true,
+                onPressChanged: onPressChanged,
               ),
             );
           }).toList(),
@@ -3481,17 +3454,6 @@ class _EditableButtonState extends State<_EditableButton> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-    if (EditableStartStopSurface.blocks(
-      context,
-      Rect.fromCenter(
-        center: Offset(cx, cy),
-        width: size * s,
-        height: size * s,
-      ),
-    )) {
-      widget.onCollision?.call();
-      return;
-    }
     widget.onChanged(_ButtonLayout(cx / w, cy / h, size));
   }
 
@@ -3554,9 +3516,7 @@ class _EditableButtonState extends State<_EditableButton> {
                 widget.onEnd();
               },
         onTap: widget.onTap,
-        child: StartStopObstacle(
-          child: SizedBox(width: size, height: size, child: buttonContent),
-        ),
+        child: SizedBox(width: size, height: size, child: buttonContent),
       ),
     );
   }

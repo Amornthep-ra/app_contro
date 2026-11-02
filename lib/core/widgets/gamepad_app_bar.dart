@@ -249,6 +249,9 @@ class GamepadUnifiedAppBar extends StatelessWidget
     implements PreferredSizeWidget {
   final GamepadControlLayout? controlLayout;
   final Widget? leading;
+
+  /// Start/Stop, shown right after [leading] (Back).
+  final Widget? startStop;
   final Widget? toolbarContent;
   final Widget? speedToggle;
   final Widget? cmdChip;
@@ -275,6 +278,7 @@ class GamepadUnifiedAppBar extends StatelessWidget
     super.key,
     this.controlLayout,
     this.leading,
+    this.startStop,
     this.toolbarContent,
     this.speedToggle,
     this.cmdChip,
@@ -318,6 +322,7 @@ class GamepadUnifiedAppBar extends StatelessWidget
 
   int get _derivedToolbarItemCount =>
       (leading == null ? 0 : 1) +
+      (startStop == null ? 0 : 1) +
       (speedToggle == null ? 0 : 1) +
       (cmdChip == null ? 0 : 1) +
       (drvChip == null ? 0 : 1) +
@@ -414,6 +419,7 @@ class GamepadUnifiedAppBar extends StatelessWidget
     final metrics = GamepadAppBarMetrics.forWidth(width);
     final items = <Widget>[
       if (leading != null) leading!,
+      if (startStop != null) startStop!,
       if (speedToggle != null) speedToggle!,
       if (cmdChip != null) cmdChip!,
       if (trnChip != null) trnChip!,
