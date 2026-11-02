@@ -330,6 +330,27 @@ class GamepadStartStopControlButton extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    // Emergency Stop gets a solid red halo so it reads as the
+                    // most important control on the pad.
+                    if (color == emergencyStopColor && onPressed != null)
+                      Container(
+                        width: diameter * .96,
+                        height: diameter * .96,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: emergencyStopColor.withAlpha(190),
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: emergencyStopColor.withAlpha(110),
+                              blurRadius: 20,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                      ),
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
                       curve: Curves.easeOut,

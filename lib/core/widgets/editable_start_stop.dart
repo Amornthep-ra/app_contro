@@ -1,16 +1,31 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import '../ui/ambient_motion.dart';
 import 'gamepad_appbar_controls.dart';
 
 const startStopEditId = 'system:start_stop';
 
 @immutable
 class StartStopPlacement {
-  const StartStopPlacement({this.cx = .5, this.cy = 1, this.scale = 1});
+  const StartStopPlacement({
+    this.cx = .5,
+    this.cy = 1,
+    this.scale = defaultScale,
+  });
   final double cx;
   final double cy;
   final double scale;
+
+  /// 72 px: Start/Stop is the emergency stop, so it is the largest system
+  /// control by default.
+  static const double defaultScale = 1.5;
+
+  /// Size every page saved automatically before [defaultScale] existed.
+  static const double _legacyDefaultScale = 1;
+
+  /// Bumped when saved data must be told apart from older app versions.
+  static const int _formatVersion = 2;
 
   static StartStopPlacement fromJson(Object? value) {
     if (value is! Map) return const StartStopPlacement();
@@ -21,14 +36,26 @@ class StartStopPlacement {
           : fallback;
     }
 
+    var scale = read('scale', defaultScale, .75, 2);
+    // Older versions saved the 48 px default on every visit, so an untouched
+    // legacy 1.0 means "never resized": use the new default. Sizes the user
+    // actually chose (anything else, or data saved by this version) stay.
+    if (value['v'] == null && scale == _legacyDefaultScale) {
+      scale = defaultScale;
+    }
     return StartStopPlacement(
       cx: read('cx', .5, 0, 1),
       cy: read('cy', 1, 0, 1),
-      scale: read('scale', 1, .75, 2),
+      scale: scale,
     );
   }
 
-  Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'scale': scale};
+  Map<String, num> toJson() => {
+    'v': _formatVersion,
+    'cx': cx,
+    'cy': cy,
+    'scale': scale,
+  };
   double get diameter => 48 * scale;
   double get hitSize => math.max(48, diameter);
 }
@@ -57,8 +84,12 @@ class EditableStartStopSurface extends StatefulWidget {
     required this.onChanged,
     required this.onBlocked,
     required this.child,
+    this.startHint = 'Tap Start to drive',
   });
   final StartStopPlacement placement;
+
+  /// Shown next to Start while control is off. Null hides it.
+  final String? startHint;
   final bool editing, selected, snapToGrid, started, busy;
   final VoidCallback? onPressed;
   final VoidCallback onSelect, onBeginChange, onBlocked;
@@ -219,13 +250,20 @@ class EditableStartStopSurfaceState extends State<EditableStartStopSurface> {
         _scanScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) => _scan());
       }
-      final button = GamepadStartStopControlButton(
-        heroTag: 'editable_start_stop',
+      final waitingForStart =
+          !widget.editing && !widget.started && !widget.busy;
+      final Widget button = _StartPulse(
+        active: waitingForStart && AmbientMotion.enabledFor(context),
         diameter: value.diameter,
-        isStarted: widget.editing ? false : widget.started,
-        isBusy: widget.editing ? false : widget.busy,
-        onPressed: widget.editing ? () {} : widget.onPressed,
+        child: GamepadStartStopControlButton(
+          heroTag: 'editable_start_stop',
+          diameter: value.diameter,
+          isStarted: widget.editing ? false : widget.started,
+          isBusy: widget.editing ? false : widget.busy,
+          onPressed: widget.editing ? () {} : widget.onPressed,
+        ),
       );
+      final hint = widget.startHint;
       return Stack(
         children: [
           KeyedSubtree(key: _controlsKey, child: widget.child),
@@ -296,8 +334,177 @@ class EditableStartStopSurfaceState extends State<EditableStartStopSurface> {
                   )
                 : button,
           ),
+          if (waitingForStart && hint != null && !_displayRect.isEmpty)
+            _StartHint(label: hint, anchor: _displayRect, area: _size),
         ],
       );
     },
   );
+}
+
+/// Small glass label pointing at Start, so a dimmed pad explains itself.
+class _StartHint extends StatelessWidget {
+  const _StartHint({
+    required this.label,
+    required this.anchor,
+    required this.area,
+  });
+
+  final String label;
+  final Rect anchor;
+  final Size area;
+
+  @override
+  Widget build(BuildContext context) {
+    const height = 34.0;
+    const gap = 8.0;
+    final above = anchor.top - gap - height >= 4;
+    final top = above ? anchor.top - gap - height : anchor.bottom + gap;
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: top,
+      height: height,
+      child: IgnorePointer(
+        child: Align(
+          alignment: Alignment(
+            area.width <= 0 ? 0 : (anchor.center.dx / area.width) * 2 - 1,
+            0,
+          ),
+          child: Semantics(
+            liveRegion: true,
+            label: label,
+            child: Container(
+              key: const ValueKey('start-hint'),
+              height: height,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.86),
+                borderRadius: BorderRadius.circular(height / 2),
+                border: Border.all(color: Colors.white),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF22C55E).withValues(alpha: 0.28),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    above
+                        ? Icons.arrow_downward_rounded
+                        : Icons.arrow_upward_rounded,
+                    size: 16,
+                    color: const Color(0xFF15803D),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF261B39),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Soft green ring that breathes around Start until control begins.
+class _StartPulse extends StatefulWidget {
+  const _StartPulse({
+    required this.active,
+    required this.diameter,
+    required this.child,
+  });
+
+  final bool active;
+  final double diameter;
+  final Widget child;
+
+  @override
+  State<_StartPulse> createState() => _StartPulseState();
+}
+
+class _StartPulseState extends State<_StartPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_StartPulse oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.active && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!widget.active && _controller.isAnimating) {
+      _controller
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+    return Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.none,
+      children: [
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final t = Curves.easeOut.transform(_controller.value);
+            final size = widget.diameter * (0.9 + 0.45 * t);
+            return IgnorePointer(
+              child: Container(
+                width: size,
+                height: size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(
+                      0xFF22C55E,
+                    ).withValues(alpha: 0.55 * (1 - t)),
+                    width: 3,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        widget.child,
+      ],
+    );
+  }
 }

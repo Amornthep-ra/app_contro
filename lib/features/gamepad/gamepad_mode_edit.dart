@@ -501,6 +501,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     }
   }
 
+  void _showStartFirstNotice() {
+    showGamepadTopNotice(
+      context,
+      message: 'Tap Start to drive',
+      style: GamepadNoticeStyle.warning,
+    );
+  }
+
   @override
   void dispose() {
     _editWarningTimer?.cancel();
@@ -2784,6 +2792,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                                       suspended: BleManager
                                           .instance
                                           .controlSuspendedListenable,
+                                      onLockedTap: _showStartFirstNotice,
                                       child: _editMode
                                           ? _EditablePadPanel(
                                               ids: _allActiveIds(),

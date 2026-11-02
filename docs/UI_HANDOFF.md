@@ -103,3 +103,18 @@ Tests: `test/ble_page_ui_test.dart` (alignment, states, compact empty list, Conn
 ### Back button
 
 `lib/core/widgets/cat_back_button.dart` — shared `CatBackButton`: `Back.png` at 40 px (was 24 px, the arrow was ~6 px and hard to see) in a 48 px tap target. Pages set `leadingWidth: CatBackButton.leadingWidthFor(<page padding>)` with `leading: CatBackButton.leading()` so the icon lines up with the content's left edge. Used on BLE Connection (20) and LineSonic (16). The control-page toolbar back pill (28 px) is a separate style and was not changed.
+
+## 4. Controller pages (4 BTN / 8 BTN / Joystick) — IN PROGRESS
+
+Rule from owner: **do not change anything the Arduino library depends on** — packets, button IDs/names, axis directions (Y- is up), △○✕□ face buttons, and the CMD / DRV / TRN / X / Y telemetry text all stay as they are.
+
+### Phase 1 — Start/Stop and locked controls (done)
+- `StartStopPlacement.defaultScale` = 1.5 → Start/Stop is 72 px (was 48). Saved data now carries `"v": 2`. Older versions auto-saved `scale: 1` on every visit, so a legacy `1.0` is treated as "never resized" and gets the new default; any other legacy size, or anything saved by this version, is kept.
+- Emergency Stop has a red halo.
+- While control is off: "Tap Start to drive" label next to Start and a breathing green ring (ring respects reduce-motion and is off under `flutter test`, via `lib/core/ui/ambient_motion.dart`, which Home's backdrop now uses too).
+- `ControlInputGate`: locked controls are desaturated at 0.72 opacity instead of 0.4 grey; a tap on the locked pad shows the "Tap Start to drive" notice (`onLockedTap`). Child state is kept across lock/unlock with a GlobalKey.
+
+### Next
+- Phase 2: toolbar — Back pinned left, Settings pinned right, 40 px back cat, glass telemetry chips (same text).
+- Phase 3: speed panel / Settings page / edit bar to Lavender Glass.
+- Phase 4: soft veil over bottom-corner cat art on short screens.

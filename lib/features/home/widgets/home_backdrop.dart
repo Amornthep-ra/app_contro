@@ -1,11 +1,11 @@
 // lib/features/home/widgets/home_backdrop.dart
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/ui/ambient_motion.dart';
 import '../../../core/ui/app_assets.dart';
 import '../../../core/ui/lavender_glass.dart';
 
@@ -33,16 +33,7 @@ class HomeBackdrop extends StatefulWidget {
 
   /// Global default for [animate]. Off under `flutter test` so that
   /// `pumpAndSettle` can settle.
-  static bool motionEnabledByDefault = !_runningUnderFlutterTest();
-
-  static bool _runningUnderFlutterTest() {
-    if (kIsWeb) return false;
-    try {
-      return Platform.environment.containsKey('FLUTTER_TEST');
-    } catch (_) {
-      return false;
-    }
-  }
+  static bool motionEnabledByDefault = AmbientMotion.enabledByDefault;
 
   /// Number of backdrops whose motion clock is currently running.
   @visibleForTesting

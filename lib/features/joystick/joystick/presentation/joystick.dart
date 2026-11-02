@@ -488,6 +488,14 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
+  void _showStartFirstNotice() {
+    showGamepadTopNotice(
+      context,
+      message: 'Tap Start to drive',
+      style: GamepadNoticeStyle.warning,
+    );
+  }
+
   @override
   void dispose() {
     _leavingControlPage = true;
@@ -2430,6 +2438,7 @@ class _JoystickPageState extends State<JoystickPage> {
                               suspended: BleManager
                                   .instance
                                   .controlSuspendedListenable,
+                              onLockedTap: _showStartFirstNotice,
                               child: Stack(children: widgets),
                             ),
                           );

@@ -71,7 +71,7 @@ void main() {
           'cy': -5,
           'scale': 20,
         }).toJson(),
-        {'cx': .5, 'cy': 0.0, 'scale': 2.0},
+        {'v': 2, 'cx': .5, 'cy': 0.0, 'scale': 2.0},
       );
       const value = StartStopPlacement(cx: .3, cy: .4, scale: .75);
       expect(
@@ -84,6 +84,30 @@ void main() {
       expect(value.diameter, 36);
     },
   );
+
+  test('Start/Stop defaults to 72 px and migrates the old auto-saved size', () {
+    expect(const StartStopPlacement().diameter, 72);
+    // Older versions saved scale 1 (48 px) on every visit: treat as default.
+    expect(
+      StartStopPlacement.fromJson({'cx': .5, 'cy': 1, 'scale': 1}).scale,
+      StartStopPlacement.defaultScale,
+    );
+    // A size the user chose in an older version is kept.
+    expect(
+      StartStopPlacement.fromJson({'cx': .5, 'cy': 1, 'scale': 1.25}).scale,
+      1.25,
+    );
+    // Data saved by this version is kept as-is, even at 1.0.
+    expect(
+      StartStopPlacement.fromJson({
+        'v': 2,
+        'cx': .5,
+        'cy': 1,
+        'scale': 1,
+      }).scale,
+      1,
+    );
+  });
 
   for (final mode in <String, Widget Function()>{
     'gp4_layout_all': () => const Gamepad4ButtonPage(),
@@ -118,7 +142,7 @@ void main() {
       }
 
       await mount();
-      expect(surface().placement.scale, 1);
+      expect(surface().placement.scale, StartStopPlacement.defaultScale);
       await edit();
       final handle = find.byKey(const ValueKey('start-stop-edit-handle'));
       expect(handle, findsOneWidget);
@@ -140,7 +164,10 @@ void main() {
       expect(surface().placement.toJson(), isNot(before));
       final moved = surface().placement.toJson();
       await tool('Increase size');
-      expect(surface().placement.scale, closeTo(1.05, .0001));
+      expect(
+        surface().placement.scale,
+        closeTo(StartStopPlacement.defaultScale + .05, .0001),
+      );
       await tool('Undo');
       expect(surface().placement.toJson(), moved);
       await tool('Undo');
@@ -148,7 +175,10 @@ void main() {
       await tool('Redo');
       expect(surface().placement.toJson(), moved);
       await tool('Redo');
-      expect(surface().placement.scale, closeTo(1.05, .0001));
+      expect(
+        surface().placement.scale,
+        closeTo(StartStopPlacement.defaultScale + .05, .0001),
+      );
       final saved = surface().placement.toJson();
       await tool('Done');
       expect(handle, findsNothing);
