@@ -2658,6 +2658,13 @@ class _EditableButtonState extends State<_EditableButton> {
     final movingRadius =
         math.min(movingScaled.cfg.width, movingScaled.cfg.height) / 2;
     final movingCenter = movingScaled.center;
+    final currentScaled = _scaledHoldCfg(
+      widget.cfg,
+      widget.layout,
+      widget.panelSize,
+    );
+    final currentRadius =
+        math.min(currentScaled.cfg.width, currentScaled.cfg.height) / 2;
     var near = false;
     for (final entry in widget.allLayouts.entries) {
       final id = entry.key;
@@ -2671,14 +2678,21 @@ class _EditableButtonState extends State<_EditableButton> {
       );
       final otherRadius =
           math.min(otherScaled.cfg.width, otherScaled.cfg.height) / 2;
-      final dx = movingCenter.dx - otherScaled.center.dx;
-      final dy = movingCenter.dy - otherScaled.center.dy;
-      final dist = math.sqrt((dx * dx) + (dy * dy));
-      final minDist = movingRadius + otherRadius;
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: currentScaled.center,
+        fromRadius: currentRadius,
+        toCentre: movingCenter,
+        toRadius: movingRadius,
+        otherCentre: otherScaled.center,
+        otherRadius: otherRadius,
+      )) {
         return (true, true);
       }
-      if (dist < (minDist + _nearCollisionPx)) {
+      final gap =
+          (movingCenter - otherScaled.center).distance -
+          movingRadius -
+          otherRadius;
+      if (gap < GamepadEditMetrics.minControlGap + _nearCollisionPx) {
         near = true;
       }
     }

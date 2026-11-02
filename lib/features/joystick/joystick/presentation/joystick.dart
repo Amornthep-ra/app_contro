@@ -1583,11 +1583,14 @@ class _JoystickPageState extends State<JoystickPage> {
           ? _baseBtnSize(panel)
           : _baseJoySize(panel);
       final otherSizePx = otherBase * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dx = cx - ox;
-      final dy = cy - oy;
-      final dist = math.sqrt(dx * dx + dy * dy);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(current.cx * w, current.cy * h),
+        fromRadius: base * current.size / 2,
+        toCentre: Offset(cx, cy),
+        toRadius: sizePx / 2,
+        otherCentre: Offset(ox, oy),
+        otherRadius: otherSizePx / 2,
+      )) {
         collides = true;
         break;
       }
@@ -2903,11 +2906,14 @@ class _EditableJoystickState extends State<_EditableJoystick> {
           ? (_baseBtnSize(w, h))
           : widget.baseSize;
       final otherSizePx = otherBase * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dxItem = cx - ox;
-      final dyItem = cy - oy;
-      final dist = math.sqrt(dxItem * dxItem + dyItem * dyItem);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
+        fromRadius: widget.baseSize * widget.layout.size / 2,
+        toCentre: Offset(cx, cy),
+        toRadius: sizePx / 2,
+        otherCentre: Offset(ox, oy),
+        otherRadius: otherSizePx / 2,
+      )) {
         collides = true;
         break;
       }
@@ -3153,11 +3159,14 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
       final ox = other.cx * w;
       final oy = other.cy * h;
       final otherSizePx = widget.baseSize * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dxButton = cx - ox;
-      final dyButton = cy - oy;
-      final dist = math.sqrt(dxButton * dxButton + dyButton * dyButton);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
+        fromRadius: widget.baseSize * widget.layout.size / 2,
+        toCentre: Offset(cx, cy),
+        toRadius: sizePx / 2,
+        otherCentre: Offset(ox, oy),
+        otherRadius: otherSizePx / 2,
+      )) {
         collides = true;
         break;
       }

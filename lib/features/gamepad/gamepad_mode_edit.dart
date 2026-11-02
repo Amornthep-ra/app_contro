@@ -1084,11 +1084,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       final ox = other.cx * w;
       final oy = other.cy * h;
       final otherSizePx = other.size * s;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dx = cx - ox;
-      final dy = cy - oy;
-      final dist = math.sqrt(dx * dx + dy * dy);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(cx, cy),
+        fromRadius: current.size * s / 2,
+        toCentre: Offset(cx, cy),
+        toRadius: sizePx / 2,
+        otherCentre: Offset(ox, oy),
+        otherRadius: otherSizePx / 2,
+      )) {
         collides = true;
         break;
       }
@@ -3381,11 +3384,14 @@ class _EditableButtonState extends State<_EditableButton> {
       final ox = other.cx * w;
       final oy = other.cy * h;
       final otherSizePx = s * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dxButton = cx - ox;
-      final dyButton = cy - oy;
-      final dist = math.sqrt(dxButton * dxButton + dyButton * dyButton);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
+        fromRadius: widget.layout.size * s / 2,
+        toCentre: Offset(cx, cy),
+        toRadius: sizePx / 2,
+        otherCentre: Offset(ox, oy),
+        otherRadius: otherSizePx / 2,
+      )) {
         collides = true;
         break;
       }

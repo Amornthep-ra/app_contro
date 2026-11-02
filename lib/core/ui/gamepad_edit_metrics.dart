@@ -18,6 +18,32 @@ class GamepadEditMetrics {
   static double snapToGrid(double offset) =>
       (offset / gridStep).roundToDouble() * gridStep;
 
+  /// Smallest clear space the layout editor keeps between two controls'
+  /// touch areas, in logical pixels.
+  static const double minControlGap = 6.0;
+
+  /// Whether moving or resizing a round control from ([fromCentre],
+  /// [fromRadius]) to ([toCentre], [toRadius]) crowds a neighbour at
+  /// [otherCentre] with [otherRadius]: the edge-to-edge gap ends up below
+  /// [minControlGap] and smaller than it already was.
+  ///
+  /// Changes that keep or widen the gap are always allowed, so controls an
+  /// older layout placed closer together can still be pulled apart.
+  static bool crowdsNeighbour({
+    required Offset fromCentre,
+    required double fromRadius,
+    required Offset toCentre,
+    required double toRadius,
+    required Offset otherCentre,
+    required double otherRadius,
+  }) {
+    final gapAfter = (toCentre - otherCentre).distance - toRadius - otherRadius;
+    if (gapAfter >= minControlGap) return false;
+    final gapBefore =
+        (fromCentre - otherCentre).distance - fromRadius - otherRadius;
+    return gapAfter < gapBefore - 0.01;
+  }
+
   static double panelUnit(Size panel) {
     return math.min(panel.width, panel.height).clamp(0.0, maxPanelUnit);
   }
