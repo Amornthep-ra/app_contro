@@ -29,6 +29,7 @@ import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/routes/app_routes.dart';
+import 'widgets/gamepad_controls_sheet.dart';
 import 'control_mode_settings_page.dart';
 import 'widgets/gamepad_edit_shared.dart';
 import 'widgets/gamepad_telemetry_chip.dart';
@@ -1253,285 +1254,73 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _showEditMenuAndroid() async {
-    if (_menuOpen) return;
+    if (_menuOpen || !mounted) return;
     _menuOpen = true;
-    if (!mounted) {
-      _menuOpen = false;
-      return;
-    }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: false,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: const Color(0x6635206B),
-      builder: (context) {
-        final isThai = LanguageController.isThai.value;
-        Widget row(
-          String id,
-          String label,
-          bool active,
-          void Function(VoidCallback fn) setSheetState,
-        ) {
-          const accent = Color(0xFFF472D0);
-          const secondaryAccent = Color(0xFF8063C2);
-          const rowTextColor = Color(0xFF39206D);
-          return InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              gamepadBuzz();
-              if (id.startsWith('L:')) {
-                _toggleActive(id, true);
-              } else if (id.startsWith('R:')) {
-                _toggleActive(id, false);
-              }
-              setSheetState(() {});
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: active
-                    ? const Color(0xFFFFEEF9).withAlpha(216)
-                    : Colors.white.withAlpha(142),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: active
-                      ? accent.withAlpha(220)
-                      : Colors.white.withAlpha(214),
-                  width: active ? 1.5 : 1,
-                ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: accent.withAlpha(56),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : const [],
+    try {
+      await showGamepadControlsSheet(
+        context: context,
+        groups: const [
+          GamepadControlGroup(
+            title: 'Left pad',
+            choices: [
+              GamepadControlChoice(
+                id: 'L:up',
+                label: 'Up',
+                asset: kGamepad8AssetUp,
               ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 20,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: active
-                          ? accent.withAlpha(34)
-                          : secondaryAccent.withAlpha(18),
-                      borderRadius: BorderRadius.circular(7),
-                      border: Border.all(
-                        color: active
-                            ? accent.withAlpha(180)
-                            : secondaryAccent.withAlpha(70),
-                      ),
-                    ),
-                    child: Icon(
-                      active ? Icons.check_rounded : Icons.add_rounded,
-                      size: 14,
-                      color: active ? accent : secondaryAccent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: rowTextColor,
-                        fontSize: 13.5,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    active
-                        ? Icons.radio_button_checked_rounded
-                        : Icons.radio_button_off_rounded,
-                    size: 16,
-                    color: active ? accent : secondaryAccent.withAlpha(100),
-                  ),
-                ],
+              GamepadControlChoice(
+                id: 'L:down',
+                label: 'Down',
+                asset: kGamepad8AssetDown,
               ),
-            ),
-          );
-        }
-
-        final maxHeight = MediaQuery.of(context).size.height * 0.7;
-        final scrollController = ScrollController();
-        const accent = Color(0xFFF472D0);
-        const titleColor = Color(0xFF39206D);
-        const sectionColor = Color(0xFF8063C2);
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: CatGlassModalSurface(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxHeight),
-                child: StatefulBuilder(
-                  builder: (context, setSheetState) {
-                    return ScrollbarTheme(
-                      data: ScrollbarThemeData(
-                        thumbColor: WidgetStateProperty.all(
-                          sectionColor.withAlpha(128),
-                        ),
-                      ),
-                      child: Scrollbar(
-                        controller: scrollController,
-                        thumbVisibility: true,
-                        trackVisibility: true,
-                        thickness: 4,
-                        radius: const Radius.circular(999),
-                        child: SingleChildScrollView(
-                          controller: scrollController,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Center(
-                                child: Container(
-                                  width: 30,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  decoration: BoxDecoration(
-                                    color: _opacity(accent, 0.50),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 20,
-                                          height: 20,
-                                          decoration: BoxDecoration(
-                                            color: _opacity(accent, 0.16),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Icon(
-                                            Icons.tune_rounded,
-                                            size: 13,
-                                            color: accent,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 7),
-                                        Text(
-                                          isThai ? 'Buttons' : 'Buttons',
-                                          style: TextStyle(
-                                            color: titleColor,
-                                            fontSize: 14.5,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: () {
-                                      gamepadBuzz();
-                                      Navigator.pop(context);
-                                    },
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: sectionColor,
-                                    ),
-                                    child: Text(isThai ? 'Cancel' : 'Cancel'),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                isThai ? 'Left pad' : 'Left pad',
-                                style: TextStyle(
-                                  color: sectionColor,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'L:up',
-                                isThai ? 'Left: Up' : 'Left: Up',
-                                _leftActive.contains('L:up'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'L:down',
-                                isThai ? 'Left: Down' : 'Left: Down',
-                                _leftActive.contains('L:down'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'L:left',
-                                isThai ? 'Left: Left' : 'Left: Left',
-                                _leftActive.contains('L:left'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'L:right',
-                                isThai ? 'Left: Right' : 'Left: Right',
-                                _leftActive.contains('L:right'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                isThai ? 'Right pad' : 'Right pad',
-                                style: TextStyle(
-                                  color: sectionColor,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'R:triangle',
-                                isThai ? 'Right: Triangle' : 'Right: Triangle',
-                                _rightActive.contains('R:triangle'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'R:cross',
-                                isThai ? 'Right: Cross' : 'Right: Cross',
-                                _rightActive.contains('R:cross'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'R:square',
-                                isThai ? 'Right: Square' : 'Right: Square',
-                                _rightActive.contains('R:square'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 6),
-                              row(
-                                'R:circle',
-                                isThai ? 'Right: Circle' : 'Right: Circle',
-                                _rightActive.contains('R:circle'),
-                                setSheetState,
-                              ),
-                              const SizedBox(height: 4),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+              GamepadControlChoice(
+                id: 'L:left',
+                label: 'Left',
+                asset: kGamepad8AssetLeft,
               ),
-            ),
+              GamepadControlChoice(
+                id: 'L:right',
+                label: 'Right',
+                asset: kGamepad8AssetRight,
+              ),
+            ],
           ),
-        );
-      },
-    );
-    _menuOpen = false;
+          GamepadControlGroup(
+            title: 'Right pad',
+            choices: [
+              GamepadControlChoice(
+                id: 'R:triangle',
+                label: 'Triangle',
+                asset: kGamepad8AssetTriangle,
+              ),
+              GamepadControlChoice(
+                id: 'R:cross',
+                label: 'Cross',
+                asset: kGamepad8AssetCross,
+              ),
+              GamepadControlChoice(
+                id: 'R:square',
+                label: 'Square',
+                asset: kGamepad8AssetSquare,
+              ),
+              GamepadControlChoice(
+                id: 'R:circle',
+                label: 'Circle',
+                asset: kGamepad8AssetCircle,
+              ),
+            ],
+          ),
+        ],
+        isActive: (id) =>
+            _leftActive.contains(id) || _rightActive.contains(id),
+        onToggle: (id) {
+          gamepadBuzz();
+          _toggleActive(id, id.startsWith('L:'));
+        },
+      );
+    } finally {
+      _menuOpen = false;
+    }
   }
 
   Color _barAccent(String label) {

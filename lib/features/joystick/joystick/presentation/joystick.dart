@@ -25,6 +25,7 @@ import '../joystick_theme.dart';
 import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../../core/ui/gamepad_assets.dart';
+import '../../../gamepad/widgets/gamepad_controls_sheet.dart';
 import '../../../../core/ui/control_mode_preference.dart';
 import '../../../../core/ui/gamepad_components.dart';
 import '../../../../core/ui/app_assets.dart';
@@ -1161,307 +1162,72 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _openButtonsMenu() async {
-    await _showEditMenuAndroid();
-  }
-
-  Future<void> _showEditMenuAndroid() async {
-    if (_menuOpen) return;
+    if (_menuOpen || !mounted) return;
     _menuOpen = true;
-    if (!mounted) {
-      _menuOpen = false;
-      return;
-    }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: false,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: const Color(0x6635206B),
-      builder: (context) {
-        final maxHeight = MediaQuery.of(context).size.height * 0.7;
-        final theme = Theme.of(context);
-        final isDark = theme.brightness == Brightness.dark;
-        final scrollController = ScrollController();
-        return SafeArea(
-          top: false,
-          child: StatefulBuilder(
-            builder: (context, setSheetState) {
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: CatGlassModalSurface(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: maxHeight),
-                    child: _buildButtonsSheetContent(
-                      context: context,
-                      scrollController: scrollController,
-                      isDark: isDark,
-                      setSheetState: setSheetState,
-                      showTutorial: false,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-    _menuOpen = false;
-  }
-
-  Widget _buildButtonsSheetContent({
-    required BuildContext context,
-    required ScrollController scrollController,
-    required bool isDark,
-    required void Function(VoidCallback fn) setSheetState,
-    required bool showTutorial,
-  }) {
-    final isThai = LanguageController.isThai.value;
-    final tutorialLock = showTutorial;
-    final accent = const Color(0xFF38BDF8);
-    final titleColor = _opacity(
-      isDark ? Colors.white : const Color(0xFF0F172A),
-      0.94,
-    );
-    final subtitleColor = _opacity(
-      isDark ? Colors.white : const Color(0xFF0F172A),
-      0.70,
-    );
-    Widget row(String id, String label, bool active) {
-      final rowTextColor = _opacity(
-        isDark ? Colors.white : const Color(0xFF0F172A),
-        0.92,
-      );
-      return InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: tutorialLock
-            ? null
-            : () {
-                gamepadBuzz();
-                _toggleActive(id);
-                setSheetState(() {});
-              },
-        child: Opacity(
-          opacity: tutorialLock ? 0.6 : 1.0,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            decoration: BoxDecoration(
-              color: _opacity(Colors.white, active ? 0.12 : 0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _opacity(
-                  active ? accent : Colors.white,
-                  active ? 0.56 : 0.12,
-                ),
+    try {
+      await showGamepadControlsSheet(
+        context: context,
+        groups: const [
+          GamepadControlGroup(
+            title: 'Joysticks',
+            choices: [
+              GamepadControlChoice(
+                id: kJoyLeftId,
+                label: 'Left Joystick',
+                icon: Icons.control_camera_rounded,
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: _opacity(accent, active ? 0.22 : 0.08),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: _opacity(accent, active ? 0.66 : 0.25),
-                    ),
-                  ),
-                  child: Icon(
-                    active ? Icons.check_rounded : Icons.add_rounded,
-                    size: 14,
-                    color: active
-                        ? accent
-                        : _opacity(
-                            isDark ? Colors.white : const Color(0xFF0F172A),
-                            0.62,
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: rowTextColor,
-                      fontSize: 13.5,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Icon(
-                  active
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  size: 16,
-                  color: active
-                      ? accent
-                      : _opacity(
-                          isDark ? Colors.white : const Color(0xFF0F172A),
-                          0.30,
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return ScrollbarTheme(
-      data: isDark
-          ? const ScrollbarThemeData()
-          : ScrollbarThemeData(
-              thumbColor: WidgetStateProperty.all(Colors.white),
-            ),
-      child: Scrollbar(
-        controller: scrollController,
-        thumbVisibility: true,
-        trackVisibility: true,
-        thickness: 4,
-        radius: const Radius.circular(999),
-        child: SingleChildScrollView(
-          controller: scrollController,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!showTutorial)
-                Center(
-                  child: Container(
-                    width: 30,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: _opacity(accent, isDark ? 0.55 : 0.35),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-              if (!showTutorial) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: _opacity(accent, isDark ? 0.20 : 0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.tune_rounded,
-                              size: 13,
-                              color: accent,
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                          Text(
-                            isThai ? 'Buttons' : 'Buttons',
-                            style: TextStyle(
-                              color: titleColor,
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        gamepadBuzz();
-                        Navigator.pop(context);
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: _opacity(
-                          isDark ? Colors.white : const Color(0xFF0F172A),
-                          0.72,
-                        ),
-                      ),
-                      child: Text(isThai ? 'Cancel' : 'Cancel'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isThai
-                      ? 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.'
-                      : 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.',
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 12,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Text(
-                isThai ? 'Joysticks' : 'Joysticks',
-                style: TextStyle(
-                  color: subtitleColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              GamepadControlChoice(
+                id: kJoyRightId,
+                label: 'Right Joystick',
+                icon: Icons.control_camera_rounded,
               ),
-              row(
-                kJoyLeftId,
-                isThai ? 'Left Joystick' : 'Left Joystick',
-                _activeIds.contains(kJoyLeftId),
+              GamepadControlChoice(
+                id: kJoyYOnlyId,
+                label: 'Joystick (Y only)',
+                icon: Icons.swap_vert_rounded,
               ),
-              row(
-                kJoyRightId,
-                isThai ? 'Right Joystick' : 'Right Joystick',
-                _activeIds.contains(kJoyRightId),
+              GamepadControlChoice(
+                id: kJoyXOnlyId,
+                label: 'Joystick (X only)',
+                icon: Icons.swap_horiz_rounded,
               ),
-              row(
-                kJoyYOnlyId,
-                isThai ? 'Joystick (Y only)' : 'Joystick (Y only)',
-                _activeIds.contains(kJoyYOnlyId),
-              ),
-              row(
-                kJoyXOnlyId,
-                isThai ? 'Joystick (X only)' : 'Joystick (X only)',
-                _activeIds.contains(kJoyXOnlyId),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                isThai ? 'Buttons' : 'Buttons',
-                style: TextStyle(
-                  color: subtitleColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              row(
-                kBtnTriangleId,
-                isThai ? 'Triangle' : 'Triangle',
-                _activeIds.contains(kBtnTriangleId),
-              ),
-              row(
-                kBtnCrossId,
-                isThai ? 'Cross' : 'Cross',
-                _activeIds.contains(kBtnCrossId),
-              ),
-              row(
-                kBtnSquareId,
-                isThai ? 'Square' : 'Square',
-                _activeIds.contains(kBtnSquareId),
-              ),
-              row(
-                kBtnCircleId,
-                isThai ? 'Circle' : 'Circle',
-                _activeIds.contains(kBtnCircleId),
-              ),
-              if (!showTutorial) const SizedBox(height: 4),
             ],
           ),
-        ),
-      ),
-    );
+          GamepadControlGroup(
+            title: 'Buttons',
+            choices: [
+              GamepadControlChoice(
+                id: kBtnTriangleId,
+                label: 'Triangle',
+                asset: kGamepad8AssetTriangle,
+              ),
+              GamepadControlChoice(
+                id: kBtnCrossId,
+                label: 'Cross',
+                asset: kGamepad8AssetCross,
+              ),
+              GamepadControlChoice(
+                id: kBtnSquareId,
+                label: 'Square',
+                asset: kGamepad8AssetSquare,
+              ),
+              GamepadControlChoice(
+                id: kBtnCircleId,
+                label: 'Circle',
+                asset: kGamepad8AssetCircle,
+              ),
+            ],
+          ),
+        ],
+        isActive: (id) => _activeIds.contains(id),
+        onToggle: (id) {
+          gamepadBuzz();
+          _toggleActive(id);
+        },
+      );
+    } finally {
+      _menuOpen = false;
+    }
   }
 
   void _showSizeLimit(bool atMax) {

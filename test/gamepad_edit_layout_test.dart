@@ -10,6 +10,7 @@ import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
+import 'package:pb_controller/features/gamepad/widgets/gamepad_controls_sheet.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -294,16 +295,14 @@ void main() {
 
         await tester.tap(find.byTooltip('Buttons'));
         await tester.pumpAndSettle();
-        expect(
-          find.textContaining('enable or disable joysticks and buttons'),
-          findsOneWidget,
-        );
+        expect(find.byType(GamepadControlsSheet), findsOneWidget);
 
         await tester.ensureVisible(find.text('Triangle'));
         await tester.tap(find.text('Triangle'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Cancel'));
+        await tester.tap(find.text('Done'));
         await tester.pumpAndSettle();
+        expect(find.byType(GamepadControlsSheet), findsNothing);
 
         expect(buttonItems, findsOneWidget);
         final prefs = await SharedPreferences.getInstance();
