@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ble/ble_presentation_state.dart';
+import 'package:pb_controller/core/ui/ambient_motion.dart';
 import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
@@ -128,6 +129,76 @@ void main() {
       await unmount(tester);
     });
   }
+
+  testWidgets('Start/Stop glow and halo centre on the round face', (
+    tester,
+  ) async {
+    // The artwork's round face sits below the image centre (cat ears on
+    // top): about 2 px at 48 px for Start, 2.5 px for Stop.
+    for (final started in [false, true]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: GamepadStartStopControlButton(
+                isStarted: started,
+                onPressed: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final face = GamepadStartStopControlButton.faceOffset(
+        48,
+        started: started,
+      );
+      expect(face.dx, 0);
+      expect(face.dy, closeTo(started ? 2.45 : 1.97, 0.01));
+      final centre = tester.getCenter(
+        find.byType(GamepadStartStopControlButton),
+      );
+      expect(
+        tester.getCenter(find.byKey(const ValueKey('start-stop-glow'))) -
+            centre,
+        offsetMoreOrLessEquals(face),
+      );
+      if (started) {
+        expect(
+          tester.getCenter(find.byKey(const ValueKey('start-stop-halo'))) -
+              centre,
+          offsetMoreOrLessEquals(face),
+        );
+      }
+    }
+  });
+
+  testWidgets('the breathing Start ring never changes the button size', (
+    tester,
+  ) async {
+    AmbientMotion.enabledByDefault = true;
+    addTearDown(() => AmbientMotion.enabledByDefault = false);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: ControlStartStopButton(
+              started: false,
+              busy: false,
+              onPressed: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(
+        tester.getSize(find.byType(ControlStartStopButton)),
+        const Size(48, 48),
+      );
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('old saved Start/Stop placement is ignored safely', (
     tester,

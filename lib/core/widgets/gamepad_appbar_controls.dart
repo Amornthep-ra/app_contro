@@ -263,6 +263,24 @@ class GamepadStartStopControlButton extends StatelessWidget {
   static const Color startColor = Color(0xFF22C55E);
   static const Color emergencyStopColor = Color(0xFFEF4444);
 
+  // The round face of the Start/Stop artwork is not centred in its image:
+  // the cat ears add height on top. Fractions of the image size, measured
+  // from control_start.png and control_stop.png.
+  static const double _startFaceCenterY = 0.541;
+  static const double _stopFaceCenterY = 0.551;
+  static const double _startFaceDiameter = 0.87;
+  static const double _stopFaceDiameter = 0.90;
+
+  /// From the centre of a [diameter] image to the centre of its round face.
+  static Offset faceOffset(double diameter, {required bool started}) => Offset(
+    0,
+    diameter * ((started ? _stopFaceCenterY : _startFaceCenterY) - 0.5),
+  );
+
+  /// Diameter of the round face in a [diameter] image.
+  static double faceDiameter(double diameter, {required bool started}) =>
+      diameter * (started ? _stopFaceDiameter : _startFaceDiameter);
+
   final double diameter;
   final bool isStarted;
   final bool isBusy;
@@ -288,6 +306,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
         ? (isThai ? 'Emergency Stop' : 'Emergency Stop')
         : label;
     return _buildButton(
+      faceOffset: faceOffset(diameter, started: isStarted),
       label: actionLabel,
       asset: isStarted ? AppAssets.controlStop : AppAssets.controlStart,
       fallback: isStarted
@@ -300,6 +319,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
   }
 
   Widget _buildButton({
+    required Offset faceOffset,
     required String label,
     required String asset,
     required IconData fallback,
@@ -327,42 +347,54 @@ class GamepadStartStopControlButton extends StatelessWidget {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
+                  // Halo, glow and spinner centre on the artwork's round
+                  // face, which sits a little below the image centre.
                   // Emergency Stop gets a solid red halo so it reads as the
                   // most important control on the pad.
                   if (color == emergencyStopColor && onPressed != null)
-                    Container(
-                      width: diameter * .96,
-                      height: diameter * .96,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: emergencyStopColor.withAlpha(190),
-                          width: 3,
+                    Transform.translate(
+                      offset: faceOffset,
+                      child: Container(
+                        key: const ValueKey('start-stop-halo'),
+                        width: diameter * .96,
+                        height: diameter * .96,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: emergencyStopColor.withAlpha(190),
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: emergencyStopColor.withAlpha(110),
+                              blurRadius: 20,
+                              spreadRadius: 2,
+                            ),
+                          ],
                         ),
+                      ),
+                    ),
+                  Transform.translate(
+                    offset: faceOffset,
+                    child: AnimatedContainer(
+                      key: const ValueKey('start-stop-glow'),
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      width: diameter * .75,
+                      height: diameter * .75,
+                      decoration: BoxDecoration(
+                        color: color.withAlpha(isBusy ? 38 : 24),
+                        shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: emergencyStopColor.withAlpha(110),
-                            blurRadius: 20,
-                            spreadRadius: 2,
+                            color: color.withAlpha(
+                              onPressed == null ? 45 : 150,
+                            ),
+                            blurRadius: isBusy ? 24 : 18,
+                            spreadRadius: isBusy ? 3 : 1,
                           ),
                         ],
                       ),
-                    ),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    width: diameter * .75,
-                    height: diameter * .75,
-                    decoration: BoxDecoration(
-                      color: color.withAlpha(isBusy ? 38 : 24),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withAlpha(onPressed == null ? 45 : 150),
-                          blurRadius: isBusy ? 24 : 18,
-                          spreadRadius: isBusy ? 3 : 1,
-                        ),
-                      ],
                     ),
                   ),
                   Opacity(
@@ -377,10 +409,13 @@ class GamepadStartStopControlButton extends StatelessWidget {
                     ),
                   ),
                   if (isBusy)
-                    const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    Transform.translate(
+                      offset: faceOffset,
+                      child: const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
                     ),
                 ],
               ),

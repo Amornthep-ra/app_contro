@@ -182,34 +182,55 @@ class _StartPulseState extends State<_StartPulse>
   @override
   Widget build(BuildContext context) {
     if (!widget.active) return widget.child;
-    return Stack(
-      alignment: Alignment.center,
-      clipBehavior: Clip.none,
-      children: [
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            final t = Curves.easeOut.transform(_controller.value);
-            final size = widget.diameter * (0.85 + 0.35 * t);
-            return IgnorePointer(
-              child: Container(
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(
-                      0xFF22C55E,
-                    ).withValues(alpha: 0.6 * (1 - t)),
-                    width: 2.5,
-                  ),
-                ),
-              ),
-            );
-          },
+    // Painted behind the button without taking layout space, so the
+    // toolbar never moves while the ring breathes.
+    return CustomPaint(
+      painter: _StartPulsePainter(
+        progress: _controller,
+        faceOffset: GamepadStartStopControlButton.faceOffset(
+          widget.diameter,
+          started: false,
         ),
-        widget.child,
-      ],
+        faceDiameter: GamepadStartStopControlButton.faceDiameter(
+          widget.diameter,
+          started: false,
+        ),
+      ),
+      child: widget.child,
     );
   }
+}
+
+/// Green ring that starts on the rim of Start's round face (not the image
+/// centre: the face sits lower because of the cat ears) and fades outwards.
+class _StartPulsePainter extends CustomPainter {
+  _StartPulsePainter({
+    required this.progress,
+    required this.faceOffset,
+    required this.faceDiameter,
+  }) : super(repaint: progress);
+
+  final Animation<double> progress;
+  final Offset faceOffset;
+  final double faceDiameter;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = Curves.easeOut.transform(progress.value);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..color = const Color(0xFF22C55E).withValues(alpha: 0.6 * (1 - t));
+    canvas.drawCircle(
+      size.center(Offset.zero) + faceOffset,
+      faceDiameter / 2 * (1 + 0.32 * t),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_StartPulsePainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.faceOffset != faceOffset ||
+      oldDelegate.faceDiameter != faceDiameter;
 }
