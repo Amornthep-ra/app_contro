@@ -264,7 +264,6 @@ class GamepadStartStopControlButton extends StatelessWidget {
   static const Color emergencyStopColor = Color(0xFFEF4444);
 
   final double diameter;
-  final String heroTag;
   final bool isStarted;
   final bool isBusy;
   final VoidCallback? onPressed;
@@ -272,7 +271,6 @@ class GamepadStartStopControlButton extends StatelessWidget {
   const GamepadStartStopControlButton({
     super.key,
     this.diameter = 48,
-    required this.heroTag,
     required this.isStarted,
     this.isBusy = false,
     required this.onPressed,
@@ -290,7 +288,6 @@ class GamepadStartStopControlButton extends StatelessWidget {
         ? (isThai ? 'Emergency Stop' : 'Emergency Stop')
         : label;
     return _buildButton(
-      heroTag: heroTag,
       label: actionLabel,
       asset: isStarted ? AppAssets.controlStop : AppAssets.controlStart,
       fallback: isStarted
@@ -303,7 +300,6 @@ class GamepadStartStopControlButton extends StatelessWidget {
   }
 
   Widget _buildButton({
-    required String heroTag,
     required String label,
     required String asset,
     required IconData fallback,
@@ -317,78 +313,76 @@ class GamepadStartStopControlButton extends StatelessWidget {
       label: label,
       child: Tooltip(
         message: label,
-        child: Hero(
-          tag: heroTag,
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onPressed,
-              customBorder: const CircleBorder(),
-              child: SizedBox(
-                width: diameter < 48 ? 48 : diameter,
-                height: diameter < 48 ? 48 : diameter,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Emergency Stop gets a solid red halo so it reads as the
-                    // most important control on the pad.
-                    if (color == emergencyStopColor && onPressed != null)
-                      Container(
-                        width: diameter * .96,
-                        height: diameter * .96,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: emergencyStopColor.withAlpha(190),
-                            width: 3,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: emergencyStopColor.withAlpha(110),
-                              blurRadius: 20,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      width: diameter * .75,
-                      height: diameter * .75,
+        // No Hero: every control page has this button in the same spot,
+        // and a shared Hero made it fly over the page transition instead
+        // of leaving with its page.
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: SizedBox(
+              width: diameter < 48 ? 48 : diameter,
+              height: diameter < 48 ? 48 : diameter,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Emergency Stop gets a solid red halo so it reads as the
+                  // most important control on the pad.
+                  if (color == emergencyStopColor && onPressed != null)
+                    Container(
+                      width: diameter * .96,
+                      height: diameter * .96,
                       decoration: BoxDecoration(
-                        color: color.withAlpha(isBusy ? 38 : 24),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: emergencyStopColor.withAlpha(190),
+                          width: 3,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: color.withAlpha(
-                              onPressed == null ? 45 : 150,
-                            ),
-                            blurRadius: isBusy ? 24 : 18,
-                            spreadRadius: isBusy ? 3 : 1,
+                            color: emergencyStopColor.withAlpha(110),
+                            blurRadius: 20,
+                            spreadRadius: 2,
                           ),
                         ],
                       ),
                     ),
-                    Opacity(
-                      opacity: onPressed == null ? 0.4 : 1,
-                      child: Image.asset(
-                        asset,
-                        width: diameter,
-                        height: diameter,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Icon(fallback, size: diameter * .83, color: color),
-                      ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    width: diameter * .75,
+                    height: diameter * .75,
+                    decoration: BoxDecoration(
+                      color: color.withAlpha(isBusy ? 38 : 24),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withAlpha(onPressed == null ? 45 : 150),
+                          blurRadius: isBusy ? 24 : 18,
+                          spreadRadius: isBusy ? 3 : 1,
+                        ),
+                      ],
                     ),
-                    if (isBusy)
-                      const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      ),
-                  ],
-                ),
+                  ),
+                  Opacity(
+                    opacity: onPressed == null ? 0.4 : 1,
+                    child: Image.asset(
+                      asset,
+                      width: diameter,
+                      height: diameter,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          Icon(fallback, size: diameter * .83, color: color),
+                    ),
+                  ),
+                  if (isBusy)
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                ],
               ),
             ),
           ),

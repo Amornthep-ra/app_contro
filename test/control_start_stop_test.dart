@@ -85,6 +85,17 @@ void main() {
       expect(settings.left, greaterThan(start.right));
       expect(tester.takeException(), isNull);
 
+      // No Hero: a Hero shared by the three control pages made Start/Stop
+      // fly over the page transition when switching modes.
+      expect(
+        find.descendant(of: startStop, matching: find.byType(Hero)),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(of: startStop, matching: find.byType(Hero)),
+        findsNothing,
+      );
+
       // Not part of the layout editor any more.
       await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();

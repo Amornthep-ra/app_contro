@@ -32,7 +32,6 @@ class ControlStartStopButton extends StatelessWidget {
       active: !started && !busy && AmbientMotion.enabledFor(context),
       diameter: size,
       child: GamepadStartStopControlButton(
-        heroTag: 'control_start_stop',
         diameter: size,
         isStarted: started,
         isBusy: busy,

@@ -645,7 +645,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: GamepadStartStopControlButton(
-            heroTag: 'test_start',
             isStarted: false,
             onPressed: () => startCalls++,
           ),
@@ -665,7 +664,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: const GamepadStartStopControlButton(
-            heroTag: 'test_start_loading',
             isStarted: false,
             isBusy: true,
             onPressed: null,
@@ -681,7 +679,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: GamepadStartStopControlButton(
-            heroTag: 'test_emergency_stop',
             isStarted: true,
             onPressed: () => emergencyStopCalls++,
           ),
