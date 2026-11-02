@@ -13,12 +13,9 @@ import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_presentation_state.dart';
 import '../ui/ambient_motion.dart';
-import '../ui/language_controller.dart';
 import '../ui/lavender_glass.dart';
 import 'ble_status_orb.dart';
 import 'cat_glass_popup.dart';
-
-String _t(bool isThai, String th, String en) => isThai ? th : en;
 
 /// What the sheet header shows.
 ///
@@ -124,21 +121,10 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
   BleConnectionCoordinator get _bleCoordinator => widget.coordinator;
 
   StreamSubscription<BleConnectionCoordinatorState>? _bleCoordinatorSub;
-  Color _opacity(Color color, double opacity) =>
-      color.withAlpha((opacity * 255).round());
-  TextStyle _sheetTextStyle(
-    bool isThai, {
-    double size = 14,
-    FontWeight weight = FontWeight.w500,
-    Color color = Colors.white,
-  }) {
-    return TextStyle(
-      fontSize: size,
-      fontWeight: weight,
-      color: color,
-      fontFamily: isThai ? 'Kanit' : 'Roboto',
-    );
-  }
+  final ScrollController _scrollController = ScrollController();
+  bool _showDiagnostics = false;
+  bool _diagnosticsCopied = false;
+  Timer? _copiedTimer;
 
   @override
   void initState() {
@@ -216,6 +202,8 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       unawaited(_bleCoordinator.release());
     }
     _cleanupTimer?.cancel();
+    _copiedTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -257,8 +245,34 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     }
   }
 
-  Future<void> _forgetLastDevice() async {
-    await _bleCoordinator.forgetLastDevice();
+  Future<void> _confirmForgetLastDevice() async {
+    final id = _lastDeviceId;
+    if (id == null) return;
+    final name = _deviceName(id) ?? id;
+    final currentId = BleManager.instance.currentDeviceId;
+    final connectedToIt =
+        widget.isBleConnected() && (currentId == null || currentId == id);
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      icon: Icons.delete_outline_rounded,
+      title: 'Forget $name?',
+      message: connectedToIt
+          ? 'This disconnects the robot and removes it from quick reconnect. '
+                'You can pair it again any time.'
+          : 'It will be removed from quick reconnect. '
+                'You can pair it again any time.',
+      confirmLabel: 'Forget',
+      destructive: true,
+    );
+    if (confirmed) await _bleCoordinator.forgetLastDevice();
+  }
+
+  void _toggleDiagnostics() {
+    setState(() => _showDiagnostics = !_showDiagnostics);
+    // The panel opens at the top of the list: bring it into view.
+    if (_showDiagnostics && _scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
   }
 
   Future<void> _startScan() => _bleCoordinator.startScan();
@@ -305,170 +319,143 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       ClipboardData(text: formatBleDiagnostics(diagnostics)),
     );
     if (!mounted) return;
-    final isThai = LanguageController.isThai.value;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_t(isThai, 'Diagnostics copied', 'Diagnostics copied')),
-      ),
-    );
+    // A snack bar would sit behind this sheet's barrier: confirm on the
+    // button instead.
+    setState(() => _diagnosticsCopied = true);
+    _copiedTimer?.cancel();
+    _copiedTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _diagnosticsCopied = false);
+    });
   }
 
-  Widget _buildDiagnosticsPanel({
-    required BleDiagnosticsSnapshot diagnostics,
-    required bool isThai,
-    required Color titleColor,
-    required Color bodyColor,
-    required Color tileColor,
-    required Color tileBorder,
-  }) {
+  Widget _buildDiagnosticsPanel(BleDiagnosticsSnapshot diagnostics) {
     final write = diagnostics.writeCharacteristic;
     final read = diagnostics.readCharacteristic;
-    final rows = <MapEntry<String, String>>[
-      MapEntry(
-        _t(isThai, 'Status', 'Status'),
-        diagnostics.connectionStatus.name,
-      ),
-      MapEntry(
-        _t(isThai, 'Device', 'Device'),
-        diagnostics.deviceName ?? diagnostics.deviceId ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Device ID', 'Device ID'),
-        diagnostics.deviceId ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Mode / owner', 'Mode / owner'),
+    final rows = <(String, String)>[
+      ('Status', diagnostics.connectionStatus.name),
+      ('Device', diagnostics.deviceName ?? diagnostics.deviceId ?? '-'),
+      ('Device ID', diagnostics.deviceId ?? '-'),
+      (
+        'Mode / owner',
         '${diagnostics.trafficMode.name} / ${diagnostics.trafficOwnerName}',
       ),
-      MapEntry(
-        _t(isThai, 'MTU / payload', 'MTU / payload'),
+      (
+        'MTU / payload',
         '${diagnostics.mtu?.toString() ?? '-'} / ${diagnostics.payloadSize}',
       ),
-      MapEntry(
-        _t(isThai, 'Write characteristic', 'Write characteristic'),
+      (
+        'Write characteristic',
         write == null ? '-' : '${write.uuid} (${write.propertySummary})',
       ),
-      MapEntry(
-        _t(isThai, 'Receive characteristic', 'Receive characteristic'),
+      (
+        'Receive characteristic',
         read == null ? '-' : '${read.uuid} (${read.propertySummary})',
       ),
-      MapEntry(
-        _t(isThai, 'Notification', 'Notification'),
-        diagnostics.notificationMode.name,
-      ),
-      MapEntry(
-        _t(isThai, 'Last TX', 'Last TX'),
-        _diagnosticAge(diagnostics.lastTxAge),
-      ),
-      MapEntry(
-        _t(isThai, 'Last RX', 'Last RX'),
-        _diagnosticAge(diagnostics.lastRxAge),
-      ),
-      MapEntry(
-        _t(isThai, 'Reconnect attempts', 'Reconnect attempts'),
-        diagnostics.reconnectAttempt.toString(),
-      ),
-      MapEntry(
-        _t(isThai, 'Auto-connect target', 'Auto-connect target'),
-        diagnostics.autoConnectTargetId ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Auto-connect age', 'Auto-connect age'),
-        _diagnosticAge(diagnostics.autoConnectOperationAge),
-      ),
-      MapEntry(
-        _t(isThai, 'Last auto-connect', 'Last auto-connect'),
-        diagnostics.lastAutoConnectOutcome ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Last failure', 'Last failure'),
-        diagnostics.lastFailureReason ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Last failure age', 'Last failure age'),
-        _diagnosticAge(diagnostics.lastFailureAge),
-      ),
-      MapEntry(
-        _t(isThai, 'Last disconnect', 'Last disconnect'),
-        diagnostics.lastDisconnectReason?.name ?? '-',
-      ),
-      MapEntry(
-        _t(isThai, 'Last disconnect age', 'Last disconnect age'),
-        _diagnosticAge(diagnostics.lastDisconnectAge),
-      ),
-      MapEntry(
-        _t(isThai, 'Last scan permission', 'Last scan permission'),
+      ('Notification', diagnostics.notificationMode.name),
+      ('Last TX', _diagnosticAge(diagnostics.lastTxAge)),
+      ('Last RX', _diagnosticAge(diagnostics.lastRxAge)),
+      ('Reconnect attempts', diagnostics.reconnectAttempt.toString()),
+      ('Auto-connect target', diagnostics.autoConnectTargetId ?? '-'),
+      ('Auto-connect age', _diagnosticAge(diagnostics.autoConnectOperationAge)),
+      ('Last auto-connect', diagnostics.lastAutoConnectOutcome ?? '-'),
+      ('Last failure', diagnostics.lastFailureReason ?? '-'),
+      ('Last failure age', _diagnosticAge(diagnostics.lastFailureAge)),
+      ('Last disconnect', diagnostics.lastDisconnectReason?.name ?? '-'),
+      ('Last disconnect age', _diagnosticAge(diagnostics.lastDisconnectAge)),
+      (
+        'Last scan permission',
         diagnostics.lastScanPermissionResult?.name ?? '-',
       ),
     ];
 
+    final radius = BorderRadius.circular(20);
     return Container(
-      margin: const EdgeInsets.only(top: 10),
+      key: const ValueKey('ble-sheet-diagnostics'),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
       decoration: BoxDecoration(
-        color: tileColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: tileBorder),
+        color: Colors.white.withValues(alpha: 0.55),
+        borderRadius: radius,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
       ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          leading: IconButton(
-            tooltip: _t(isThai, 'Copy diagnostics', 'Copy diagnostics'),
-            icon: const Icon(Icons.copy_outlined),
-            color: bodyColor,
-            onPressed: () => _copyDiagnostics(diagnostics),
-          ),
-          iconColor: bodyColor,
-          collapsedIconColor: bodyColor,
-          title: Text(
-            _t(isThai, 'BLE diagnostics', 'BLE diagnostics'),
-            style: _sheetTextStyle(
-              isThai,
-              size: 13,
-              weight: FontWeight.w700,
-              color: titleColor,
-            ),
-          ),
-          children: [
-            for (final row in rows)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 132,
-                      child: Text(
-                        row.key,
-                        style: _sheetTextStyle(
-                          isThai,
-                          size: 12,
-                          weight: FontWeight.w600,
-                          color: bodyColor,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: SelectableText(
-                        row.value,
-                        style: _sheetTextStyle(
-                          isThai,
-                          size: 12,
-                          weight: FontWeight.w400,
-                          color: titleColor,
-                        ),
-                      ),
-                    ),
-                  ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'BLE diagnostics',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: LavenderPalette.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-          ],
-        ),
+              TextButton.icon(
+                onPressed: () => _copyDiagnostics(diagnostics),
+                style: _footerButtonStyle,
+                icon: Icon(
+                  _diagnosticsCopied ? Icons.check_rounded : Icons.copy_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  _diagnosticsCopied ? 'Copied' : 'Copy',
+                  style: _footerLabelStyle,
+                ),
+              ),
+            ],
+          ),
+          for (final (label, value) in rows)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, right: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 132,
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: LavenderPalette.inkSoft,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      value,
+                      style: const TextStyle(
+                        color: LavenderPalette.ink,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
+
+  /// Text buttons in the footer and diagnostics panel: violet, 48 px tall.
+  /// (Labels set their own size so they keep the app font.)
+  static final ButtonStyle _footerButtonStyle = TextButton.styleFrom(
+    foregroundColor: LavenderPalette.violetDeep,
+    minimumSize: const Size(48, 48),
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    shape: const StadiumBorder(),
+  );
+
+  static const TextStyle _footerLabelStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+  );
 
   BlePresentationState _presentation(
     BlePresentationState badge,
@@ -771,12 +758,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isThai = LanguageController.isThai.value;
     final connected = widget.isBleConnected();
-    const titleColor = LavenderPalette.ink;
-    const bodyColor = LavenderPalette.inkSoft;
-    final tileColor = Colors.white.withValues(alpha: 0.5);
-    final tileBorder = LavenderPalette.ink.withValues(alpha: 0.1);
     final devices = sortBleScanResults(_deviceMap.values.map((e) => e.result));
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
@@ -809,22 +791,18 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Diagnostics are for troubleshooting: closed until asked for, and
+        // shown first when opened so they appear right under the header.
+        if (_showDiagnostics)
+          StreamBuilder<BleDiagnosticsSnapshot>(
+            stream: BleManager.instance.diagnosticsStream,
+            initialData: BleManager.instance.diagnostics,
+            builder: (context, snapshot) => _buildDiagnosticsPanel(
+              snapshot.data ?? BleManager.instance.diagnostics,
+            ),
+          ),
         if (!connected)
           devices.isEmpty ? _buildEmptyState() : _buildDeviceList(devices),
-        StreamBuilder<BleDiagnosticsSnapshot>(
-          stream: BleManager.instance.diagnosticsStream,
-          initialData: BleManager.instance.diagnostics,
-          builder: (context, snapshot) {
-            return _buildDiagnosticsPanel(
-              diagnostics: snapshot.data ?? BleManager.instance.diagnostics,
-              isThai: isThai,
-              titleColor: titleColor,
-              bodyColor: bodyColor,
-              tileColor: tileColor,
-              tileBorder: tileBorder,
-            );
-          },
-        ),
       ],
     );
 
@@ -832,33 +810,63 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       padding: const EdgeInsets.only(top: 8),
       child: Row(
         children: [
-          const Spacer(),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _toggleDiagnostics,
+                style: _footerButtonStyle,
+                icon: Icon(
+                  _showDiagnostics
+                      ? Icons.expand_less_rounded
+                      : Icons.monitor_heart_outlined,
+                  size: 20,
+                ),
+                label: Text(
+                  _showDiagnostics ? 'Hide diagnostics' : 'Diagnostics',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _footerLabelStyle,
+                ),
+              ),
+            ),
+          ),
           if (_lastDeviceId != null)
-            TextButton(
-              onPressed: _forgetLastDevice,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                backgroundColor: _opacity(Colors.redAccent, 0.08),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                minimumSize: const Size(0, 30),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
-                  side: BorderSide(color: _opacity(Colors.redAccent, 0.28)),
-                ),
+            PopupMenuButton<String>(
+              tooltip: 'More options',
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                color: LavenderPalette.inkSoft,
               ),
-              child: Text(
-                _t(isThai, 'Forget', 'Forget'),
-                style: _sheetTextStyle(
-                  isThai,
-                  size: 12,
-                  weight: FontWeight.w600,
-                  color: Colors.redAccent,
-                ),
+              color: const Color(0xFFFBF8FF),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
+              onSelected: (value) {
+                if (value == 'forget') unawaited(_confirmForgetLastDevice());
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'forget',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.delete_outline_rounded,
+                        size: 20,
+                        color: LavenderPalette.coral,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        'Forget device',
+                        style: TextStyle(
+                          color: LavenderPalette.coral,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           const SizedBox(width: 8),
           GlassActionButton(
@@ -900,6 +908,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
                   const SizedBox(height: 10),
                   Flexible(
                     child: SingleChildScrollView(
+                      controller: _scrollController,
                       // Own ink layer, so row highlights scroll and clip
                       // with the list instead of painting under the footer.
                       child: Material(
