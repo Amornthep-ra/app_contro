@@ -687,17 +687,20 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('Emergency Stop'), findsOneWidget);
-    final emergencyBackground = tester.widget<AnimatedContainer>(
+    // The Stop artwork alone: no red glow or halo behind it any more.
+    final stopImage = tester.widget<Image>(
+      find.descendant(
+        of: find.byType(GamepadStartStopControlButton),
+        matching: find.byType(Image),
+      ),
+    );
+    expect((stopImage.image as AssetImage).assetName, AppAssets.controlStop);
+    expect(
       find.descendant(
         of: find.byType(GamepadStartStopControlButton),
         matching: find.byType(AnimatedContainer),
       ),
-    );
-    final emergencyDecoration =
-        emergencyBackground.decoration! as BoxDecoration;
-    expect(
-      emergencyDecoration.color,
-      GamepadStartStopControlButton.emergencyStopColor.withAlpha(24),
+      findsNothing,
     );
     expect(BleManager.emergencyStopRepeats, 3);
 

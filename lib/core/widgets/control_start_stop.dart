@@ -3,15 +3,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../ui/ambient_motion.dart';
 import 'gamepad_appbar_controls.dart';
 import 'gamepad_control_toolbar.dart';
 
 /// Start / Emergency Stop in the control toolbar.
 ///
 /// Same 48 px as Back and Settings and always in the same place: right after
-/// Back. Stop keeps its red halo; while control is off a green ring breathes
-/// around Start (respects reduce-motion; off under `flutter test`).
+/// Back. Only the artwork: no glow, halo or breathing ring (they were cut
+/// off by the cat ears, paw and tail). "Tap Start to drive" points at it
+/// while control is off.
 class ControlStartStopButton extends StatelessWidget {
   const ControlStartStopButton({
     super.key,
@@ -28,15 +28,11 @@ class ControlStartStopButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StartPulse(
-      active: !started && !busy && AmbientMotion.enabledFor(context),
+    return GamepadStartStopControlButton(
       diameter: size,
-      child: GamepadStartStopControlButton(
-        diameter: size,
-        isStarted: started,
-        isBusy: busy,
-        onPressed: onPressed,
-      ),
+      isStarted: started,
+      isBusy: busy,
+      onPressed: onPressed,
     );
   }
 }
@@ -126,111 +122,4 @@ class ControlStartHint extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Soft green ring that breathes around Start until control begins.
-class _StartPulse extends StatefulWidget {
-  const _StartPulse({
-    required this.active,
-    required this.diameter,
-    required this.child,
-  });
-
-  final bool active;
-  final double diameter;
-  final Widget child;
-
-  @override
-  State<_StartPulse> createState() => _StartPulseState();
-}
-
-class _StartPulseState extends State<_StartPulse>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1600),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _sync();
-  }
-
-  @override
-  void didUpdateWidget(_StartPulse oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _sync();
-  }
-
-  void _sync() {
-    if (widget.active && !_controller.isAnimating) {
-      _controller.repeat();
-    } else if (!widget.active && _controller.isAnimating) {
-      _controller
-        ..stop()
-        ..value = 0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.active) return widget.child;
-    // Painted behind the button without taking layout space, so the
-    // toolbar never moves while the ring breathes.
-    return CustomPaint(
-      painter: _StartPulsePainter(
-        progress: _controller,
-        faceOffset: GamepadStartStopControlButton.faceOffset(
-          widget.diameter,
-          started: false,
-        ),
-        faceDiameter: GamepadStartStopControlButton.faceDiameter(
-          widget.diameter,
-          started: false,
-        ),
-      ),
-      child: widget.child,
-    );
-  }
-}
-
-/// Green ring that starts on the rim of Start's round face (not the image
-/// centre: the face sits lower because of the cat ears) and fades outwards.
-class _StartPulsePainter extends CustomPainter {
-  _StartPulsePainter({
-    required this.progress,
-    required this.faceOffset,
-    required this.faceDiameter,
-  }) : super(repaint: progress);
-
-  final Animation<double> progress;
-  final Offset faceOffset;
-  final double faceDiameter;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final t = Curves.easeOut.transform(progress.value);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..color = const Color(0xFF22C55E).withValues(alpha: 0.6 * (1 - t));
-    canvas.drawCircle(
-      size.center(Offset.zero) + faceOffset,
-      faceDiameter / 2 * (1 + 0.32 * t),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_StartPulsePainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.faceOffset != faceOffset ||
-      oldDelegate.faceDiameter != faceDiameter;
 }

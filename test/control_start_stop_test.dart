@@ -130,73 +130,65 @@ void main() {
     });
   }
 
-  testWidgets('Start/Stop glow and halo centre on the round face', (
+  testWidgets('Start/Stop shows only its artwork, even with motion on', (
     tester,
   ) async {
-    // The artwork's round face sits below the image centre (cat ears on
-    // top): about 2 px at 48 px for Start, 2.5 px for Stop.
+    // No glow, halo or breathing ring: they were cut off by the cat ears,
+    // paw and tail on the phone.
+    AmbientMotion.enabledByDefault = true;
+    addTearDown(() => AmbientMotion.enabledByDefault = false);
     for (final started in [false, true]) {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: Center(
-              child: GamepadStartStopControlButton(
-                isStarted: started,
+              child: ControlStartStopButton(
+                started: started,
+                busy: false,
                 onPressed: () {},
               ),
             ),
           ),
         ),
       );
-      final face = GamepadStartStopControlButton.faceOffset(
-        48,
-        started: started,
-      );
-      expect(face.dx, 0);
-      expect(face.dy, closeTo(started ? 2.45 : 1.97, 0.01));
-      final centre = tester.getCenter(
-        find.byType(GamepadStartStopControlButton),
+      await tester.pump(const Duration(milliseconds: 400));
+      final button = find.byType(ControlStartStopButton);
+      expect(tester.getSize(button), const Size(48, 48));
+      expect(
+        find.descendant(of: button, matching: find.byType(DecoratedBox)),
+        findsNothing,
       );
       expect(
-        tester.getCenter(find.byKey(const ValueKey('start-stop-glow'))) -
-            centre,
-        offsetMoreOrLessEquals(face),
+        find.descendant(of: button, matching: find.byType(Image)),
+        findsOneWidget,
       );
-      if (started) {
-        expect(
-          tester.getCenter(find.byKey(const ValueKey('start-stop-halo'))) -
-              centre,
-          offsetMoreOrLessEquals(face),
-        );
-      }
+      expect(tester.hasRunningAnimations, isFalse);
     }
+    await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('the breathing Start ring never changes the button size', (
-    tester,
-  ) async {
-    AmbientMotion.enabledByDefault = true;
-    addTearDown(() => AmbientMotion.enabledByDefault = false);
+  testWidgets('the busy spinner centres on the round face', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Center(
-            child: ControlStartStopButton(
-              started: false,
-              busy: false,
+            child: GamepadStartStopControlButton(
+              isStarted: false,
+              isBusy: true,
               onPressed: () {},
             ),
           ),
         ),
       ),
     );
-    for (var i = 0; i < 8; i++) {
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(
-        tester.getSize(find.byType(ControlStartStopButton)),
-        const Size(48, 48),
-      );
-    }
+    // The face sits below the image centre (cat ears on top).
+    final face = GamepadStartStopControlButton.faceOffset(48, started: false);
+    expect(face.dy, closeTo(1.97, 0.01));
+    expect(
+      tester.getCenter(find.byType(CircularProgressIndicator)) -
+          tester.getCenter(find.byType(GamepadStartStopControlButton)),
+      offsetMoreOrLessEquals(face),
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
