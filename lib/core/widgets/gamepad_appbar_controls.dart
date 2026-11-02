@@ -933,13 +933,20 @@ class GamepadToolIconPill extends StatelessWidget {
       label: label,
       child: Tooltip(
         message: label,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.5,
-          child: GamepadGlassTopPill(
-            pillKey: pillKey,
-            onTap: onTap,
-            padding: EdgeInsets.zero,
-            child: Icon(icon, size: 18, color: iconColor),
+        // The pill draws at the short visual height, but the whole 48 px
+        // slot around it takes the tap, so a tap just above or below the
+        // pill still works. Taps on the pill itself keep its ripple.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: GamepadGlassTopPill(
+              pillKey: pillKey,
+              onTap: onTap,
+              padding: EdgeInsets.zero,
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
           ),
         ),
       ),
