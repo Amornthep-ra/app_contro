@@ -38,6 +38,7 @@
 | `a7c2aaf` | Controller phase 4 — veil over corner cats on short screens |
 | `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
 | `ea4b98b` | 4/8 BTN speed panels float under Speed instead of pushing the pad down |
+| `23c28e5`, `a18fdb3`, `cf47bbf`, `9f439de` | Layout editor: full 48 px tool taps, square 24 dp grid aligned with snapping, 6 dp minimum control gap, tests |
 
 ### Suggested next steps
 1. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android and iPhone landscape safe areas.
@@ -139,6 +140,7 @@ Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dar
 - Both speed panels float over the pad (`GamepadToolbarDropdown`, left edge under the Speed slot via `GamepadControlLayout.slotLeft`, kept on screen), so opening them never moves or resizes the drive buttons. Trade-off: while open, the 8 BTN panel covers the top of ↑ / △ (fully at 640×360, where the toolbar wraps).
 - Settings page: violet selection instead of pink.
 - Layout editor: `GamepadEditHint` under the edit toolbar ("Tap a control to select it · Long-press a tool to see its name" → "Drag to move · − / + to resize · Done when finished"). Edit toolbar icons/tooltips unchanged.
+- Layout editor spacing: each edit tool takes taps over its whole 48 px slot; the grid is a square `GamepadEditMetrics.gridStep` (24 dp) drawn by `GamepadEditGrid` over exactly the box controls snap in (`snapToGrid`, from the pad's top-left); `GamepadEditMetrics.crowdsNeighbour` keeps `minControlGap` (6 dp) between touch areas but always lets already-closer controls move apart (the Joystick's default face buttons are ~1 dp apart). Tests: `test/gamepad_edit_layout_test.dart`.
 
 ### Tests
 `test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), plus the existing toolbar/joystick/review tests.
