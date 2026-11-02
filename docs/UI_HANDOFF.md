@@ -104,7 +104,7 @@ Tests: `test/ble_page_ui_test.dart` (alignment, states, compact empty list, Conn
 
 `lib/core/widgets/cat_back_button.dart` — shared `CatBackButton`: `Back.png` at 40 px (was 24 px, the arrow was ~6 px and hard to see) in a 48 px tap target. Pages set `leadingWidth: CatBackButton.leadingWidthFor(<page padding>)` with `leading: CatBackButton.leading()` so the icon lines up with the content's left edge. Used on BLE Connection (20) and LineSonic (16). The control-page toolbar back pill (28 px) is a separate style and was not changed.
 
-## 4. Controller pages (4 BTN / 8 BTN / Joystick) — IN PROGRESS
+## 4. Controller pages (4 BTN / 8 BTN / Joystick) — IMPLEMENTED (phases 1–4)
 
 Rule from owner: **do not change anything the Arduino library depends on** — packets, button IDs/names, axis directions (Y- is up), △○✕□ face buttons, and the CMD / DRV / TRN / X / Y telemetry text all stay as they are.
 
@@ -124,5 +124,10 @@ Rule from owner: **do not change anything the Arduino library depends on** — p
 - Settings page: pink selection (`#F472D0`) → `LavenderPalette.violet`, selected tile tinted lavender. Text unchanged.
 - Layout editor: `GamepadEditHint` (`lib/core/widgets/gamepad_edit_hint.dart`) floats under the edit toolbar — "Tap a control to select it · Long-press a tool to see its name", then "Drag to move · − / + to resize · Done when finished" once something is selected. It ignores touches and sits behind controls. Toolbar icons and tooltips unchanged (tests rely on them).
 
-### Next
-- Phase 4: soft veil over bottom-corner cat art on short screens.
+### Phase 4 — short screens (done)
+- `ControlBackground` (`lib/core/widgets/control_background.dart`) replaces the three pages' `Image.asset(BG.png)`; the artwork is unchanged. Below 400 px of height a soft lavender radial veil fades the bottom-corner cats (full strength at 340 px) so controls placed there stay readable. Control positions are not touched (users' saved layouts stay valid).
+
+### Not changed on purpose (Arduino library)
+- Joystick axis direction and Y-/Y+ labels, △○✕□ face buttons, packets, button IDs, CMD/DRV/TRN/X/Y telemetry text.
+
+Not yet verified on a real device: pulse/hint on low-end Android, iPhone landscape safe areas.

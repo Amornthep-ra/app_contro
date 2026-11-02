@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
+import '../../../../core/widgets/control_background.dart';
 import '../../../../core/widgets/gamepad_edit_hint.dart';
 import '../../../../core/widgets/editable_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
@@ -2307,11 +2308,7 @@ class _JoystickPageState extends State<JoystickPage> {
             body: Stack(
               children: [
                 Positioned.fill(
-                  child: Image.asset(
-                    AppAssets.controlBackground,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                  ),
+                  child: const ControlBackground(),
                 ),
                 SafeArea(
                   child: Stack(
