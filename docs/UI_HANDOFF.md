@@ -1,10 +1,11 @@
-# UI Handoff — PB Controller (updated 2026-11-02, BLE status sheet done)
+# UI Handoff — PB Controller (updated 2026-11-02, BLE status sheet + device-test fixes)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
 > รอบล่าสุด: ทำ BLE status sheet ตามแผนหัวข้อ 7 ครบทุกข้อ (หัวข้อตรงกับ badge, Scanning Ns + Stop, Close เห็นเสมอ, แถวหุ่นยนต์แบบหน้า BLE, Diagnostics แบบ A, Forget อยู่ในเมนู ⋯ และถามก่อน, ปุ่ม 48px)
-> งานทั้งหมดรวมงาน BLE status sheet อยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`) แล้ว; `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
-> test ผ่าน 305 ตัว และ `flutter analyze` ไม่เจอปัญหา ทั้งหมดยังไม่ได้ทดสอบบนมือถือจริง
+> จากการทดสอบบนมือถือจริงของเจ้าของ แก้แล้ว 4 ข้อ (หัวข้อ 9): ปุ่ม Start/Stop ไม่ลอยค้างตอนเปลี่ยนโหมด, วงไฮไลต์ Start/Stop ตรงกลางวงกลมจริง, กล่อง Pair Code ใช้ได้ตอนแป้นพิมพ์ขึ้นในแนวนอน, คืนปุ่ม Buttons ใน Edit layout ของ Joystick (ค่าเริ่มต้นยังเป็นจอยซ้าย+ขวา ตามที่เจ้าของเลือก)
+> งานทั้งหมดอยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`); `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
+> test ผ่าน 312 ตัว และ `flutter analyze` ไม่เจอปัญหา
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -18,7 +19,8 @@
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 305 passing (288 + 17 in `test/ble_sheet_ui_test.dart`); `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 312 passing (288 + 17 in `test/ble_sheet_ui_test.dart` + 7 for the device-test fixes); `flutter analyze lib test` → no issues |
+| Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
 ### Owner rules (must keep)
@@ -47,13 +49,19 @@
 | `a135011` | Robot rows shared with the BLE page (`ble_device_row.dart`); "Connect <name>"; spinner only on the tapped row |
 | `798250e` | Diagnostics behind a footer button (option A) with Copy inside; Forget in a ⋯ menu with confirmation |
 | `94038e1` | `test/ble_sheet_ui_test.dart` (17 tests, incl. 48 px targets) |
+| `faaf5b4`, `f114011` | Handoff notes |
+| `6d0444a` | Device test: Start/Stop no longer a Hero (it flew over the page transition when switching modes) |
+| `69d98aa` | Device test: Start ring, Stop halo, glow and spinner centred on the artwork's round face |
+| `c1333af` | Device test: one-row Pair Code dialog when the keyboard leaves < 300 px |
+| `6ffc92d` | Device test: "Buttons" tool back in the Joystick layout editor |
 
 ### Suggested next steps
-1. **Real-device check of the BLE status sheet** (section 7, done and on PR #2) on Android and iOS (the iOS path uses `showCupertinoModalPopup`).
-2. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
-3. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
-4. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
-5. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
+1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
+2. **Joystick "Buttons" menu follow-up** (not approved yet, section 9): its title row with "Cancel" scrolls away with the list, tapping outside does not close it, and "Cancel" does not undo (rows apply immediately). Proposed: pinned header with "Done"; maybe place newly added buttons where they do not overlap the right joystick.
+3. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
+4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
+5. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
+6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
 
 ### How the owner likes to work
 Review first (render real sizes, measure, list findings with numbers) → written plan with recommended defaults and the decisions they need to make → implement only after "ตามที่แนะนำ" or explicit choices → one commit per fix, tests, before/after screenshots. Answers in Thai; code, commits and PR text in English.
@@ -222,3 +230,21 @@ Opening the sheet from all three controller pages and LineSonic; Stop during a r
 - △○✕□ face buttons resemble PlayStation symbols — possible trademark question for a store release; left unchanged because the Arduino library uses them.
 - Joystick Y- is "up" (matches the packets); clearer forward/back labelling would need coordination with the library examples.
 - 8 BTN toolbar wraps to two rows on 640 px screens because of its long CMD text; shortening it would change telemetry text (library rule), so it was left.
+
+---
+
+## 9. Device-test fixes (owner's phone, after PR #2) — DONE
+
+The owner ran PR #2 on an Android phone (about 800×360 logical in landscape) and reported four things. All four were reviewed, planned and approved ("ตามคำแนะนำ"), one commit each.
+
+1. **Start/Stop stayed on screen while switching modes** (`6d0444a`). `GamepadStartStopControlButton` wrapped itself in a `Hero` with the same tag on 4 BTN, 8 BTN and Joystick, so `pushReplacement` between modes flew it above the transition. The Hero and the `heroTag` parameter are gone; `test/control_start_stop_test.dart` checks there is no Hero around it on all three pages.
+2. **Highlight ring off-centre** (`69d98aa`). The round face of `control_start.png` / `control_stop.png` is centred at 54.1% / 55.1% of the image height (cat ears on top), diameter 87% / 90%. `GamepadStartStopControlButton.faceOffset` / `faceDiameter` hold that; halo, glow and spinner are translated onto the face, and the Start ring is a painter from the face rim outwards (x1.0 → x1.32) that never changes the button's 48 px size (the old `Stack` ring could grow it to ~58 px).
+3. **Pair Code dialog with the keyboard up** (`c1333af`). App layout, not a phone setting: the `AlertDialog` pinned Cancel/Pair, so a landscape keyboard left only those (800×360 with a 240 px keyboard also overflowed 4 px). Below 300 px of usable height (`LayoutBuilder` box minus reported keyboard/safe-area insets) it is one row `[field | Cancel | Pair]`; the field's label is the title, helper and 0/16 counter are hidden, errors still show. The `TextField` keeps its state across layouts (`GlobalKey` + owned `FocusNode`) so focus and the keyboard survive the switch. Tests in `test/pairing_code_dialog_test.dart`.
+4. **Joystick page has CMD but no buttons** (`6ffc92d`). Not disabled: Joystick starts with two joysticks and △ ✕ □ ○ are added from the "Buttons" menu. The 2.1.0 single-row edit toolbar (`13077ee`) had dropped the menu's entry, so it could not be opened (already broken in released 2.1.x). A "Buttons" tool (gamepad icon) is back right after Done; 10 tools still fit one row at 640×360. Owner chose to **keep the default** (left + right joystick). Tests in `test/gamepad_edit_layout_test.dart` and `test/gamepad_toolbar_responsive_test.dart`.
+
+### Follow-up noticed (not done, needs the owner's OK)
+- The "Buttons" menu (`_showEditMenuAndroid` in `joystick.dart`): its header with "Cancel" scrolls away with the list (at 411 px tall you scroll back up to close it), it is not dismissible by tapping outside, and "Cancel" does not undo (each row applies immediately). Proposed: pinned header, "Done" instead of "Cancel".
+- Newly added buttons get the default cluster at x ≈ 0.72, the same area as the right joystick (x 0.75), so they overlap until moved or the right joystick is turned off.
+
+### Not yet verified on a real device
+All four fixes above (the owner is re-testing).
