@@ -335,7 +335,7 @@ class _HomePageState extends State<HomePage>
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
-        flexibleSpace: _FrostedBar(visible: _scrolled),
+        flexibleSpace: FrostedBarBackground(visible: _scrolled),
         systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
             ? SystemUiOverlayStyle.light
             : SystemUiOverlayStyle.dark,
@@ -774,48 +774,6 @@ class _BrandHeader extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Frosted strip behind the header, shown only once content scrolls under it.
-class _FrostedBar extends StatelessWidget {
-  const _FrostedBar({required this.visible});
-
-  final bool visible;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: AnimatedOpacity(
-        opacity: visible ? 1 : 0,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        child: ClipRect(
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-            child: SizedBox.expand(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      LavenderPalette.background.withValues(alpha: 0.88),
-                      LavenderPalette.background.withValues(alpha: 0.70),
-                    ],
-                  ),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.75),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

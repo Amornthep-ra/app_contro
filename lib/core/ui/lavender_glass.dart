@@ -575,3 +575,46 @@ Future<bool> showLavenderConfirmDialog({
   );
   return result ?? false;
 }
+
+/// Frosted strip for a transparent app bar's `flexibleSpace`. Fades in once
+/// content scrolls under the header so text never overlaps the title.
+class FrostedBarBackground extends StatelessWidget {
+  const FrostedBarBackground({super.key, required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: ClipRect(
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: SizedBox.expand(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      LavenderPalette.background.withValues(alpha: 0.88),
+                      LavenderPalette.background.withValues(alpha: 0.70),
+                    ],
+                  ),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

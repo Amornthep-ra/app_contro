@@ -448,9 +448,11 @@ void main() {
     );
     await tester.pump();
 
-    final pairedButton = find.widgetWithText(TextButton, 'Paired');
-    expect(pairedButton, findsOneWidget);
-    expect(tester.widget<TextButton>(pairedButton).onPressed, isNull);
+    // Paired is a status label, not a button: no way to reopen the prompt.
+    expect(find.text('Paired'), findsOneWidget);
+    expect(find.text('Pair code'), findsNothing);
+    await tester.tap(find.text('Paired'), warnIfMissed: false);
+    await tester.pump();
     expect(promptCalls, 0);
 
     await tester.pumpWidget(

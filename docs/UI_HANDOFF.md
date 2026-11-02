@@ -78,3 +78,24 @@ adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
 adb -s emulator-5554 shell monkey -p com.pbcontroller.app -c android.intent.category.LAUNCHER 1
 adb -s emulator-5554 exec-out screencap -p > home.png
 ```
+
+## 3. BLE Connection page (`lib/features/bluetooth/bluetooth_ble_page.dart`) — IMPLEMENTED (Lavender Glass)
+
+Shared design system now lives in `lib/core/ui/lavender_glass.dart` (`LavenderPalette`, `GlassPanel`, `GradientActionButton` / `GlassActionButton` with `busy`, `LavenderChip`, `showLavenderConfirmDialog`, `FrostedBarBackground`) plus `lib/core/widgets/ble_status_orb.dart` and `signal_bars.dart`. Home and BLE page both use them.
+
+Bugs fixed:
+- Status text was centred away from its icon (`AnimatedSwitcher` default layout) → left-aligned.
+- "Discovered devices" panel stretched to the bottom when empty → hugs its content.
+- "Last device" Connect stayed active while already connected to it → shows a "Connected" chip.
+- "Tap scan to begin" shown while scanning → text follows the state (scanning / connecting to X / idle).
+
+UX:
+- Status card: same status orb as Home; full-width gradient **Scan devices**; while scanning a countdown pill + **Stop**; when connected the security state in words, **Pair code** (gradient) or a "Paired" chip, and **Disconnect** (coral glass). All actions ≥ 44 px tall.
+- Coral is used only for real problems (pairing needed/failed, firmware, weak signal), not for "not connected".
+- Robots sorted by signal level then name (no jumping on every RSSI tick), signal bars, "Last used" chip, spinner on the row being connected while other rows are disabled.
+- "Forget device" moved into a ⋯ menu and asks for confirmation (also says it will disconnect when connected).
+- "Bluetooth is off" uses the glass confirm dialog.
+- Last-device card stacks its action under the name on narrow screens / large text.
+- Dead `_t` / `isThai` / `isDark` code and the "Pair QR" string remap removed. BLE logic in the coordinator is unchanged.
+
+Tests: `test/ble_page_ui_test.dart` (alignment, states, compact empty list, Connected chip, Forget confirmation, row spinner, small phone at 1.3× text, sort order). `ble_pairing_prompt_wiring_test.dart` "paired" case now checks that "Paired" is a label with no way to reopen the prompt.
