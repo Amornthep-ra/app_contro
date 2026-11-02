@@ -289,10 +289,18 @@ BtnCfg _scaleBtn(BtnCfg c, _S s) => c.copyWith(
 );
 
 class Gamepad4ButtonPage extends StatefulWidget {
-  const Gamepad4ButtonPage({super.key, this.acquireControl});
+  const Gamepad4ButtonPage({
+    super.key,
+    this.acquireControl,
+    this.openOnArrival,
+  });
 
   // Optional transport seam for exercising delayed Start completion in tests.
   final Future<int?> Function()? acquireControl;
+
+  /// Set when Settings switched to this mode to edit it or open its saved
+  /// layouts (see [ControlPageArguments]).
+  final ControlModeOpen? openOnArrival;
   @override
   State<Gamepad4ButtonPage> createState() => _Gamepad4ButtonPageState();
 }
@@ -1144,7 +1152,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     };
     LanguageController.isThai.addListener(_langListener);
     _sendSpeed('Med');
-    _loadLayouts();
+    final layoutsLoaded = _loadLayouts();
+    final open = widget.openOnArrival;
+    if (open != null) unawaited(_openAfterLoad(layoutsLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
       _resetInputState();
@@ -1156,7 +1166,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     });
   }
 
-  Future<void> _switchToPrecision() async {
+  Future<void> _switchToPrecision({ControlModeOpen? open}) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
@@ -1176,12 +1186,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       );
     }
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushReplacementNamed<void, bool>(AppRoutes.gamepad8Button, result: true);
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      AppRoutes.gamepad8Button,
+      result: true,
+      arguments: ControlPageArguments(open: open),
+    );
   }
 
-  Future<void> _switchToJoystick() async {
+  Future<void> _switchToJoystick({ControlModeOpen? open}) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
@@ -1204,29 +1216,50 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     Navigator.of(context).pushReplacementNamed<void, bool>(
       AppRoutes.dualJoystickMode1,
       result: true,
+      arguments: ControlPageArguments(open: open),
     );
   }
 
   Future<void> _openSettings() async {
     if (_editMode) return;
-    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.fourButton,
         onManageLayouts: _showPresetSheet,
       ),
     );
-    if (!mounted) return;
-    switch (action) {
-      case ControlModeSettingsAction.editLayout:
-        _toggleEdit();
-      case ControlModeSettingsAction.selectEightButton:
-        await _switchToPrecision();
-      case ControlModeSettingsAction.selectJoystick:
-        await _switchToJoystick();
-      case ControlModeSettingsAction.selectFourButton:
+    if (!mounted || result == null) return;
+    switch (result.mode) {
+      case ControlMode.fourButton:
+        _openFromSettings(result.open);
+      case ControlMode.eightButton:
+        await _switchToPrecision(open: result.open);
+      case ControlMode.joystick:
+        await _switchToJoystick(open: result.open);
+    }
+  }
+
+  /// Opens what Settings asked for, on this page.
+  void _openFromSettings(ControlModeOpen? open) {
+    switch (open) {
+      case ControlModeOpen.layoutEditor:
+        if (!_editMode) _toggleEdit();
+      case ControlModeOpen.savedLayouts:
+        unawaited(_showPresetSheet());
       case null:
         break;
     }
+  }
+
+  /// Reached by switching from Settings: open the editor or Saved layouts
+  /// once the saved layout has loaded and the pad has been laid out.
+  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
+    await loaded;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openFromSettings(open);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _showStartFirstNotice() {

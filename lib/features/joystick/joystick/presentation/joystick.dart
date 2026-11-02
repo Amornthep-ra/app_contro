@@ -54,10 +54,14 @@ const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
 
 class JoystickPage extends StatefulWidget {
-  const JoystickPage({super.key, this.acquireControl});
+  const JoystickPage({super.key, this.acquireControl, this.openOnArrival});
 
   // Optional transport seam for exercising delayed Start completion in tests.
   final Future<int?> Function()? acquireControl;
+
+  /// Set when Settings switched to this mode to edit it or open its saved
+  /// layouts (see [ControlPageArguments]).
+  final ControlModeOpen? openOnArrival;
   @override
   State<JoystickPage> createState() => _JoystickPageState();
 }
@@ -358,7 +362,9 @@ class _JoystickPageState extends State<JoystickPage> {
       }
     };
     LanguageController.isThai.addListener(_langListener);
-    _loadLayout();
+    final layoutLoaded = _loadLayout();
+    final open = widget.openOnArrival;
+    if (open != null) unawaited(_openAfterLoad(layoutLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
       _resetInputState();
@@ -433,6 +439,7 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _switchToControlMode({
     required String route,
     required String source,
+    ControlModeOpen? open,
   }) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
@@ -455,35 +462,61 @@ class _JoystickPageState extends State<JoystickPage> {
       manager.handoffControlForModeSwitch(owner: owner, source: source);
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed<void, bool>(route, result: true);
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      route,
+      result: true,
+      arguments: ControlPageArguments(open: open),
+    );
   }
 
   Future<void> _openSettings() async {
     if (_editMode || _modeSwitchInProgress) return;
-    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.joystick,
         onManageLayouts: _showPresetSheet,
       ),
     );
-    if (!mounted) return;
-    switch (action) {
-      case ControlModeSettingsAction.editLayout:
-        _toggleEdit();
-      case ControlModeSettingsAction.selectFourButton:
+    if (!mounted || result == null) return;
+    switch (result.mode) {
+      case ControlMode.joystick:
+        _openFromSettings(result.open);
+      case ControlMode.fourButton:
         await _switchToControlMode(
           route: AppRoutes.gamepad4Button,
           source: 'joystick_to_gamepad_4',
+          open: result.open,
         );
-      case ControlModeSettingsAction.selectEightButton:
+      case ControlMode.eightButton:
         await _switchToControlMode(
           route: AppRoutes.gamepad8Button,
           source: 'joystick_to_gamepad_8',
+          open: result.open,
         );
-      case ControlModeSettingsAction.selectJoystick:
+    }
+  }
+
+  /// Opens what Settings asked for, on this page.
+  void _openFromSettings(ControlModeOpen? open) {
+    switch (open) {
+      case ControlModeOpen.layoutEditor:
+        if (!_editMode) _toggleEdit();
+      case ControlModeOpen.savedLayouts:
+        unawaited(_showPresetSheet());
       case null:
         break;
     }
+  }
+
+  /// Reached by switching from Settings: open the editor or Saved layouts
+  /// once the saved layout has loaded and the pad has been laid out.
+  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
+    await loaded;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openFromSettings(open);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _showStartFirstNotice() {

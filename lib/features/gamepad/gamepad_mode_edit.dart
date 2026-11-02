@@ -178,7 +178,11 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
 }
 
 class GamepadModeEdit extends StatefulWidget {
-  const GamepadModeEdit({super.key});
+  const GamepadModeEdit({super.key, this.openOnArrival});
+
+  /// Set when Settings switched to this mode to edit it or open its saved
+  /// layouts (see [ControlPageArguments]).
+  final ControlModeOpen? openOnArrival;
   @override
   State<GamepadModeEdit> createState() => _GamepadModeEditState();
 }
@@ -416,7 +420,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     };
     LanguageController.isThai.addListener(_langListener);
     unawaited(_loadSpeedPrefs());
-    _loadLayouts();
+    final layoutsLoaded = _loadLayouts();
+    final open = widget.openOnArrival;
+    if (open != null) unawaited(_openAfterLoad(layoutsLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
       _resetInputState();
@@ -428,7 +434,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     });
   }
 
-  Future<void> _switchToPreset() async {
+  Future<void> _switchToPreset({ControlModeOpen? open}) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
@@ -448,12 +454,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       );
     }
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushReplacementNamed<void, bool>(AppRoutes.gamepad4Button, result: true);
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      AppRoutes.gamepad4Button,
+      result: true,
+      arguments: ControlPageArguments(open: open),
+    );
   }
 
-  Future<void> _switchToJoystick() async {
+  Future<void> _switchToJoystick({ControlModeOpen? open}) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
@@ -476,29 +484,50 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     Navigator.of(context).pushReplacementNamed<void, bool>(
       AppRoutes.dualJoystickMode1,
       result: true,
+      arguments: ControlPageArguments(open: open),
     );
   }
 
   Future<void> _openSettings() async {
     if (_editMode) return;
-    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.eightButton,
         onManageLayouts: _showPresetSheet,
       ),
     );
-    if (!mounted) return;
-    switch (action) {
-      case ControlModeSettingsAction.editLayout:
-        _toggleEdit();
-      case ControlModeSettingsAction.selectFourButton:
-        await _switchToPreset();
-      case ControlModeSettingsAction.selectJoystick:
-        await _switchToJoystick();
-      case ControlModeSettingsAction.selectEightButton:
+    if (!mounted || result == null) return;
+    switch (result.mode) {
+      case ControlMode.eightButton:
+        _openFromSettings(result.open);
+      case ControlMode.fourButton:
+        await _switchToPreset(open: result.open);
+      case ControlMode.joystick:
+        await _switchToJoystick(open: result.open);
+    }
+  }
+
+  /// Opens what Settings asked for, on this page.
+  void _openFromSettings(ControlModeOpen? open) {
+    switch (open) {
+      case ControlModeOpen.layoutEditor:
+        if (!_editMode) _toggleEdit();
+      case ControlModeOpen.savedLayouts:
+        unawaited(_showPresetSheet());
       case null:
         break;
     }
+  }
+
+  /// Reached by switching from Settings: open the editor or Saved layouts
+  /// once the saved layout has loaded and the pad has been laid out.
+  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
+    await loaded;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openFromSettings(open);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _showStartFirstNotice() {

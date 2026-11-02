@@ -546,7 +546,7 @@ void main() {
     WidgetTester tester,
   ) async {
     LanguageController.isThai.value = false;
-    ControlModeSettingsAction? selectedAction;
+    ControlModeSettingsResult? result;
     var presetCalls = 0;
 
     await tester.pumpWidget(
@@ -555,8 +555,8 @@ void main() {
           body: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                selectedAction = await Navigator.of(context)
-                    .push<ControlModeSettingsAction>(
+                result = await Navigator.of(context)
+                    .push<ControlModeSettingsResult>(
                       controlModeSettingsRoute(
                         mode: ControlMode.fourButton,
                         onManageLayouts: () async {
@@ -579,9 +579,12 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    Future<void> openSettings() async {
+      await tester.tap(find.text('Open settings'));
+      await tester.pumpAndSettle();
+    }
 
+    await openSettings();
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Control mode'), findsOneWidget);
     expect(find.text('4 BTN'), findsOneWidget);
@@ -589,51 +592,57 @@ void main() {
     expect(find.text('Joystick'), findsOneWidget);
     expect(find.text('Edit layout'), findsOneWidget);
     expect(find.text('Saved layouts'), findsOneWidget);
+    // The Layout section names the mode it applies to.
+    expect(find.text('Layout · 4 BTN'), findsOneWidget);
 
     await tester.tap(find.text('Edit layout'));
     await tester.pumpAndSettle();
-
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
+    expect(result?.mode, ControlMode.fourButton);
+    expect(result?.open, ControlModeOpen.layoutEditor);
     expect(find.text('Settings'), findsNothing);
 
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    // Saved layouts of the current mode open over Settings.
+    await openSettings();
     await tester.tap(find.text('Saved layouts'));
     await tester.pumpAndSettle();
-
     expect(presetCalls, 1);
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
     expect(find.text('Close presets'), findsOneWidget);
-
     await tester.tap(find.text('Close presets'));
     await tester.pumpAndSettle();
-
     expect(find.text('Settings'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp(r'^4 BTN, selected')), findsOneWidget);
 
+    // Picking a mode keeps Settings open; Back switches to it.
     await tester.tap(find.text('8 BTN'));
     await tester.pumpAndSettle();
-
     expect(find.text('Settings'), findsOneWidget);
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
-
+    expect(find.text('Layout · 8 BTN'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('Back'));
     await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.eightButton);
+    expect(result?.open, isNull);
 
-    expect(selectedAction, ControlModeSettingsAction.selectEightButton);
-
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    // Another mode + Edit layout: switch there and open its editor.
+    await openSettings();
     await tester.tap(find.text('Joystick'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Settings'), findsOneWidget);
-    expect(selectedAction, ControlModeSettingsAction.selectEightButton);
-
-    await tester.tap(find.bySemanticsLabel('Back'));
+    expect(find.text('Layout · Joystick'), findsOneWidget);
+    await tester.tap(find.text('Edit layout'));
     await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.joystick);
+    expect(result?.open, ControlModeOpen.layoutEditor);
 
-    expect(selectedAction, ControlModeSettingsAction.selectJoystick);
+    // Another mode + Saved layouts: switch there and open them; the current
+    // mode's sheet is not shown.
+    await openSettings();
+    await tester.tap(find.text('8 BTN'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Saved layouts'));
+    await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.eightButton);
+    expect(result?.open, ControlModeOpen.savedLayouts);
+    expect(presetCalls, 1);
+    expect(find.text('Settings'), findsNothing);
   });
 
   testWidgets('Start control uses a fixed-size action with loading state', (
