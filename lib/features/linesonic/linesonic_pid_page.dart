@@ -1059,18 +1059,86 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     );
   }
 
+  void _addStep() {
+    setState(() {
+      _steps.add(_newStep());
+      _scheduleAutoSave();
+    });
+  }
+
+  /// Fixed glass bar: Send PD+Speed / Send All, then SW1 / Reset board.
+  Widget _buildActionBar() {
+    final busy = _sending;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        12,
+        4,
+        12,
+        10 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: GlassPanel(
+        radius: 26,
+        shadowStrength: 0.8,
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: GlassActionButton(
+                    label: 'Send PD+Speed',
+                    icon: Icons.tune_rounded,
+                    height: 48,
+                    onPressed: busy ? null : _sendSequencePd,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GradientActionButton(
+                    label: 'Send All',
+                    icon: Icons.send_rounded,
+                    height: 48,
+                    onPressed: busy ? null : _sendSequence,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: GlassActionButton(
+                    label: 'SW1',
+                    icon: Icons.touch_app_rounded,
+                    height: 48,
+                    accent: LavenderPalette.cyanDeep,
+                    onPressed: busy ? null : _sendSW1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GlassActionButton(
+                    label: 'Reset Board',
+                    icon: Icons.power_settings_new_rounded,
+                    height: 48,
+                    accent: LavenderPalette.coral,
+                    onPressed: busy ? null : _sendReset,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final media = MediaQuery.of(context);
     final isCompact = media.size.width < 380;
-    final sendBg = isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB);
-    final sendFg = isDark ? const Color(0xFF0B1020) : Colors.white;
-    final sw1Fg = isDark ? const Color(0xFF5EEAD4) : const Color(0xFF0F766E);
-    final resetFg = isDark ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C);
-    final pdBg = isDark ? const Color(0xFF22C55E) : const Color(0xFF16A34A);
-    final pdFg = isDark ? const Color(0xFF0B1020) : Colors.white;
 
     return ValueListenableBuilder<bool>(
       valueListenable: LanguageController.isThai,
@@ -1174,117 +1242,18 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 48,
-                                child: ElevatedButton.icon(
-                                  onPressed: _sending ? null : _sendSequence,
-                                  icon: const Icon(Icons.send),
-                                  label: Text(
-                                    isThai
-                                        ? '\u0e2a\u0e48\u0e07\u0e17\u0e31\u0e49\u0e07\u0e2b\u0e21\u0e14'
-                                        : 'Send All',
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: sendBg,
-                                    foregroundColor: sendFg,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 44,
-                                child: FilledButton.tonalIcon(
-                                  onPressed: _sending ? null : _sendSequencePd,
-                                  icon: const Icon(Icons.tune),
-                                  label: Text(
-                                    isThai
-                                        ? '\u0e2a\u0e48\u0e07 PD+Speed'
-                                        : 'Send PD+Speed',
-                                  ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: pdBg,
-                                    foregroundColor: pdFg,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: sw1Fg,
-                                    side: BorderSide(color: sw1Fg),
-                                  ),
-                                  onPressed: _sending ? null : _sendSW1,
-                                  icon: const Icon(Icons.touch_app, size: 18),
-                                  label: Text(
-                                    isThai
-                                        ? '\u0e2a\u0e27\u0e34\u0e15\u0e0b\u0e4c SW1'
-                                        : 'SW1',
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: resetFg,
-                                    side: BorderSide(color: resetFg),
-                                  ),
-                                  onPressed: _sending ? null : _sendReset,
-                                  icon: const Icon(
-                                    Icons.power_settings_new,
-                                    size: 18,
-                                  ),
-                                  label: Text(
-                                    isThai
-                                        ? '\u0e23\u0e35\u0e40\u0e0b\u0e47\u0e15\u0e1a\u0e2d\u0e23\u0e4c\u0e14'
-                                        : 'Reset Board',
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                    child: GlassActionButton(
+                      label: 'Add Step',
+                      icon: Icons.add_rounded,
+                      height: 52,
+                      onPressed: _addStep,
                     ),
                   ),
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 100)),
               ],
             ),
-            floatingActionButton: FloatingActionButton.extended(
-              heroTag: 'add_step_linesonic_pid',
-              onPressed: () {
-                setState(() {
-                  _steps.add(_newStep());
-                  _scheduleAutoSave();
-                });
-              },
-              icon: const Icon(Icons.add),
-              label: Text(isThai ? 'Add Step' : 'Add Step'),
-            ),
+            bottomBar: _buildActionBar(),
           ),
         );
       },

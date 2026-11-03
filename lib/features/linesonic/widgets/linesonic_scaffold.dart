@@ -22,7 +22,6 @@ class LineSonicScaffold extends StatefulWidget {
     required this.title,
     required this.body,
     this.bottomBar,
-    this.floatingActionButton,
     this.badge,
   });
 
@@ -36,7 +35,6 @@ class LineSonicScaffold extends StatefulWidget {
   final String title;
   final Widget body;
   final Widget? bottomBar;
-  final Widget? floatingActionButton;
 
   /// Replaces the default [LineSonicBleBadge] (tests).
   final Widget? badge;
@@ -123,7 +121,6 @@ class _LineSonicScaffoldState extends State<LineSonicScaffold> {
           ),
         ),
       ),
-      floatingActionButton: widget.floatingActionButton,
     );
   }
 }
