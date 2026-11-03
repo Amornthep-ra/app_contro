@@ -434,7 +434,7 @@ void main() {
     expect(backImage.height, 40);
   });
 
-  testWidgets('LineSonic uses Cat Glass navigation and the shared back asset', (
+  testWidgets('LineSonic uses the shared header, back asset and BLE badge', (
     WidgetTester tester,
   ) async {
     LanguageController.isThai.value = false;
@@ -446,11 +446,7 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
-                  builder: (_) => LineSonicPage(
-                    blePageBuilder: (_) => const BluetoothBlePage(
-                      enableBlePlatformBindings: false,
-                    ),
-                  ),
+                  builder: (_) => const LineSonicPage(),
                 ),
               ),
               child: const Text('Open LineSonic'),
@@ -488,9 +484,10 @@ void main() {
     await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Open BLE connection'));
-    await tester.pumpAndSettle();
-    expect(find.text('BLE Connection'), findsOneWidget);
+    // The hub uses the shared badge (opens the BLE status sheet, like the
+    // controller pages) instead of its own pill that opened the BLE page.
+    expect(find.byType(ConnectionStatusBadge), findsOneWidget);
+    expect(find.byTooltip('Open BLE connection'), findsNothing);
   });
 
   test(
