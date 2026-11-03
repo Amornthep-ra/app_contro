@@ -273,3 +273,50 @@ Tests: `test/gamepad_controls_sheet_test.dart`, `test/control_mode_switch_test.d
 
 ### Not yet verified on a real device
 Everything in this section.
+
+---
+
+## 11. LineSonic pages — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Files: `lib/features/linesonic/linesonic_page.dart` (hub, LF), `linesonic_pid_page.dart` (CRLF), `linesonic_sensor_page.dart` (CRLF). The app is portrait-only, so these were rendered at 411×914 and 360×640, text scale 1.0 and 1.3, before any change.
+
+### Findings (before)
+Hub
+1. Own "BLE Off" pill (32 px tall) that opens the full BLE page, while PID / Sensor use the shared badge that opens the BLE status sheet; the two disagree ("BLE Off" vs "Checking Bluetooth…").
+2. Cards use a private palette instead of `GlassPanel` like Home.
+
+PID Tuning
+3. Bug: each step card's `Material(color: toneBg)` wraps the card's margin, so a pale band runs edge to edge behind every card (16 px wider than the card on both sides).
+4. Bug: transparent header; scrolled content runs under the "PID Tuning" title.
+5. Bug: the "Add Step" FAB covers fields (Straight at 360×640, SUM threshold with the keyboard up).
+6. Title cut to "PID …" at 360 px / text 1.3 (wide badge).
+7. Targets under 48 px: step header icons and Save/Load preset 40×40, speed chips 37×28, segmented buttons 32 tall, switches scaled to 0.65 (≈39×26), number fields 36 tall, SW1 / Reset 40 tall.
+8. Text 10–11 px (chips, segments, field labels, step pill).
+9. Off-palette colours: Send All #2563EB, PD+Speed green, SW1 teal, Time step blue, CheckSum step orange.
+10. No confirmation or undo for Delete step, Load preset (replaces all steps), Save over a preset, Delete preset.
+11. Off / All Black / All White has no label.
+12. Preset picker sheet and Save dialog are stock Material.
+
+Read Sensor
+13. Stock Material buttons and dropdown.
+14. Same header issues as 4 and 6.
+15. Plain chevron Back on PID and Sensor; hub and BLE page use the cat Back.
+
+### Decisions (owner)
+1. Hub badge: the shared `ConnectionStatusBadge` (opens the BLE status sheet).
+2. Step colours: Time = violet, CheckSum = cyan, no mode = muted.
+3. Step header: ↑ / ↓ visible; Duplicate and Delete in a ⋯ menu.
+4. Actions: a fixed glass bar at the bottom (Send All, Send PD+Speed, SW1, Reset board); "Add step" becomes a row at the end of the list (no FAB).
+5. Delete step → snack bar with Undo; Load preset over steps, Save over a saved preset and Delete preset → `showLavenderConfirmDialog`.
+6. Off / All Black / All White is labelled "Junction hold".
+7. Sensor "Read (force)" moves into the Log section.
+
+### Phases (one commit per item)
+1. Shared header for the three pages: cat Back, Kanit title that scales down instead of truncating, frosted strip when scrolled, BLE badge in the controller-toolbar pill style with short labels.
+2. Hub: shared badge, `GlassPanel` cards.
+3. PID: band bug; glass step cards + colours; 48 px targets, ≥ 12 px text, full-size switches, ⋯ menu; bottom action bar + Add step row; Undo / confirmations; Lavender preset sheet and Save dialog; "Junction hold".
+4. Sensor: Lavender buttons and interval chips, value tiles, Log panel with Read (force) and Clear.
+5. Tests, before/after renders, notes.
+
+### Must not change (Arduino library)
+`SEQ=` (field order `mode,value,kp,kd,speed,afterMs,afterSpeed,stopMs,lineColor,holdMs,holdThreshold,holdMode`), `SEQPD=`, `SW1=1`, `RESET=1`, `SENS=1`, the `SENS=…,SUM=` parsing, KP / KD / Speed / S1… / SUM wording, the 3 s / 1 s / 200 ms send limits, and the saved keys `linesonic_steps_v2` / `linesonic_presets_v1`.
