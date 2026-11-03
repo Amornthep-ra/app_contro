@@ -434,3 +434,23 @@ Tests added in `test/gamepad_edit_layout_test.dart` (Reset dialog + Undo on all 
 
 ### Not yet verified on a real device
 Everything in this section.
+
+---
+
+## 14. Backend review and the first fixes (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Read-only review of `lib/core/ble/*` (BleManager, coordinator, secure protocol, pairing store, permissions), the control loops of the three controller pages, the LineSonic text-command pages, persistence and platform config. The BLE layer itself is solid (traffic owners, priority stop queue, repeated stop frames on Stop / leave / background / disconnect, HMAC v2 protocol, pairing secret in flutter_secure_storage, 11 BLE test files, correct Android permissions). Most findings are in the pages that use it.
+
+### Findings
+High
+1. 8 BTN leaks control ownership: `_startControl` (`gamepad_mode_edit.dart:361-366`) returns without releasing when the page is gone after `acquireControlForStart` (up to 8 s). Back or a mode switch during Start leaves BleManager in controlBinary with no holder; every Start fails and LineSonic says "BLE is busy in control mode" until the link drops or the app backgrounds. 4 BTN and Joystick already guard this (`_leavingControlPage`, release with `stopAndReleaseControl`); the regression test covers only those two.
+2. Joystick sends nothing while idle (`joystick.dart:424-430`: centred sticks, no buttons → no frame), but `docs/PB_CONTROL_PROTOCOL_V2.md` (lines 13, 56) has the firmware stop and invalidate the session after 400 ms without a valid packet. 4 / 8 BTN send a zero frame every 150 ms while idle.
+
+Medium: PID saved-data decode unguarded (`linesonic_pid_page.dart:252, 302`, a bad load then autosaves over the program); transient handshake failures shown as "Secure firmware update required"; link-loss reconnect never gives up (8 s scans); wall-clock timing for throttles and heartbeat; Read Sensor rx buffer / Auto in-flight / SnackBar flood; control code duplicated across the three pages (8 BTN refreshes a held button every ~160 ms vs 50 ms); a Joystick button release can be dropped by the 20 ms limiter.
+Low: partial text line left on the board after a failed chunk; iOS skips the permission / adapter check; secure-storage PlatformException not caught; startup errors leave the splash; PID `_sendCommand` without try/finally; 4 BTN preset speed unchecked; unused code and packages (`AppConnection` classic, `_reconnectDeadline`, `/joystick-test`, dio, riverpod, freezed, json_*, build_runner). Security note (protocol, not app): 8-character pair codes can be brute-forced offline from a captured handshake; longer codes are safer.
+
+### Plan for the two high items (owner decisions: keepalive 150 ms)
+1. 8 BTN, like 4 BTN: `_leavingControlPage` (set on exit and dispose, part of `_canStartControl`); after `acquireControlForStart`, release with `stopAndReleaseControl` when unmounted, leaving or switching mode; `acquireControl` test hook. Tests: 8 BTN in "abandoned Start cleans only its owner", plus a mode switch during Start on all three pages.
+2. Joystick: while started, not editing and idle, send the existing zero joystick frame every 150 ms (as 4 / 8 BTN). Same bytes, only more often while idle; it also re-sends the real state within 150 ms if a release frame was dropped. Tests: idle frames with no gap over 400 ms after Start, none before Start or in the editor, 50 ms while held.
+
+No library change: both fixes use packets the Arduino library already receives (STOP on release; the zero joystick frame that 4 / 8 BTN already send while idle). The board can stay on its current library version.
