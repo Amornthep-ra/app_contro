@@ -395,3 +395,23 @@ Done as one commit (the metric, the three pages and the tests depend on each oth
 
 ### Verified on the owner's phone (2026-11-03)
 The owner tested section 12 on the phone and confirmed it passes (dragging together, driving with close buttons, editor size, 12 dp grid). iOS not tested.
+
+---
+
+## 13. Layout editor leftovers — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Section 6 "Layout editor — not done", reviewed again at 800×360 (owner's phone) and 640×360 after section 12.
+
+### Findings (before)
+1. The edit toolbar's 10 tools are evenly spaced (8 dp; slots 68 dp at 800, 52 dp at 640), so nothing reads as a group. Reset sits between Redo and Delete and wipes the layout at once (Undo can bring it back, nothing says so). Done is an icon like the others.
+2. 4 / 8 BTN allow a control 4 dp from the pad's top (12 dp on the other edges): its ears come within ~20 dp of the toolbar, it can sit under the editor hint (y 62–96 vs face top 76), and while driving the floating speed panel covers it. Joystick already uses 16 dp on every edge.
+3. 4 BTN default spacing is uneven (visible faces): 800×360 ↑↓ 37 dp vs ←→ 52 dp; 640×360 46 vs 37; at 640 the ↑↓ column hugs the left edge. 8 BTN places its clusters at 20 % / 80 % of the layout frame.
+4. (Found, left for later) 8 BTN at 640×360: the driving toolbar wraps to two rows, so the pad is shorter than in the editor and buttons draw at 71 dp instead of 88 dp; the layout scales down. At 800×360 the two match. Tied to the long CMD text (Arduino rule).
+
+### Decisions (owner)
+1. Toolbar groups: [Done] | [Buttons] | [Lock − + Delete] | [Grid] | [Undo Redo] | [Reset]; 6 dp inside a group, 16 dp between groups; one row at 640, 48 px targets.
+2. Reset asks first (`showLavenderConfirmDialog`); Undo still works.
+3. Done is a filled violet pill with "Done" next to the ✓ when the slot is wide enough.
+4. Top edge 12 dp like the others, for dragging and resizing; saved layouts are not moved.
+5. 4 BTN defaults: ↑↓ and ←→ with the same 24 dp between visible faces (scaled with the pad), ↑↓ column at 20 % and ←→ row at 80 % of the layout frame. Saved layouts unchanged.
+Item 4 of the findings is left for later.
