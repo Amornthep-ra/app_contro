@@ -347,6 +347,31 @@ void main() {
         });
       }
 
+      if (page.value.panelType != null) {
+        testWidgets('${page.key}: a control dragged up stops 12 dp below the '
+            'top of the pad', (tester) async {
+          await openEditor(tester, page.value.build());
+          final panel = tester.getRect(_byTypeName(page.value.panelType!));
+          final control = _byTypeName(page.value.controlType).first;
+          await tester.tap(control);
+          await tester.pumpAndSettle();
+          await tester.timedDrag(
+            control,
+            const Offset(0, -400),
+            const Duration(milliseconds: 600),
+          );
+          await tester.pumpAndSettle();
+          final box = tester.getRect(control);
+          // The button's square (its round box for 4 BTN's wider slot).
+          final top = box.center.dy - box.shortestSide / 2;
+          expect(
+            top - panel.top,
+            closeTo(GamepadEditMetrics.safeTopEdgePad, 0.5),
+          );
+          await closePage(tester);
+        });
+      }
+
       testWidgets('${page.key}: Reset asks first, and Undo brings the layout '
           'back', (tester) async {
         await openEditor(tester, page.value.build());

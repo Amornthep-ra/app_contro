@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 
 class GamepadEditMetrics {
   static const double safeEdgePad = 12.0;
-  static const double safeTopEdgePad = 4.0;
+  /// Same as the other edges: at 4 dp a control could sit right under the
+  /// toolbar / editor hint, and under the floating speed panel while
+  /// driving. Saved layouts are not moved; the limit applies when a
+  /// control is dragged or resized.
+  static const double safeTopEdgePad = 12.0;
   static const double edgeWarnThresholdPx = 12.0;
   static const double maxPanelUnit = 520.0;
   static const double phoneLandscapeAspect = 844.0 / 390.0;
