@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/joystick_packet.dart';
+import '../../core/ble/control_timing.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
@@ -35,13 +36,6 @@ const String kCmdCross = 'X';
 const String kCmdSquare = 'S';
 const String kCmdCircle = 'C';
 
-const int kLoopHz = 60;
-const int kLoopMs = 1000 ~/ kLoopHz;
-const int kMinActiveMs = 150;
-const int kMinIdleMs = 150;
-
-const int kMaxSendHz = 40;
-const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;

@@ -18,6 +18,7 @@ import '../../core/ui/gamepad_tutorial_overlay_components.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ui/gamepad_skin.dart';
 import '../../core/ble/joystick_packet.dart';
+import '../../core/ble/control_timing.dart';
 import '../../core/ui/language_controller.dart';
 import 'widgets/gamepad_telemetry_chip.dart';
 
@@ -27,13 +28,6 @@ const double _panelEdgeInset = 28.0;
 const double _panelRowGap = 28.0;
 const double _panelColGap = 32.0;
 
-const int kLoopHz = 60;
-const int kLoopMs = 1000 ~/ kLoopHz;
-const int kMinActiveMs = 50;
-const int kMinIdleMs = 150;
-
-const int kMaxSendHz = 40;
-const int kMaxSendMs = 1000 ~/ kMaxSendHz;
 
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;
