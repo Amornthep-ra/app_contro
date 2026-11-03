@@ -55,11 +55,37 @@ const String kBtnSquareId = 'btn_square';
 const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
 
+/// While Start is on and nothing is touched, the Joystick page re-sends the
+/// zero joystick frame this often. The board stops and drops the session
+/// after 400 ms without a valid packet (docs/PB_CONTROL_PROTOCOL_V2.md); 4 / 8
+/// BTN already refresh it every 150 ms while idle.
+const int kJoystickIdleKeepaliveMs = 150;
+
+/// The Joystick page's control timer period.
+const int kJoystickTickMs = 25;
+
+/// Whether the idle keepalive is due after [ticksSinceSend] timer ticks
+/// without a frame. Counted in ticks, not wall-clock time, so a change of
+/// the phone's clock cannot stop it.
+@visibleForTesting
+bool joystickIdleKeepaliveDue(int ticksSinceSend) =>
+    ticksSinceSend * kJoystickTickMs >= kJoystickIdleKeepaliveMs;
+
 class JoystickPage extends StatefulWidget {
-  const JoystickPage({super.key, this.acquireControl, this.openOnArrival});
+  const JoystickPage({
+    super.key,
+    this.acquireControl,
+    this.openOnArrival,
+    this.onControlFrameForTesting,
+  });
 
   // Optional transport seam for exercising delayed Start completion in tests.
   final Future<int?> Function()? acquireControl;
+
+  /// Called with every control frame the page hands to BleManager (tests).
+  @visibleForTesting
+  final void Function(JoystickPacket packet, Set<int> buttons)?
+  onControlFrameForTesting;
 
   /// Set when Settings switched to this mode to edit it or open its saved
   /// layouts (see [ControlPageArguments]).
@@ -116,6 +142,9 @@ class _JoystickPageState extends State<JoystickPage> {
   static const double _delta = 0.005;
   static const int _activeKeepaliveMs = 50;
   int _lastControlSendMs = 0;
+
+  /// Control timer ticks since the last frame (idle keepalive).
+  int _ticksSinceSend = 0;
   double _lerp(double a, double b, double t) => a + (b - a) * t;
   String _fmt(double v) => v.toStringAsFixed(2);
   final _leftDebug = ValueNotifier<String>("X:0.00 Y:0.00");
@@ -196,6 +225,8 @@ class _JoystickPageState extends State<JoystickPage> {
     final owner = _bleTrafficOwner;
     if (owner == null) return;
     _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
+    _ticksSinceSend = 0;
+    widget.onControlFrameForTesting?.call(packet, buttons ?? const <int>{});
     unawaited(
       BleManager.instance.sendJoystickBinary(
         packet: packet,
@@ -375,8 +406,9 @@ class _JoystickPageState extends State<JoystickPage> {
         unawaited(_releaseTrafficOwnershipForExit());
       }
     });
-    _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: kJoystickTickMs), (_) {
       if (!_controlStarted || _editMode) return;
+      _ticksSinceSend++;
       final packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
       final buttonsChanged = buttonsKey != _lastButtonsKey;
@@ -424,8 +456,19 @@ class _JoystickPageState extends State<JoystickPage> {
           (packet.ry - _lastRY).abs() > _delta;
       if (!changed && !buttonsChanged) {
         final active = !nearZero || buttonsKey != 0;
+        if (!active) {
+          // Idle: refresh the board's 400 ms watchdog with the same zero
+          // frame that Start and releasing a stick send.
+          if (joystickIdleKeepaliveDue(_ticksSinceSend)) {
+            _sendBinary(
+              JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+              buttons: _pressedButtons(),
+            );
+          }
+          return;
+        }
         final now = DateTime.now().millisecondsSinceEpoch;
-        if (!active || now - _lastControlSendMs < _activeKeepaliveMs) {
+        if (now - _lastControlSendMs < _activeKeepaliveMs) {
           return;
         }
       }
