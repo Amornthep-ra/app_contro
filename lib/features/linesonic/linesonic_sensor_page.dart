@@ -1,11 +1,9 @@
 // lib/features/linesonic/linesonic_sensor_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../core/ble/ble_manager.dart';
-import '../../core/widgets/connection_status_badge.dart';
 import '../../core/ui/language_controller.dart';
-import '../../core/widgets/portrait_background.dart';
+import 'widgets/linesonic_scaffold.dart';
 
 class LineSonicSensorPage extends StatefulWidget {
   const LineSonicSensorPage({super.key});
@@ -231,23 +229,6 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     });
   }
 
-  Widget _buildPlainBackButton(bool isThai) {
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: IconButton(
-        tooltip: _t(isThai, '\u0e01\u0e25\u0e31\u0e1a', 'Back'),
-        icon: const Icon(Icons.chevron_left_rounded, size: 30),
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          Navigator.maybePop(context);
-        },
-        padding: EdgeInsets.zero,
-        splashRadius: 22,
-      ),
-    );
-  }
-
   Widget _buildEmptyPanel({
     required ThemeData theme,
     required IconData icon,
@@ -380,99 +361,38 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isThai = LanguageController.isThai.value;
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        toolbarHeight: 44,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        foregroundColor: scheme.onSurface,
-        leading: Navigator.of(context).canPop()
-            ? _buildPlainBackButton(isThai)
-            : null,
-        centerTitle: true,
-        title: Text(
-          _t(
-            isThai,
-            '\u0e2d\u0e48\u0e32\u0e19\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
-            'Read Sensor',
-          ),
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0,
-            color: scheme.onSurface,
-          ),
-        ),
-        actions: [
-          const Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: ConnectionStatusBadge(),
-          ),
-        ],
+    return LineSonicScaffold(
+      title: _t(
+        isThai,
+        '\u0e2d\u0e48\u0e32\u0e19\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
+        'Read Sensor',
       ),
-      body: PortraitBackground(
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            MediaQuery.paddingOf(context).top + 44 + 16,
-            16,
-            24,
-          ),
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _sendRead,
-                    icon: const Icon(Icons.download_rounded),
-                    label: Text(
-                      _t(
-                        isThai,
-                        '\u0e2d\u0e48\u0e32\u0e19\u0e15\u0e2d\u0e19\u0e19\u0e35\u0e49',
-                        'Read Now',
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(0, 48),
-                      elevation: 1,
-                      textStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.tonalIcon(
-                  onPressed: () => _setAuto(!_auto),
-                  icon: Icon(
-                    _auto ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  ),
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          LineSonicScaffold.contentTop(context),
+          16,
+          24 + MediaQuery.paddingOf(context).bottom,
+        ),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _sendRead,
+                  icon: const Icon(Icons.download_rounded),
                   label: Text(
-                    _auto
-                        ? _t(
-                            isThai,
-                            '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e40\u0e1b\u0e34\u0e14',
-                            'Auto On',
-                          )
-                        : _t(
-                            isThai,
-                            '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e1b\u0e34\u0e14',
-                            'Auto Off',
-                          ),
+                    _t(
+                      isThai,
+                      '\u0e2d\u0e48\u0e32\u0e19\u0e15\u0e2d\u0e19\u0e19\u0e35\u0e49',
+                      'Read Now',
+                    ),
                   ),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(118, 44),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    elevation: 1,
                     textStyle: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0,
                     ),
@@ -481,29 +401,31 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _forceReadTx,
-                icon: const Icon(Icons.read_more_rounded, size: 18),
-                label: Text(
-                  _t(
-                    isThai,
-                    '\u0e2d\u0e48\u0e32\u0e19\u0e41\u0e1a\u0e1a\u0e1a\u0e31\u0e07\u0e04\u0e31\u0e1a',
-                    'Read (force)',
-                  ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.tonalIcon(
+                onPressed: () => _setAuto(!_auto),
+                icon: Icon(
+                  _auto ? Icons.pause_rounded : Icons.play_arrow_rounded,
                 ),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  foregroundColor: scheme.onSurfaceVariant,
-                  side: BorderSide(color: scheme.outlineVariant),
+                label: Text(
+                  _auto
+                      ? _t(
+                          isThai,
+                          '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e40\u0e1b\u0e34\u0e14',
+                          'Auto On',
+                        )
+                      : _t(
+                          isThai,
+                          '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e1b\u0e34\u0e14',
+                          'Auto Off',
+                        ),
+                ),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(118, 44),
                   textStyle: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 0,
                   ),
                   shape: RoundedRectangleBorder(
@@ -511,74 +433,96 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              initialValue: _intervalMs,
-              decoration: InputDecoration(
-                label: Text(
-                  isThai ? 'Auto Interval (ms)' : 'Auto Interval (ms)',
-                ),
-                border: const OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 100, child: Text('100')),
-                DropdownMenuItem(value: 200, child: Text('200')),
-                DropdownMenuItem(value: 500, child: Text('500')),
-                DropdownMenuItem(value: 1000, child: Text('1000')),
-              ],
-              onChanged: (val) {
-                if (val == null) return;
-                setState(() => _intervalMs = val);
-                if (_auto) _setAuto(true);
-              },
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _t(
-                isThai,
-                '\u0e04\u0e48\u0e32\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
-                'Sensor Values',
-              ),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildValues(theme),
-            const SizedBox(height: 12),
-            if (_sum != null)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withAlpha(
-                    140,
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: theme.colorScheme.outlineVariant),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.functions, size: 18),
-                    const SizedBox(width: 8),
-                    Text('SUM: $_sum', style: theme.textTheme.labelLarge),
-                  ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _forceReadTx,
+              icon: const Icon(Icons.read_more_rounded, size: 18),
+              label: Text(
+                _t(
+                  isThai,
+                  '\u0e2d\u0e48\u0e32\u0e19\u0e41\u0e1a\u0e1a\u0e1a\u0e31\u0e07\u0e04\u0e31\u0e1a',
+                  'Read (force)',
                 ),
               ),
-            const SizedBox(height: 20),
-            Text(
-              _t(isThai, '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01', 'Log'),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                foregroundColor: scheme.onSurfaceVariant,
+                side: BorderSide(color: scheme.outlineVariant),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            _buildLog(theme, isThai),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            initialValue: _intervalMs,
+            decoration: InputDecoration(
+              label: Text(isThai ? 'Auto Interval (ms)' : 'Auto Interval (ms)'),
+              border: const OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: 100, child: Text('100')),
+              DropdownMenuItem(value: 200, child: Text('200')),
+              DropdownMenuItem(value: 500, child: Text('500')),
+              DropdownMenuItem(value: 1000, child: Text('1000')),
+            ],
+            onChanged: (val) {
+              if (val == null) return;
+              setState(() => _intervalMs = val);
+              if (_auto) _setAuto(true);
+            },
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _t(
+              isThai,
+              '\u0e04\u0e48\u0e32\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
+              'Sensor Values',
+            ),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildValues(theme),
+          const SizedBox(height: 12),
+          if (_sum != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withAlpha(140),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.functions, size: 18),
+                  const SizedBox(width: 8),
+                  Text('SUM: $_sum', style: theme.textTheme.labelLarge),
+                ],
+              ),
+            ),
+          const SizedBox(height: 20),
+          Text(
+            _t(isThai, '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01', 'Log'),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildLog(theme, isThai),
+        ],
       ),
     );
   }
