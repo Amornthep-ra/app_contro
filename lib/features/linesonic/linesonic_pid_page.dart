@@ -581,28 +581,9 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     final controller = TextEditingController(
       text: _presets[_selectedPreset].name,
     );
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isThai ? 'Save Preset' : 'Save Preset'),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            label: Text(isThai ? 'Preset name' : 'Preset name'),
-            border: const OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(isThai ? 'Cancel' : 'Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: Text(isThai ? 'Save' : 'Save'),
-          ),
-        ],
-      ),
+    final name = await _showPresetNameDialog(
+      controller,
+      slot: _selectedPreset + 1,
     );
     controller.dispose();
     if (name == null || !mounted) return;
@@ -704,45 +685,136 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     final selected = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
+      backgroundColor: LavenderPalette.background,
+      barrierColor: LavenderPalette.ink.withValues(alpha: 0.28),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       builder: (ctx) {
         return SafeArea(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: _presetCount,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (_, i) {
-              final title = _presets[i].isEmpty
-                  ? '${_presets[i].name} (empty)'
-                  : _presets[i].name;
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(title, overflow: TextOverflow.ellipsis),
-                leading: i == _selectedPreset
-                    ? const Icon(Icons.check_circle, size: 18)
-                    : const SizedBox(width: 18),
-                trailing: _presets[i].isEmpty
-                    ? null
-                    : TextButton(
-                        onPressed: () async {
-                          final delete = await showLavenderConfirmDialog(
-                            context: ctx,
-                            title: 'Delete "${_presets[i].name}"?',
-                            message:
-                                'Its saved steps are removed. '
-                                'The steps on screen stay.',
-                            confirmLabel: 'Delete',
-                            icon: Icons.delete_outline_rounded,
-                            destructive: true,
-                          );
-                          if (!delete) return;
-                          await _deletePreset(i);
-                          if (ctx.mounted) Navigator.pop(ctx, _selectedPreset);
-                        },
-                        child: const Text('Delete'),
-                      ),
-                onTap: () => Navigator.pop(ctx, i),
-              );
-            },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(
+                  'Presets',
+                  style: TextStyle(
+                    fontFamily: LavenderPalette.displayFont,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: LavenderPalette.ink,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    itemCount: _presetCount,
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      indent: 56,
+                      endIndent: 12,
+                      color: LavenderPalette.ink.withValues(alpha: 0.07),
+                    ),
+                    itemBuilder: (_, i) {
+                      final preset = _presets[i];
+                      final current = i == _selectedPreset;
+                      final count = preset.steps.length;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => Navigator.pop(ctx, i),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 60),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 48,
+                                child: Icon(
+                                  current
+                                      ? Icons.check_circle_rounded
+                                      : Icons.circle_outlined,
+                                  size: 22,
+                                  color: current
+                                      ? LavenderPalette.violet
+                                      : LavenderPalette.inkMuted,
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      preset.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: current
+                                            ? FontWeight.w700
+                                            : FontWeight.w600,
+                                        color: LavenderPalette.ink,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      preset.isEmpty
+                                          ? 'Empty'
+                                          : '$count step${count == 1 ? '' : 's'}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: LavenderPalette.inkSoft,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!preset.isEmpty)
+                                TextButton(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: LavenderPalette.coral,
+                                    minimumSize: const Size(48, 48),
+                                  ),
+                                  onPressed: () async {
+                                    final delete =
+                                        await showLavenderConfirmDialog(
+                                          context: ctx,
+                                          title: 'Delete "${preset.name}"?',
+                                          message:
+                                              'Its saved steps are removed. '
+                                              'The steps on screen stay.',
+                                          confirmLabel: 'Delete',
+                                          icon: Icons.delete_outline_rounded,
+                                          destructive: true,
+                                        );
+                                    if (!delete) return;
+                                    await _deletePreset(i);
+                                    if (ctx.mounted) {
+                                      Navigator.pop(ctx, _selectedPreset);
+                                    }
+                                  },
+                                  child: const Text(
+                                    'Delete',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -750,6 +822,234 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
 
     if (selected == null) return;
     setState(() => _selectedPreset = selected);
+  }
+
+  /// Glass "Save preset" dialog; resolves to the trimmed name or null.
+  Future<String?> _showPresetNameDialog(
+    TextEditingController controller, {
+    required int slot,
+  }) {
+    return showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Cancel',
+      barrierColor: LavenderPalette.ink.withValues(alpha: 0.28),
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (dialogContext, _, __) {
+        void submit() =>
+            Navigator.of(dialogContext).pop(controller.text.trim());
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 120),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
+          ),
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: GlassPanel(
+                      radius: 28,
+                      padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Save preset',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: LavenderPalette.displayFont,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: LavenderPalette.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Slot $slot · ${_steps.length} step${_steps.length == 1 ? '' : 's'}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: LavenderPalette.inkSoft,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: controller,
+                            autofocus: true,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => submit(),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: LavenderPalette.ink,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Preset name',
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.6),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                  color: LavenderPalette.ink.withValues(
+                                    alpha: 0.14,
+                                  ),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: LavenderPalette.violet,
+                                  width: 1.6,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: GlassActionButton(
+                                  label: 'Cancel',
+                                  icon: Icons.close_rounded,
+                                  height: 48,
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: GradientActionButton(
+                                  label: 'Save',
+                                  icon: Icons.save_rounded,
+                                  height: 48,
+                                  onPressed: submit,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  /// "Mission timeline" caption + glass row: preset picker, Save, Load.
+  Widget _buildPresetRow() {
+    final preset = _presets[_selectedPreset];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 6, bottom: 8),
+            child: Text(
+              'Mission Timeline',
+              style: TextStyle(
+                color: LavenderPalette.inkSoft,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          GlassPanel(
+            radius: 22,
+            shadowStrength: 0.6,
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+            child: Material(
+              type: MaterialType.transparency,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Tooltip(
+                      message: 'Choose preset',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: _openPresetPicker,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 52),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 12),
+                              const Icon(
+                                Icons.bookmarks_rounded,
+                                size: 20,
+                                color: LavenderPalette.violet,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  preset.isEmpty
+                                      ? '${preset.name} (empty)'
+                                      : preset.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: LavenderPalette.ink,
+                                  ),
+                                ),
+                              ),
+                              const Icon(
+                                Icons.expand_more_rounded,
+                                color: LavenderPalette.inkSoft,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _StepIconButton(
+                    tooltip: 'Save preset',
+                    icon: Icons.save_outlined,
+                    color: LavenderPalette.violetDeep,
+                    onPressed: _savePresetDialog,
+                  ),
+                  _StepIconButton(
+                    tooltip: 'Load preset',
+                    icon: Icons.download_rounded,
+                    color: LavenderPalette.violetDeep,
+                    onPressed: () => _loadPreset(_selectedPreset),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _moveStep(int index, int delta) {
@@ -1203,7 +1503,6 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     final media = MediaQuery.of(context);
     final isCompact = media.size.width < 380;
 
@@ -1224,77 +1523,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                     height: LineSonicScaffold.contentTop(context),
                   ),
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isThai ? 'Mission Timeline' : 'Mission Timeline',
-                          style: t.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: _openPresetPicker,
-                                borderRadius: BorderRadius.circular(8),
-                                child: InputDecorator(
-                                  decoration: InputDecoration(
-                                    label: Text(isThai ? 'Preset' : 'Preset'),
-                                    border: const OutlineInputBorder(),
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 6,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          _presets[_selectedPreset].isEmpty
-                                              ? '${_presets[_selectedPreset].name} (${isThai ? 'empty' : 'empty'})'
-                                              : _presets[_selectedPreset].name,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const Icon(Icons.arrow_drop_down),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filledTonal(
-                              tooltip: isThai ? 'Save preset' : 'Save preset',
-                              onPressed: _savePresetDialog,
-                              icon: const Icon(Icons.save_outlined),
-                              visualDensity: const VisualDensity(
-                                horizontal: -2,
-                                vertical: -2,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            IconButton.outlined(
-                              tooltip: isThai ? 'Load preset' : 'Load preset',
-                              onPressed: () => _loadPreset(_selectedPreset),
-                              icon: const Icon(Icons.download_outlined),
-                              visualDensity: const VisualDensity(
-                                horizontal: -2,
-                                vertical: -2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                SliverToBoxAdapter(child: _buildPresetRow()),
                 SliverReorderableList(
                   itemCount: _steps.length,
                   onReorderItem: (oldIndex, newIndex) {
