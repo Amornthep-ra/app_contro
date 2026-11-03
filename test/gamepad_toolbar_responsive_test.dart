@@ -412,19 +412,21 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byKey(const ValueKey('gamepad-edit-more')), findsNothing);
-        // "Buttons" (show or hide controls) follows Done on every page.
+        // Groups: [Done] | [Buttons] | [Lock - + Delete] | [Grid] |
+        // [Undo Redo] | [Reset], the same on every page.
         final orderedLabels = <String>[
           'Done',
           'Buttons',
           'Lock',
           'Decrease size',
           'Increase size',
+          'Delete',
           'Grid',
           'Undo',
           'Redo',
           'Reset',
-          'Delete',
         ];
+        const groupStarts = {1, 2, 6, 7, 9};
         for (final label in orderedLabels) {
           expect(find.byTooltip(label), findsOneWidget);
         }
@@ -444,7 +446,13 @@ void main() {
           row.sort((a, b) => a.left.compareTo(b.left));
           expect((row.first.left + row.last.right) / 2, closeTo(320, 0.1));
           for (var index = 1; index < row.length; index++) {
-            expect(row[index].left - row[index - 1].right, 8);
+            expect(
+              row[index].left - row[index - 1].right,
+              groupStarts.contains(index)
+                  ? GamepadCenteredToolbar.groupGap
+                  : GamepadCenteredToolbar.itemGap,
+              reason: 'gap before tool $index',
+            );
           }
         }
         final centers = [

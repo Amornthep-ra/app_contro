@@ -2046,6 +2046,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return GamepadCenteredToolbar(
       textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
       singleRow: true,
+      // [Done] | [Buttons] | [Lock - + Delete] | [Grid] | [Undo Redo] | [Reset]
+      groupStarts: const {1, 2, 6, 7, 9},
       children: [
         _toolIconPill(
           icon: Icons.done_rounded,
@@ -2084,6 +2086,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
         ),
         _toolIconPill(
+          icon: Icons.delete_outline,
+          label: isThai ? 'ลบ' : 'Delete',
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+        _toolIconPill(
           icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
           label: 'Grid',
           accent: const Color(0xFF38BDF8),
@@ -2107,12 +2115,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           label: 'Reset',
           accent: const Color(0xFFF59E0B),
           onTap: withBuzz(_resetLayouts),
-        ),
-        _toolIconPill(
-          icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
-          accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
       ],
     );

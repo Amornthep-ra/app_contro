@@ -1678,6 +1678,8 @@ class _JoystickPageState extends State<JoystickPage> {
     return GamepadCenteredToolbar(
       textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
       singleRow: true,
+      // [Done] | [Buttons] | [Lock - + Delete] | [Grid] | [Undo Redo] | [Reset]
+      groupStarts: const {1, 2, 6, 7, 9},
       children: [
         _toolIconPill(
           icon: Icons.done_rounded,
@@ -1716,6 +1718,12 @@ class _JoystickPageState extends State<JoystickPage> {
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
         ),
         _toolIconPill(
+          icon: Icons.delete_outline,
+          label: isThai ? 'ลบ' : 'Delete',
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
+        ),
+        _toolIconPill(
           icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
           label: 'Grid',
           accent: const Color(0xFF38BDF8),
@@ -1739,12 +1747,6 @@ class _JoystickPageState extends State<JoystickPage> {
           label: 'Reset',
           accent: const Color(0xFFF59E0B),
           onTap: withBuzz(_resetLayout),
-        ),
-        _toolIconPill(
-          icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
-          accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
       ],
     );

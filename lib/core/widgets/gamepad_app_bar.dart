@@ -158,11 +158,20 @@ class GamepadCenteredToolbar extends StatelessWidget {
     required this.children,
     required this.textScaleFactor,
     this.singleRow = false,
+    this.groupStarts = const {},
   });
 
   final List<Widget> children;
   final double textScaleFactor;
   final bool singleRow;
+
+  /// Indexes of [children] that start a new group (single row only):
+  /// [groupGap] before them, [itemGap] between the others. Falls back to
+  /// even spacing when the groups do not fit at 48 px per tool.
+  final Set<int> groupStarts;
+
+  static const double itemGap = 6;
+  static const double groupGap = 16;
 
   @override
   Widget build(BuildContext context) {
@@ -204,13 +213,21 @@ class GamepadCenteredToolbar extends StatelessWidget {
             ),
           );
         }
+        final grouped = _groupedItemWidth(constraints.maxWidth);
         return Center(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               for (var index = 0; index < children.length; index++) ...[
-                _slot(layout, index),
-                if (index + 1 < children.length) SizedBox(width: layout.gap),
+                _slot(layout, index, width: grouped),
+                if (index + 1 < children.length)
+                  SizedBox(
+                    width: grouped == null
+                        ? layout.gap
+                        : groupStarts.contains(index + 1)
+                        ? groupGap
+                        : itemGap,
+                  ),
               ],
             ],
           ),
@@ -219,12 +236,29 @@ class GamepadCenteredToolbar extends StatelessWidget {
     );
   }
 
-  Widget _slot(GamepadToolbarLayout layout, int index) => SizedBox(
-    key: ValueKey('gamepad-toolbar-slot-$index'),
-    width: layout.itemWidth,
-    height: layout.itemHeight,
-    child: Center(child: children[index]),
-  );
+  /// Width of each tool with [groupStarts] gaps, or null when they do not
+  /// fit (even spacing is used then).
+  double? _groupedItemWidth(double width) {
+    final count = children.length;
+    final groups = groupStarts.where((i) => i > 0 && i < count).length;
+    if (groups == 0 || count < 2) return null;
+    final available = width - 24;
+    final gaps = groups * groupGap + (count - 1 - groups) * itemGap;
+    final itemWidth = ((available - gaps) / count).clamp(
+      GamepadAppBarMetrics.minimumTapTargetExtent,
+      GamepadAppBarMetrics.uniformControlWidth,
+    );
+    if (itemWidth * count + gaps > available + 0.01) return null;
+    return itemWidth;
+  }
+
+  Widget _slot(GamepadToolbarLayout layout, int index, {double? width}) =>
+      SizedBox(
+        key: ValueKey('gamepad-toolbar-slot-$index'),
+        width: width ?? layout.itemWidth,
+        height: layout.itemHeight,
+        child: Center(child: children[index]),
+      );
 
   int _rowStart(GamepadToolbarLayout layout, int row) {
     final shortLength = children.length ~/ layout.rows;
