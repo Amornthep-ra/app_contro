@@ -85,7 +85,7 @@
 2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
 3. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
 4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
-5. Owner re-test of the closer spacing on the phone (section 12, "Not yet verified").
+5. Sections 11 (LineSonic) and 12 (spacing) passed on the owner's Android phone; iOS still untested.
 6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
 
 ### How the owner likes to work
@@ -393,5 +393,5 @@ Done as one commit (the metric, the three pages and the tests depend on each oth
 - Measured at 800×360: 4 BTN ← into → now stops at 68 px between centres (94 before), slow and fast alike; 8 BTN ← moves ~55 px further toward → before meeting ↑ / ↓.
 - Unchanged: IDs, packets, axes, default layouts, saved format. Old saved layouts load as they were (they are wider than the new limit).
 
-### Not yet verified on a real device
-Dragging buttons together on the phone (feel of the slide), pressing two buttons placed 4 dp apart while driving (thumb accuracy), the larger editor buttons, the 12 dp grid's look on a small screen.
+### Verified on the owner's phone (2026-11-03)
+The owner tested section 12 on the phone and confirmed it passes (dragging together, driving with close buttons, editor size, 12 dp grid). iOS not tested.
