@@ -1072,6 +1072,7 @@ class _JoystickPageState extends State<JoystickPage> {
     required VoidCallback? onTap,
     Key? key,
     bool active = false,
+    bool primary = false,
   }) {
     return GamepadToolIconPill(
       pillKey: key,
@@ -1080,6 +1081,7 @@ class _JoystickPageState extends State<JoystickPage> {
       accent: accent,
       onTap: onTap,
       active: active,
+      primary: primary,
     );
   }
 
@@ -1704,6 +1706,7 @@ class _JoystickPageState extends State<JoystickPage> {
           label: 'Done',
           accent: const Color(0xFF60A5FA),
           onTap: withBuzz(_toggleEdit),
+          primary: true,
         ),
         // Choose which joysticks and buttons (△ ✕ □ ○) are on the pad.
         // This entry point was lost when the editor moved to this toolbar.

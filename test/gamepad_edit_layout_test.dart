@@ -9,6 +9,7 @@ import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ui/gamepad_edit_metrics.dart';
 import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
+import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/gamepad/widgets/gamepad_controls_sheet.dart';
@@ -56,6 +57,12 @@ final _pages = <String, _Page>{
   ),
   'joystick': _Page(() => const JoystickPage(), '_EditableJoystick'),
 };
+
+/// The Buttons sheet's Done (the edit toolbar has a "Done" pill too).
+final _sheetDone = find.descendant(
+  of: find.byType(GamepadControlsSheet),
+  matching: find.text('Done'),
+);
 
 Finder _byTypeName(String name) =>
     find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
@@ -276,6 +283,32 @@ void main() {
 
     final grid = find.byKey(const ValueKey('gamepad-edit-grid'));
 
+    for (final (size, label) in [
+      (const Size(800, 360), true),
+      (const Size(640, 360), false),
+    ]) {
+      testWidgets('Done is a filled pill, with its label at '
+          '${size.width.toInt()} px: $label', (tester) async {
+        await openEditor(tester, const GamepadModeEdit(), size: size);
+        final done = find.descendant(
+          of: find.byKey(const ValueKey('gamepad-toolbar-slot-0')),
+          matching: find.byType(GamepadToolIconPill),
+        );
+        expect(tester.widget<GamepadToolIconPill>(done).primary, isTrue);
+        expect(
+          find.descendant(of: done, matching: find.text('Done')),
+          label ? findsOneWidget : findsNothing,
+        );
+        final slot = toolSlot(tester, 'Done');
+        expect(slot.height, greaterThanOrEqualTo(48));
+        expect(slot.width, greaterThanOrEqualTo(48));
+        await tester.tapAt(Offset(slot.center.dx, slot.top + 3));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Done'), findsNothing); // left the editor
+        await closePage(tester);
+      });
+    }
+
     for (final page in _pages.entries) {
       testWidgets('${page.key}: a tap at the top or bottom of a tool slot '
           'works', (tester) async {
@@ -474,7 +507,7 @@ void main() {
         await tester.ensureVisible(find.text('Triangle'));
         await tester.tap(find.text('Triangle'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Done'));
+        await tester.tap(_sheetDone);
         await tester.pumpAndSettle();
         expect(find.byType(GamepadControlsSheet), findsNothing);
 
@@ -542,7 +575,7 @@ void main() {
         expect(hidden, findsOneWidget);
         await tester.tap(hidden);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Done'));
+        await tester.tap(_sheetDone);
         await tester.pumpAndSettle();
 
         expect(controls, findsNWidgets(count));
@@ -584,7 +617,7 @@ void main() {
         await tester.ensureVisible(find.text(label));
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Done'));
+        await tester.tap(_sheetDone);
         await tester.pumpAndSettle();
       }
       expect(_byTypeName('_EditableButtonItem'), findsNWidgets(4));
@@ -666,7 +699,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Done'));
+        await tester.tap(_sheetDone);
         await tester.pumpAndSettle();
         expect(
           jsonDecode(

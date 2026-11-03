@@ -1748,6 +1748,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     required VoidCallback? onTap,
     Key? key,
     bool active = false,
+    bool primary = false,
   }) {
     return GamepadToolIconPill(
       pillKey: key,
@@ -1756,6 +1757,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       accent: accent,
       onTap: onTap,
       active: active,
+      primary: primary,
     );
   }
 
@@ -2009,6 +2011,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           label: 'Done',
           accent: const Color(0xFF60A5FA),
           onTap: _toggleEdit,
+          primary: true,
         ),
         // Show or hide controls, e.g. bring back one that was deleted
         // without resetting the whole layout.

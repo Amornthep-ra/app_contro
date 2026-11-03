@@ -4,6 +4,7 @@ import 'gamepad_control_toolbar.dart';
 import 'app_back_button.dart';
 import 'gamepad_app_bar.dart';
 import '../ui/app_assets.dart';
+import '../ui/lavender_glass.dart';
 import '../ui/language_controller.dart';
 
 Color _opacity(Color color, double opacity) =>
@@ -877,6 +878,12 @@ class GamepadToolIconPill extends StatelessWidget {
   final Key? pillKey;
   final bool active;
 
+  /// The way out of the editor (Done): a filled violet pill that also
+  /// shows [label] when its slot is at least [primaryLabelMinWidth] wide.
+  final bool primary;
+
+  static const double primaryLabelMinWidth = 64;
+
   const GamepadToolIconPill({
     super.key,
     required this.icon,
@@ -885,10 +892,87 @@ class GamepadToolIconPill extends StatelessWidget {
     required this.onTap,
     this.pillKey,
     this.active = false,
+    this.primary = false,
   });
+
+  Widget _buildPrimary(BuildContext context) {
+    final metrics = GamepadAppBarMetrics.forWidth(
+      MediaQuery.of(context).size.width,
+    );
+    final radius = BorderRadius.circular(999);
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: label,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final showLabel =
+                  constraints.maxWidth >= primaryLabelMinWidth &&
+                  MediaQuery.textScalerOf(context).scale(1) <= 1.3;
+              return Center(
+                child: DecoratedBox(
+                  key: pillKey,
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        LavenderPalette.violet,
+                        LavenderPalette.violetBright,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: LavenderPalette.violet.withValues(alpha: 0.30),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    height: metrics.controlHeight,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, size: 18, color: Colors.white),
+                        if (showLabel) ...[
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.clip,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (primary) return _buildPrimary(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final enabled = onTap != null;

@@ -1577,6 +1577,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     required VoidCallback? onTap,
     Key? key,
     bool active = false,
+    bool primary = false,
   }) {
     return GamepadToolIconPill(
       pillKey: key,
@@ -1585,6 +1586,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       accent: accent,
       onTap: onTap,
       active: active,
+      primary: primary,
     );
   }
 
@@ -2071,6 +2073,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           label: 'Done',
           accent: const Color(0xFF60A5FA),
           onTap: withBuzz(_toggleEdit),
+          primary: true,
         ),
         // Show or hide controls, e.g. bring back one that was deleted
         // without resetting the whole layout.
