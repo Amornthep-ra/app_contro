@@ -1,4 +1,4 @@
-# UI Handoff — PB Controller (updated 2026-11-02, BLE status sheet + device-test fixes, round 2)
+# UI Handoff — PB Controller (updated 2026-11-03, LineSonic pages)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
@@ -6,7 +6,8 @@
 > จากการทดสอบบนมือถือจริงของเจ้าของ แก้แล้ว 4 ข้อ (หัวข้อ 9): ปุ่ม Start/Stop ไม่ลอยค้างตอนเปลี่ยนโหมด, วงไฮไลต์ Start/Stop ตรงกลางวงกลมจริง, กล่อง Pair Code ใช้ได้ตอนแป้นพิมพ์ขึ้นในแนวนอน, คืนปุ่ม Buttons ใน Edit layout ของ Joystick (ค่าเริ่มต้นยังเป็นจอยซ้าย+ขวา ตามที่เจ้าของเลือก)
 > งานทั้งหมดอยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`); `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
 > ทดสอบมือถือรอบ 2 (หัวข้อ 10): ปุ่ม △✕□○ ของ Joystick เลือก/ลาก/ลบได้แล้ว, ปุ่มที่เพิ่มใหม่ไปวางที่ว่าง, เมนู Buttons แบบ Lavender ใช้ร่วมกันทุกโหมด (มีใน 4 BTN/8 BTN ด้วย), ปุ่ม Start/Stop เหลือแต่รูป, Settings เลือกโหมดแล้วกด Edit layout/Saved layouts ไปโหมดนั้นเลย
-> test ผ่าน 331 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> รอบล่าสุด (หัวข้อ 11): หน้า LineSonic ทั้ง 3 หน้า (เมนู, PID Tuning, Read Sensor) เป็น Lavender Glass แล้ว — หัวหน้าเดียวกัน (ปุ่มแมว, ป้าย BLE ตัวกลางที่เปิด sheet), การ์ด Step แบบกระจก ปุ่ม 48px, เมนู ⋯, แถบปุ่มส่งคำสั่งติดด้านล่าง, Undo/ถามยืนยัน, ชื่อ "Junction hold", หน้า Sensor แบบช่องกระจก; คำสั่ง BLE ไม่เปลี่ยน
+> test ผ่าน 346 ตัว และ `flutter analyze` ไม่เจอปัญหา
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -20,7 +21,7 @@
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 331 passing; `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 346 passing; `flutter analyze lib test` → no issues |
 | Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
@@ -62,13 +63,25 @@
 | `850c7e3` | Device test 2: added controls go to a free spot (`GamepadEditMetrics.freeSpotFor`); others pinned |
 | `e459fed` | Device test 2: Start/Stop artwork only (no glow, halo, breathing ring) |
 | `412c76b` | Device test 2: Settings' Edit layout / Saved layouts act on the chosen mode (`ControlModeSettingsResult`) |
+| `a2d6d12` | Handoff notes |
+| `bb27d8f` | LineSonic plan (section 11) |
+| `d64a243` | LineSonic: shared header `LineSonicScaffold` on PID Tuning + Read Sensor |
+| `17c5542` | LineSonic hub: shared badge, glass tiles (and the hub test in `widget_test.dart`) |
+| `388ea4a` | PID: step card band fixed |
+| `0a22c6d` | PID: glass step cards, mode colours, 48 px controls, ⋯ menu, "Junction hold" |
+| `10bf97f` | PID: fixed bottom action bar, "Add Step" row, no FAB |
+| `3727f6c` | PID: Undo for Delete step; confirm Load / Save over / Delete preset |
+| `4f83540` | PID: glass preset row, Lavender picker sheet and Save dialog |
+| `a11343e` | Read Sensor restyle; shared `linesonic_controls.dart` |
+| `492d29d` | PID: Save preset dialog owns its text controller (was disposed during the closing animation) |
+| `a7e25fa` | `test/linesonic_ui_test.dart` (15 tests) |
 
 ### Suggested next steps
 1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
 2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
 3. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
 4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
-5. Review the **LineSonic** pages (`lib/features/linesonic/linesonic_page.dart`, `linesonic_pid_page.dart`, `linesonic_sensor_page.dart`) the same way: render → review → plan → implement in phases.
+5. Owner re-test of the **LineSonic** pages on the phone (section 11, "Not yet verified").
 6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
 
 ### How the owner likes to work
@@ -320,3 +333,20 @@ Read Sensor
 
 ### Must not change (Arduino library)
 `SEQ=` (field order `mode,value,kp,kd,speed,afterMs,afterSpeed,stopMs,lineColor,holdMs,holdThreshold,holdMode`), `SEQPD=`, `SW1=1`, `RESET=1`, `SENS=1`, the `SENS=…,SUM=` parsing, KP / KD / Speed / S1… / SUM wording, the 3 s / 1 s / 200 ms send limits, and the saved keys `linesonic_steps_v2` / `linesonic_presets_v1`.
+
+### Result — DONE (all phases)
+- `widgets/linesonic_scaffold.dart` (LF): `LineSonicScaffold` (cat Back, Kanit title in a `FittedBox` so it scales instead of being cut, `FrostedBarBackground` when scrolled, optional `bottomBar` hidden while the keyboard is up, `contentTop(context)` for list padding) and `LineSonicBleBadge` (the shared `ConnectionStatusBadge` inside a one-item `GamepadControlScope` with `compactBle: true`, so it draws the controller toolbar pill with short labels and opens the BLE status sheet).
+- `widgets/linesonic_controls.dart` (LF): `LineSonicSegments<T>` (glass segmented control, 42 px segments in a 48 px rim) and `LineSonicCaption`.
+- Hub (`linesonic_page.dart`, LF): `blePageBuilder` and the private pill are gone; two `GlassPanel` tiles (cyan PID, mint Sensor).
+- PID (`linesonic_pid_page.dart`, CRLF): `_buildStepCard` + `_StepTone` (Time violet, CheckSum cyan, none muted), `_StepIconButton` (48 px), ⋯ `PopupMenuButton` (Duplicate / Delete), `_PresetChips` (48 px targets around 34 px pills), `_SwitchRow` (full switch, 48 px row), `_DisabledWhen`, `_NumberField` (48 px, glass fill). Tapping the selected mode still shows / hides its options; the chevron next to "Mode" does the same. `_buildActionBar` (Send PD+Speed, Send All gradient, SW1 cyan, Reset Board coral). Deleted steps wait in `_pendingDeleted` until the Undo snack bar closes. `_PresetNameDialog` owns its controller. Drag-to-reorder never had drag handles (only ↑ / ↓ work); unchanged.
+- Sensor (`linesonic_sensor_page.dart`, CRLF): glass controls panel, interval as segments, value tiles (columns = width / 84, 3–8), SUM row, log panel with Read (force) + Clear and selectable text. `debugReceivedLines` (visibleForTesting) feeds lines through `_handleData`.
+- Checked: `_buildSeqPayload`, `_buildSeqPdPayload`, `_sendCommand`, `_sendSW1`, `_sendReset`, `_sendSequence(Pd)`, `_StepData.toJson`, `_parseLine`, `_sendRead`, `_forceReadTx`, `_setAuto`, `_handleData`, `_addLog` are byte-identical to `a2d6d12`; nothing under `lib/core` changed.
+- Thai strings in the rewritten parts were dropped (English-only rule; they were identical to the English ones anyway). Labels kept: "Send All", "Send PD+Speed", "SW1", "Reset Board", "Add Step", "Read Now", "Auto On/Off", "Read (force)".
+
+### Testing notes
+- `test/linesonic_ui_test.dart` (15). The hub test in `widget_test.dart` now checks the shared badge instead of opening the BLE page.
+- Rendering: one big `tester.drag` (e.g. −3000 px) on the PID list lands past the lazily estimated extent and shows an empty viewport; drag in ~400 px steps with pumps. `FrostedBarBackground` may not show in captures taken right after a large jump.
+- The log uses `fontFamily: 'monospace'`, which is not loaded under `flutter_test` (boxes in renders).
+
+### Not yet verified on a real device
+The three pages on Android and iOS: the badge pill and BLE sheet from LineSonic, the frosted header while scrolling, the bottom bar with the keyboard (it hides) and on iPhone home-indicator insets, blur cost of one `GlassPanel` per step on low-end Android with many steps, the ⋯ menu, Undo snack bar over the bottom bar, the Save preset dialog above the keyboard.
