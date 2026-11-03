@@ -283,6 +283,35 @@ void main() {
 
     final grid = find.byKey(const ValueKey('gamepad-edit-grid'));
 
+    for (final size in [const Size(800, 360), const Size(640, 360)]) {
+      testWidgets('four-button defaults: Up/Down and Left/Right are equally '
+          'far apart at ${size.width.toInt()}x${size.height.toInt()}', (
+        tester,
+      ) async {
+        await openEditor(tester, const Gamepad4ButtonPage(), size: size);
+        final controls = _byTypeName('_EditableButton');
+        Rect rect(int i) => tester.getRect(controls.at(i));
+        // Order: Forward, Backward, Left, Right.
+        final upDown = _gap(rect(0), rect(1));
+        final leftRight = _gap(rect(2), rect(3));
+        expect(upDown, closeTo(leftRight, 0.5));
+        expect(rect(0).center.dx, closeTo(rect(1).center.dx, 0.5));
+        expect(rect(2).center.dy, closeTo(rect(3).center.dy, 0.5));
+        if (size.width == 800) {
+          // The owner's phone: 24 dp between the faces.
+          expect(upDown, closeTo(24, 1));
+        }
+        // Mirrored clusters: as far from the left edge as from the right.
+        final panel = tester.getRect(_byTypeName('_EditablePadPanel'));
+        final rowCentre = (rect(2).center.dx + rect(3).center.dx) / 2;
+        expect(
+          rect(0).center.dx - panel.left,
+          closeTo(panel.right - rowCentre, 1),
+        );
+        await closePage(tester);
+      });
+    }
+
     for (final (size, label) in [
       (const Size(800, 360), true),
       (const Size(640, 360), false),

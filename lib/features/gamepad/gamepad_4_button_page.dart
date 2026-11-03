@@ -37,9 +37,6 @@ import '../bluetooth/widgets/pairing_code_dialog.dart';
 
 const double designW = 1280;
 const double designH = 720;
-const double _panelEdgeInset = 28.0;
-const double _panelRowGap = 28.0;
-const double _panelColGap = 32.0;
 const int kLoopHz = 60;
 const int kLoopMs = 1000 ~/ kLoopHz;
 const int kMinActiveMs = 50;
@@ -2340,95 +2337,44 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
 double _visibleRadius(BtnCfg cfg) =>
     GamepadEditMetrics.buttonVisibleRadius(math.min(cfg.width, cfg.height));
 
-BtnCfg _defaultRenderedCfg(BtnCfg base, Size panel) {
-  return _scaledHoldCfg(base, const _ButtonLayout(0.5, 0.5, 0.30), panel).cfg;
-}
+/// Clear space between the faces of ↑↓ and of ←→ in the default layout,
+/// as a share of a face's diameter (24 dp on an 800x360 phone, where the
+/// pad is 292 dp tall and a face is 64 dp).
+const double _defaultFaceGapRatio = 0.375;
 
+/// Default 4 BTN layout: ↑↓ in a column at 20 % of the layout frame and
+/// ←→ in a row at 80 %, like 8 BTN's clusters, with the same clear space
+/// between the two faces of each pair. A spot does not depend on which
+/// other buttons are shown.
 Map<String, _ButtonLayout> _defaultLayoutForIds(
   Size size,
   Map<String, _BtnSpec> specs,
   List<String> ids,
 ) {
+  const layoutSize = 0.30;
   final w = size.width;
   final h = size.height;
-  final s = _scaleForPanel(size);
   final frame = GamepadEditMetrics.defaultLayoutFrame(size);
-  _ButtonLayout make(double x, double y) {
-    return _ButtonLayout(x / w, y / h, 0.30);
-  }
-
-  final hasForward = ids.contains('F:forward');
-  final hasBackward = ids.contains('F:backward');
-  final hasLeft = ids.contains('F:left');
-  final hasRight = ids.contains('F:right');
-  final out = <String, _ButtonLayout>{};
-  if (hasForward || hasBackward) {
-    final cfgF = hasForward
-        ? _defaultRenderedCfg(specs['F:forward']!.cfg, size)
-        : null;
-    final cfgB = hasBackward
-        ? _defaultRenderedCfg(specs['F:backward']!.cfg, size)
-        : null;
-    final totalHeight = [
-      if (cfgF != null) cfgF.height + cfgF.margin.vertical,
-      if (cfgB != null) cfgB.height + cfgB.margin.vertical,
-    ].fold(0.0, (a, b) => a + b);
-    final gapY = (cfgF != null && cfgB != null) ? s.h(_panelColGap) : 0.0;
-    final colLeft = frame.left + _panelEdgeInset;
-    double y = frame.top + (frame.height - (totalHeight + gapY)) / 2.0;
-    if (cfgF != null) {
-      y += cfgF.margin.top;
-      out['F:forward'] = make(
-        colLeft + cfgF.margin.left + cfgF.width / 2,
-        y + cfgF.height / 2,
+  final faceDiameter =
+      2 *
+      GamepadEditMetrics.buttonVisibleRadius(
+        GamepadEditMetrics.sizePx(size, layoutSize),
       );
-      y += cfgF.height + cfgF.margin.bottom;
-      y += gapY;
-    }
-    if (cfgB != null) {
-      y += cfgB.margin.top;
-      out['F:backward'] = make(
-        colLeft + cfgB.margin.left + cfgB.width / 2,
-        y + cfgB.height / 2,
-      );
-      y += cfgB.height + cfgB.margin.bottom;
-    }
-  }
-  if (hasLeft || hasRight) {
-    final cfgL = hasLeft
-        ? _defaultRenderedCfg(specs['F:left']!.cfg, size)
-        : null;
-    final cfgR = hasRight
-        ? _defaultRenderedCfg(specs['F:right']!.cfg, size)
-        : null;
-    final gap = s.w(_panelRowGap);
-    final rowWidth =
-        [
-          if (cfgL != null) cfgL.width + cfgL.margin.horizontal,
-          if (cfgR != null) cfgR.width + cfgR.margin.horizontal,
-        ].fold(0.0, (a, b) => a + b) +
-        ((cfgL != null && cfgR != null) ? gap : 0);
-    final maxHeight = [
-      if (cfgL != null) cfgL.height + cfgL.margin.vertical,
-      if (cfgR != null) cfgR.height + cfgR.margin.vertical,
-    ].fold(0.0, math.max);
-    double x = frame.right - rowWidth - _panelEdgeInset;
-    final y = frame.top + (frame.height - maxHeight) / 2.0;
-    if (cfgL != null) {
-      final cy = y + cfgL.margin.top + cfgL.height / 2;
-      x += cfgL.margin.left;
-      out['F:left'] = make(x + cfgL.width / 2, cy);
-      x += cfgL.width + cfgL.margin.right;
-      if (cfgR != null) x += gap;
-    }
-    if (cfgR != null) {
-      final cy = y + cfgR.margin.top + cfgR.height / 2;
-      x += cfgR.margin.left;
-      out['F:right'] = make(x + cfgR.width / 2, cy);
-      x += cfgR.width + cfgR.margin.right;
-    }
-  }
-  return out;
+  final halfPitch = (faceDiameter * (1 + _defaultFaceGapRatio)) / 2;
+  final cy = frame.center.dy;
+  final columnX = frame.left + frame.width * 0.20;
+  final rowX = frame.left + frame.width * 0.80;
+  final spots = <String, Offset>{
+    'F:forward': Offset(columnX, cy - halfPitch),
+    'F:backward': Offset(columnX, cy + halfPitch),
+    'F:left': Offset(rowX - halfPitch, cy),
+    'F:right': Offset(rowX + halfPitch, cy),
+  };
+  return {
+    for (final id in ids)
+      if (spots[id] != null)
+        id: _ButtonLayout(spots[id]!.dx / w, spots[id]!.dy / h, layoutSize),
+  };
 }
 
 class _ButtonLayout {
