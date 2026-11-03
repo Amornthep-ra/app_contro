@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
+import 'package:pb_controller/core/routes/app_routes.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
+import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
 import 'package:pb_controller/features/linesonic/linesonic_pid_page.dart';
 
@@ -16,12 +19,25 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     OrientationUtils.resetForTesting();
     BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('vibration'), (
+          call,
+        ) async {
+          return call.method == 'hasVibrator' ? true : null;
+        });
   });
 
-  for (final joystick in [false, true]) {
+  // The three control pages, each with a delayed Start (test seam).
+  final pages = <String, Widget Function(Future<int?> Function())>{
+    '4 BTN': (acquire) => Gamepad4ButtonPage(acquireControl: acquire),
+    '8 BTN': (acquire) => GamepadModeEdit(acquireControl: acquire),
+    'Joystick': (acquire) => JoystickPage(acquireControl: acquire),
+  };
+
+  for (final page in pages.entries) {
     for (final newerOwner in [false, true]) {
       testWidgets(
-        'abandoned Start cleans only its owner: joystick=$joystick newer=$newerOwner',
+        'abandoned Start cleans only its owner: ${page.key} newer=$newerOwner',
         (tester) async {
           tester.view.physicalSize = const Size(1200, 800);
           tester.view.devicePixelRatio = 1;
@@ -45,11 +61,7 @@ void main() {
           );
           unawaited(
             navigator.currentState!.push<void>(
-              MaterialPageRoute(
-                builder: (_) => joystick
-                    ? JoystickPage(acquireControl: acquire)
-                    : Gamepad4ButtonPage(acquireControl: acquire),
-              ),
+              MaterialPageRoute(builder: (_) => page.value(acquire)),
             ),
           );
           await tester.pumpAndSettle();
@@ -87,6 +99,61 @@ void main() {
         },
       );
     }
+  }
+
+  // Switching mode from Settings while Start is still connecting must give
+  // the pending owner back (8 BTN used to keep it forever).
+  for (final page in pages.entries) {
+    testWidgets('a mode switch during Start releases its owner: ${page.key}', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(914, 411);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final completion = Completer<int?>();
+      int? pendingOwner;
+      Future<int?> acquire() {
+        pendingOwner = BleManager.instance.claimTrafficMode(
+          BleTrafficMode.controlBinary,
+        );
+        return completion.future;
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          onGenerateRoute: AppRoutes.onGenerateRoute,
+          home: page.value(acquire),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(GamepadStartStopControlButton));
+      await tester.pump();
+      expect(pendingOwner, isNotNull);
+
+      // Settings -> another mode -> Back switches pages.
+      await tester.tap(find.byTooltip('Settings'));
+      await tester.pumpAndSettle();
+      final other = page.key == 'Joystick' ? '8 BTN' : 'Joystick';
+      await tester.tap(find.text(other));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Back'));
+      await tester.pumpAndSettle();
+      // The page was replaced by the other mode.
+      expect(find.byType(page.value(acquire).runtimeType), findsNothing);
+
+      completion.complete(pendingOwner);
+      await tester.pumpAndSettle();
+      // Released: a text-mode page (LineSonic) can claim BLE again.
+      final textOwner = BleManager.instance.claimTrafficMode(
+        BleTrafficMode.textCommand,
+      );
+      expect(textOwner, isNotNull);
+      BleManager.instance.releaseTrafficMode(textOwner!);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 4));
+    });
   }
 
   for (final directRemoval in [false, true]) {

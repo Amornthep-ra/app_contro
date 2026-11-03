@@ -179,7 +179,10 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
 }
 
 class GamepadModeEdit extends StatefulWidget {
-  const GamepadModeEdit({super.key, this.openOnArrival});
+  const GamepadModeEdit({super.key, this.acquireControl, this.openOnArrival});
+
+  // Optional transport seam for exercising delayed Start completion in tests.
+  final Future<int?> Function()? acquireControl;
 
   /// Set when Settings switched to this mode to edit it or open its saved
   /// layouts (see [ControlPageArguments]).
@@ -245,6 +248,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   StreamSubscription<bool>? _bleConnSub;
   int? _bleTrafficOwner;
   bool _startInProgress = false;
+
+  /// Set once the page starts leaving (Back, system back, dispose). A Start
+  /// that completes after that must give its control ownership back.
+  bool _leavingControlPage = false;
   bool _controlStarted = false;
   bool _modeSwitchInProgress = false;
   void _resetInputState() {
@@ -357,13 +364,25 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (mounted) setState(() => _controlStarted = false);
   }
 
-  bool get _canStartControl => !_startInProgress && !_modeSwitchInProgress;
+  bool get _canStartControl =>
+      !_leavingControlPage && !_startInProgress && !_modeSwitchInProgress;
   Future<void> _startControl() async {
     if (_controlStarted || !_canStartControl) return;
     setState(() => _startInProgress = true);
-    final owner = await BleConnectionCoordinator.instance
-        .acquireControlForStart(ownerName: 'gamepad_8');
-    if (!mounted) return;
+    final owner =
+        await (widget.acquireControl?.call() ??
+            BleConnectionCoordinator.instance.acquireControlForStart(
+              ownerName: 'gamepad_8',
+            ));
+    // Start can take seconds (auto-connect). If the page left or switched
+    // mode meanwhile, nobody would ever release this owner: BleManager would
+    // stay in control mode and block every other Start and LineSonic.
+    if (!mounted || _leavingControlPage || _modeSwitchInProgress) {
+      if (owner != null) {
+        await BleManager.instance.stopAndReleaseControl(owner: owner);
+      }
+      return;
+    }
     if (owner == null) {
       setState(() => _startInProgress = false);
       if (requiresBlePairingCode(
@@ -580,6 +599,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   @override
   void dispose() {
+    _leavingControlPage = true;
     _editWarningTimer?.cancel();
     _stopControlLoop();
     _bleConnSub?.cancel();
@@ -614,6 +634,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _exitControlPage() async {
+    if (_leavingControlPage) return;
+    _leavingControlPage = true;
     await _releaseTrafficOwnershipForExit();
     if (mounted) Navigator.of(context).pop();
   }
@@ -1452,6 +1474,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return GamepadAppBarBackButton(
       onPressed: () async {
         gamepadBuzz();
+        _leavingControlPage = true;
         await _releaseTrafficOwnershipForExit();
         if (!mounted) return;
         Navigator.of(context).pop();
