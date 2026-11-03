@@ -579,14 +579,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
 
   Future<void> _savePresetDialog() async {
     final isThai = _isThai;
-    final controller = TextEditingController(
-      text: _presets[_selectedPreset].name,
-    );
     final name = await _showPresetNameDialog(
-      controller,
+      initialName: _presets[_selectedPreset].name,
       slot: _selectedPreset + 1,
     );
-    controller.dispose();
     if (name == null || !mounted) return;
     final current = _presets[_selectedPreset];
     if (!current.isEmpty) {
@@ -826,126 +822,22 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   /// Glass "Save preset" dialog; resolves to the trimmed name or null.
-  Future<String?> _showPresetNameDialog(
-    TextEditingController controller, {
+  Future<String?> _showPresetNameDialog({
+    required String initialName,
     required int slot,
   }) {
+    final stepCount = _steps.length;
     return showGeneralDialog<String>(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Cancel',
       barrierColor: LavenderPalette.ink.withValues(alpha: 0.28),
       transitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (dialogContext, _, __) {
-        void submit() =>
-            Navigator.of(dialogContext).pop(controller.text.trim());
-        return AnimatedPadding(
-          duration: const Duration(milliseconds: 120),
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
-          ),
-          child: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: GlassPanel(
-                      radius: 28,
-                      padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                            'Save preset',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: LavenderPalette.displayFont,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: LavenderPalette.ink,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Slot $slot · ${_steps.length} step${_steps.length == 1 ? '' : 's'}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: LavenderPalette.inkSoft,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            controller: controller,
-                            autofocus: true,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => submit(),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: LavenderPalette.ink,
-                            ),
-                            decoration: InputDecoration(
-                              labelText: 'Preset name',
-                              filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.6),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(
-                                  color: LavenderPalette.ink.withValues(
-                                    alpha: 0.14,
-                                  ),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(
-                                  color: LavenderPalette.violet,
-                                  width: 1.6,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: GlassActionButton(
-                                  label: 'Cancel',
-                                  icon: Icons.close_rounded,
-                                  height: 48,
-                                  onPressed: () =>
-                                      Navigator.of(dialogContext).pop(),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: GradientActionButton(
-                                  label: 'Save',
-                                  icon: Icons.save_rounded,
-                                  height: 48,
-                                  onPressed: submit,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+      pageBuilder: (_, __, ___) => _PresetNameDialog(
+        initialName: initialName,
+        slot: slot,
+        stepCount: stepCount,
+      ),
       transitionBuilder: (context, animation, _, child) {
         final curved = CurvedAnimation(
           parent: animation,
@@ -1554,6 +1446,144 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Owns its text controller so it outlives the closing animation.
+class _PresetNameDialog extends StatefulWidget {
+  const _PresetNameDialog({
+    required this.initialName,
+    required this.slot,
+    required this.stepCount,
+  });
+
+  final String initialName;
+  final int slot;
+  final int stepCount;
+
+  @override
+  State<_PresetNameDialog> createState() => _PresetNameDialogState();
+}
+
+class _PresetNameDialogState extends State<_PresetNameDialog> {
+  late final TextEditingController controller = TextEditingController(
+    text: widget.initialName,
+  );
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slot = widget.slot;
+    final stepCount = widget.stepCount;
+    void submit() => Navigator.of(context).pop(controller.text.trim());
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 120),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Material(
+                type: MaterialType.transparency,
+                child: GlassPanel(
+                  radius: 28,
+                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'Save preset',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: LavenderPalette.displayFont,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: LavenderPalette.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Slot $slot · $stepCount step${stepCount == 1 ? '' : 's'}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: LavenderPalette.inkSoft,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => submit(),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: LavenderPalette.ink,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Preset name',
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.6),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(
+                              color: LavenderPalette.ink.withValues(
+                                alpha: 0.14,
+                              ),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: LavenderPalette.violet,
+                              width: 1.6,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GlassActionButton(
+                              label: 'Cancel',
+                              icon: Icons.close_rounded,
+                              height: 48,
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GradientActionButton(
+                              label: 'Save',
+                              icon: Icons.save_rounded,
+                              height: 48,
+                              onPressed: submit,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
