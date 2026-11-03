@@ -9,6 +9,10 @@ import '../../features/gamepad/control_mode_settings_page.dart';
 import '../../features/joystick/joystick/presentation/joystick.dart';
 import '../../features/joystick/joystick_test_page.dart';
 
+/// Lets pages react when a route above them is popped (see [RouteAware]).
+final RouteObserver<ModalRoute<void>> appRouteObserver =
+    RouteObserver<ModalRoute<void>>();
+
 class AppRoutes {
   static const String home = '/';
   static const String lineSonic = '/linesonic';

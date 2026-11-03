@@ -14,6 +14,7 @@ import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode_preference.dart';
+import '../../core/routes/app_routes.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/widgets/ble_status_orb.dart';
 import '../../core/widgets/signal_bars.dart';
@@ -54,7 +55,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, RouteAware {
+  ModalRoute<void>? _observedRoute;
   StreamSubscription<bool>? _connSub;
   Timer? _rssiTimer;
   Future<PackageInfo>? _infoFuture;
@@ -103,6 +105,12 @@ class _HomePageState extends State<HomePage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _observedRoute) {
+      appRouteObserver.unsubscribe(this);
+      _observedRoute = route;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
     if (_entranceStarted) return;
     _entranceStarted = true;
     if (_motionEnabled) {
@@ -112,8 +120,17 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  /// Home is portrait whenever it is back on top. Covers control pages that
+  /// replaced themselves when Settings switched modes: their push future
+  /// completed early, so [_openLastControl] could not restore portrait.
+  @override
+  void didPopNext() {
+    unawaited(OrientationUtils.request(AppOrientation.portrait));
+  }
+
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _connSub?.cancel();
     _rssiTimer?.cancel();
     _blePresentationState.removeListener(_onBlePresentationChanged);

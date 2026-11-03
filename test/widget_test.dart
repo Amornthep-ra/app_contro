@@ -810,6 +810,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Presets'), findsOneWidget);
     expect(find.text('Empty'), findsNWidgets(4));
+    // Theme font, not the framework's monospace "no Material" text style.
+    expect(
+      DefaultTextStyle.of(tester.element(find.text('Presets'))).style.fontFamily,
+      isNot('monospace'),
+    );
 
     await tester.tap(find.text('Save').first);
     await tester.pumpAndSettle();

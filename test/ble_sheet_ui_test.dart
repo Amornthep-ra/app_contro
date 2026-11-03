@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -316,7 +317,13 @@ void main() {
       ),
     );
     expect(find.text('Connect PB-Robot-02'), findsOneWidget);
-    expect(find.text('Scan devices'), findsOneWidget);
+    // A phone's landscape sheet is not wide enough for "Scan devices" too:
+    // the status title would be cut to "Not conn…".
+    expect(find.text('Scan'), findsOneWidget);
+    final title = tester.renderObject<RenderParagraph>(
+      _inSheet(find.text('Not connected')),
+    );
+    expect(title.didExceedMaxLines, isFalse);
   });
 
   testWidgets('only the tapped row shows a spinner', (tester) async {

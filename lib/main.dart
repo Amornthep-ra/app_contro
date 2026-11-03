@@ -123,6 +123,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           ),
           initialRoute: AppRoutes.home,
           onGenerateRoute: AppRoutes.onGenerateRoute,
+          navigatorObservers: [appRouteObserver],
         );
       },
     );

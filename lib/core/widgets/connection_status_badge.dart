@@ -413,6 +413,8 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
           );
         }
         final iconGap = metrics?.labelIconGap ?? 4.0;
+        // Explicit, so an AppBar's 24 px icon theme cannot overflow the slot.
+        final iconSize = metrics?.iconSize ?? 16.0;
         final borderRadius = metrics?.borderRadius ?? BorderRadius.circular(20);
         final padding =
             metrics?.contentPadding ??
@@ -496,14 +498,18 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           SizedBox(
-                            width: metrics?.iconSize ?? 16,
-                            height: metrics?.iconSize ?? 16,
+                            width: iconSize,
+                            height: iconSize,
                             child: Stack(
                               clipBehavior: Clip.none,
                               children: [
                                 Positioned.fill(
                                   child: widget.iconAsset == null || !connected
-                                      ? Icon(icon, color: foregroundColor)
+                                      ? Icon(
+                                          icon,
+                                          size: iconSize,
+                                          color: foregroundColor,
+                                        )
                                       : Image.asset(
                                           widget.iconAsset!,
                                           color: statusColor == null
@@ -514,6 +520,7 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
                                               (context, error, stackTrace) =>
                                                   Icon(
                                                     icon,
+                                                    size: iconSize,
                                                     color: foregroundColor,
                                                   ),
                                         ),

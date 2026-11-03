@@ -38,12 +38,17 @@ Future<void> showControlPresetDialog({
     barrierLabel: isThai ? 'Close preset dialog' : 'Close preset dialog',
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (context, _, __) => _ControlPresetDialog(
-      isThai: isThai,
-      slots: slots,
-      onSave: onSave,
-      onLoad: onLoad,
-      onClear: onClear,
+    // showGeneralDialog has no Material, so text would fall back to the
+    // framework's monospace error style; this gives it the app's theme font.
+    pageBuilder: (context, _, __) => Material(
+      type: MaterialType.transparency,
+      child: _ControlPresetDialog(
+        isThai: isThai,
+        slots: slots,
+        onSave: onSave,
+        onLoad: onLoad,
+        onClear: onClear,
+      ),
     ),
     transitionBuilder: (context, animation, _, child) => FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
@@ -329,7 +334,8 @@ class _PresetSlotCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final saved = slot.hasData;
-    final cardHeight = compact ? 54.0 : null;
+    // Room for the theme font (Roboto) name line above the action row.
+    final cardHeight = compact ? 56.0 : null;
     return Container(
       height: cardHeight,
       padding: EdgeInsets.symmetric(
@@ -508,7 +514,9 @@ class _PresetActionButton extends StatelessWidget {
       minimumSize: compact ? const Size(24, 22) : const Size(44, 38),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-      textStyle: const TextStyle(decoration: TextDecoration.none),
+      textStyle: Theme.of(
+        context,
+      ).textTheme.labelLarge?.copyWith(decoration: TextDecoration.none),
     );
     final button = compact
         ? TextButton(
@@ -570,7 +578,9 @@ class _CloseButton extends StatelessWidget {
           side: const BorderSide(color: Color(0xFFCFA8FA), width: 1.5),
         ),
         backgroundColor: Colors.white.withAlpha(140),
-        textStyle: const TextStyle(decoration: TextDecoration.none),
+        textStyle: Theme.of(
+          context,
+        ).textTheme.labelLarge?.copyWith(decoration: TextDecoration.none),
       ),
     );
   }

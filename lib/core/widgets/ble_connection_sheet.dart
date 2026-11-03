@@ -549,9 +549,13 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       builder: (context, constraints) {
         // Actions sit beside the title when there is room (landscape) and
         // move under it on narrow sheets or with large text.
+        final scale = MediaQuery.textScalerOf(context).scale(1);
+        // "Connect <name>" plus "Scan devices" beside the title would cut
+        // the title ("Not conn…") on a phone, so they need a wider sheet.
+        final connectAndScan =
+            !connected && !_scanning && _lastDeviceId != null;
         final wide =
-            constraints.maxWidth >=
-            520 * MediaQuery.textScalerOf(context).scale(1);
+            constraints.maxWidth >= (connectAndScan ? 680 : 520) * scale;
         final actions = _buildActions(connected, wide: wide);
         if (wide) {
           return Row(
