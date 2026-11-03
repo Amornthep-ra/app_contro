@@ -131,6 +131,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   static const _presetCount = 10;
 
   final List<_StepData> _steps = [];
+
+  /// Deleted steps whose Undo snack bar is still showing; disposed when it
+  /// closes (or with the page).
+  final Set<_StepData> _pendingDeleted = {};
   final List<_PresetSlot> _presets = List.generate(
     _presetCount,
     (i) => _PresetSlot(name: 'Preset ${i + 1}', steps: []),
@@ -178,6 +182,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     for (final s in _steps) {
       s.dispose();
     }
+    for (final s in _pendingDeleted) {
+      s.dispose();
+    }
+    _pendingDeleted.clear();
     final trafficOwner = _bleTrafficOwner;
     _bleTrafficOwner = null;
     if (trafficOwner != null) {
@@ -534,11 +542,38 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   void _deleteStep(int index) {
+    final removed = _steps[index];
     setState(() {
-      _steps[index].dispose();
       _steps.removeAt(index);
       _scheduleAutoSave();
     });
+    _pendingDeleted.add(removed);
+    var restored = false;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger
+        .showSnackBar(
+          SnackBar(
+            content: Text('Step ${index + 1} deleted'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () {
+                if (!mounted || !_pendingDeleted.remove(removed)) return;
+                restored = true;
+                setState(() {
+                  _steps.insert(index.clamp(0, _steps.length), removed);
+                  _scheduleAutoSave();
+                });
+              },
+            ),
+          ),
+        )
+        .closed
+        .then((_) {
+          if (!restored && _pendingDeleted.remove(removed)) {
+            removed.dispose();
+          }
+        });
   }
 
   Future<void> _savePresetDialog() async {
@@ -570,7 +605,20 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       ),
     );
     controller.dispose();
-    if (name == null) return;
+    if (name == null || !mounted) return;
+    final current = _presets[_selectedPreset];
+    if (!current.isEmpty) {
+      final replace = await showLavenderConfirmDialog(
+        context: context,
+        title: 'Replace "${current.name}"?',
+        message:
+            'Preset ${_selectedPreset + 1} already has saved steps. '
+            'Save the steps on screen over them?',
+        confirmLabel: 'Replace',
+        icon: Icons.save_rounded,
+      );
+      if (!replace || !mounted) return;
+    }
     final fallbackName = isThai
         ? 'Preset ${_selectedPreset + 1}'
         : 'Preset ${_selectedPreset + 1}';
@@ -584,7 +632,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     await _savePresetsToPrefs();
   }
 
-  void _loadPreset(int index) {
+  Future<void> _loadPreset(int index) async {
     final preset = _presets[index];
     if (preset.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -596,6 +644,14 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       );
       return;
     }
+    final load = await showLavenderConfirmDialog(
+      context: context,
+      title: 'Load "${preset.name}"?',
+      message: 'The steps on screen will be replaced by this preset.',
+      confirmLabel: 'Load',
+      icon: Icons.download_rounded,
+    );
+    if (!load || !mounted) return;
     setState(() {
       for (final s in _steps) {
         s.dispose();
@@ -668,6 +724,17 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                     ? null
                     : TextButton(
                         onPressed: () async {
+                          final delete = await showLavenderConfirmDialog(
+                            context: ctx,
+                            title: 'Delete "${_presets[i].name}"?',
+                            message:
+                                'Its saved steps are removed. '
+                                'The steps on screen stay.',
+                            confirmLabel: 'Delete',
+                            icon: Icons.delete_outline_rounded,
+                            destructive: true,
+                          );
+                          if (!delete) return;
                           await _deletePreset(i);
                           if (ctx.mounted) Navigator.pop(ctx, _selectedPreset);
                         },
