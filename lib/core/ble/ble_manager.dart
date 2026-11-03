@@ -665,9 +665,27 @@ class BleManager {
     }
   }
 
-  bool get isConnected => _device != null && _tx != null && _rx != null;
+  bool get isConnected =>
+      _debugConnectedOverride ??
+      (_device != null && _tx != null && _rx != null);
 
-  String? get currentDeviceName => _device?.platformName;
+  bool? _debugConnectedOverride;
+  String? _debugDeviceName;
+
+  /// Test/screenshot seam: presents a connection state without a radio.
+  /// Pass `connected: null` to return to the real link state.
+  @visibleForTesting
+  void debugPresentConnectionForTesting({
+    required BleConnectionStatus status,
+    bool? connected,
+    String? deviceName,
+  }) {
+    _debugConnectedOverride = connected;
+    _debugDeviceName = connected == null ? null : deviceName;
+    _setConnectionStatus(status);
+  }
+
+  String? get currentDeviceName => _debugDeviceName ?? _device?.platformName;
   String? get currentDeviceId => _device?.remoteId.str;
   BleTrafficMode get trafficMode => _trafficMode;
   bool get isControlSessionActive =>

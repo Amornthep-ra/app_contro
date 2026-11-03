@@ -173,7 +173,10 @@ TapCfg cfgSpeedHigh(BuildContext ctx) {
 }
 
 class GamepadModeEdit extends StatefulWidget {
-  const GamepadModeEdit({super.key, this.openOnArrival});
+  const GamepadModeEdit({super.key, this.acquireControl, this.openOnArrival});
+
+  // Optional transport seam for exercising Start without a robot in tests.
+  final Future<int?> Function()? acquireControl;
 
   /// Set when Settings switched to this mode to edit it or open its saved
   /// layouts (see [ControlPageArguments]).
@@ -355,8 +358,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Future<void> _startControl() async {
     if (_controlStarted || !_canStartControl) return;
     setState(() => _startInProgress = true);
-    final owner = await BleConnectionCoordinator.instance
-        .acquireControlForStart(ownerName: 'gamepad_8');
+    final owner =
+        await (widget.acquireControl?.call() ??
+            BleConnectionCoordinator.instance.acquireControlForStart(
+              ownerName: 'gamepad_8',
+            ));
     if (!mounted) return;
     if (owner == null) {
       setState(() => _startInProgress = false);
