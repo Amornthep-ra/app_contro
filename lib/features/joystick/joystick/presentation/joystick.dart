@@ -23,6 +23,7 @@ import '../../../../core/widgets/connection_status_badge.dart';
 import '../../../../core/utils/orientation_utils.dart';
 import '../joystick_theme.dart';
 import '../../../../core/ble/joystick_packet.dart';
+import '../../../../core/ble/control_timing.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../../core/ui/gamepad_assets.dart';
 import '../../../gamepad/widgets/gamepad_controls_sheet.dart';
@@ -112,7 +113,6 @@ class _JoystickPageState extends State<JoystickPage> {
   static const double _deadZone = 0.05;
   static const double _smooth = 0.85;
   static const double _delta = 0.005;
-  static const int _activeKeepaliveMs = 50;
   int _lastControlSendMs = 0;
   double _lerp(double a, double b, double t) => a + (b - a) * t;
   String _fmt(double v) => v.toStringAsFixed(2);
@@ -210,16 +210,13 @@ class _JoystickPageState extends State<JoystickPage> {
     _lastLX = 0;
     _lastLY = 0;
     _controller.setLeftJoystick(0, 0);
+    // force: release must never be dropped by the BLE rate limiter.
+    // If it is lost over the air, the idle keepalive resends it.
     _sendBinary(
       JoystickPacket(lx: 0, ly: 0, rx: _lastRX, ry: _lastRY),
       buttons: _pressedButtons(),
+      force: true,
     );
-    Future.delayed(const Duration(milliseconds: 20), () {
-      _sendBinary(
-        JoystickPacket(lx: 0, ly: 0, rx: _lastRX, ry: _lastRY),
-        buttons: _pressedButtons(),
-      );
-    });
     if (mounted) {
       setState(() => _setLeftDebug(0, 0));
     }
@@ -231,16 +228,13 @@ class _JoystickPageState extends State<JoystickPage> {
     _lastRX = 0;
     _lastRY = 0;
     _controller.setRightJoystick(0, 0);
+    // force: release must never be dropped by the BLE rate limiter.
+    // If it is lost over the air, the idle keepalive resends it.
     _sendBinary(
       JoystickPacket(lx: _lastLX, ly: _lastLY, rx: 0, ry: 0),
       buttons: _pressedButtons(),
+      force: true,
     );
-    Future.delayed(const Duration(milliseconds: 20), () {
-      _sendBinary(
-        JoystickPacket(lx: _lastLX, ly: _lastLY, rx: 0, ry: 0),
-        buttons: _pressedButtons(),
-      );
-    });
     if (mounted) {
       setState(() => _setRightDebug(0, 0));
     }
@@ -375,7 +369,7 @@ class _JoystickPageState extends State<JoystickPage> {
     });
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       if (!_controlStarted || _editMode) return;
-      final packet = _controller.buildPacket();
+      var packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
       final buttonsChanged = buttonsKey != _lastButtonsKey;
       const zeroEps = 0.015;
@@ -397,16 +391,13 @@ class _JoystickPageState extends State<JoystickPage> {
         _controller.setLeftJoystick(0, 0);
         _controller.setRightJoystick(0, 0);
         _lastButtonsKey = buttonsKey;
+        // force: release must never be dropped by the BLE rate limiter.
+        // If it is lost over the air, the idle keepalive resends it.
         _sendBinary(
           JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
           buttons: _pressedButtons(),
+          force: true,
         );
-        Future.delayed(const Duration(milliseconds: 20), () {
-          _sendBinary(
-            JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
-            buttons: _pressedButtons(),
-          );
-        });
         if (mounted && !_menuOpen) {
           setState(() {
             _setLeftDebug(0, 0);
@@ -421,11 +412,19 @@ class _JoystickPageState extends State<JoystickPage> {
           (packet.rx - _lastRX).abs() > _delta ||
           (packet.ry - _lastRY).abs() > _delta;
       if (!changed && !buttonsChanged) {
+        // Resend the current state periodically: fast while active, slower
+        // while idle so a lost stop packet is recovered well before the
+        // robot watchdog (kControlWatchdogMs).
         final active = !nearZero || buttonsKey != 0;
+        final interval = active ? kMinActiveMs : kMinIdleMs;
         final now = DateTime.now().millisecondsSinceEpoch;
-        if (!active || now - _lastControlSendMs < _activeKeepaliveMs) {
+        if (now - _lastControlSendMs < interval) {
           return;
         }
+      }
+      // Inside the dead zone always send an exact stop, never residual noise.
+      if (nearZero) {
+        packet = JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0);
       }
       _lastLX = packet.lx;
       _lastLY = packet.ly;
