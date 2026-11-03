@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 
+import '../widgets/circular_hit_area.dart';
+
 /// Adjusts a color lighter or darker.
 Color lighten(Color c, [double amt = .12]) {
   final hsl = HSLColor.fromColor(c);
@@ -582,6 +584,12 @@ class GamepadImageHoldButton extends StatefulWidget {
   final bool lightImpactBeforeBuzz;
   final void Function(String id, bool isDown)? onPressChanged;
 
+  /// Radius around the centre that takes touches (see
+  /// `GamepadEditMetrics.touchRadius`); touches outside reach the control
+  /// underneath. Null keeps the whole box (circle check at diameter / 2).
+  /// Only used without a label.
+  final double? touchRadius;
+
   const GamepadImageHoldButton({
     super.key,
     required this.label,
@@ -591,6 +599,7 @@ class GamepadImageHoldButton extends StatefulWidget {
     this.showLabel = true,
     this.lightImpactBeforeBuzz = false,
     this.onPressChanged,
+    this.touchRadius,
   });
 
   @override
@@ -728,11 +737,13 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
       ),
     );
 
-    return Listener(
+    final touchRadius = widget.showLabel ? null : widget.touchRadius;
+    final listener = Listener(
       onPointerDown: (e) {
-        final r = widget.diameter / 2;
-        final dx = e.localPosition.dx - r;
-        final dy = e.localPosition.dy - r;
+        final c = widget.diameter / 2;
+        final r = touchRadius ?? c;
+        final dx = e.localPosition.dx - c;
+        final dy = e.localPosition.dy - c;
         if (dx * dx + dy * dy > r * r) return;
         _onDown();
       },
@@ -768,6 +779,9 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
             )
           : coreButton,
     );
+    return touchRadius == null
+        ? listener
+        : CircularHitArea(radius: touchRadius, child: listener);
   }
 }
 

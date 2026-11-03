@@ -16,6 +16,7 @@ import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
 import '../../core/widgets/gamepad_edit_grid.dart';
+import '../../core/widgets/circular_hit_area.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/widgets/connection_status_badge.dart';
@@ -558,12 +559,12 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       final layout = _layoutAll[other];
       if (otherCfg == null || layout == null) return null;
       final o = _scaledHoldCfg(otherCfg, layout, panel);
-      return (o.center, math.min(o.cfg.width, o.cfg.height) / 2);
+      return (o.center, _visibleRadius(o.cfg));
     }
 
     final spot = GamepadEditMetrics.freeSpotFor(
       preferred: scaled.center,
-      radius: math.min(halfW, halfH),
+      radius: _visibleRadius(scaled.cfg),
       centreArea: Rect.fromLTRB(
         GamepadEditMetrics.safeEdgePad + halfW,
         GamepadEditMetrics.safeTopEdgePad + halfH,
@@ -790,13 +791,15 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     return null;
   }
 
+  /// Whether resizing [movingId] to [moving] brings its visible face
+  /// closer than [GamepadEditMetrics.minControlGap] to an active button
+  /// (growing that keeps or widens a gap is always allowed).
   bool _wouldOverlapAny(String movingId, _ButtonLayout moving, Size panelSize) {
     final movingBase = _cfgForId(movingId);
-    if (movingBase == null) return false;
+    final current = _layoutAll[movingId];
+    if (movingBase == null || current == null) return false;
     final movingScaled = _scaledHoldCfg(movingBase, moving, panelSize);
-    final movingRadius =
-        math.min(movingScaled.cfg.width, movingScaled.cfg.height) / 2;
-    final movingCenter = movingScaled.center;
+    final currentScaled = _scaledHoldCfg(movingBase, current, panelSize);
     for (final entry in _layoutAll.entries) {
       final id = entry.key;
       if (id == movingId) continue;
@@ -804,12 +807,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       final base = _cfgForId(id);
       if (base == null) continue;
       final otherScaled = _scaledHoldCfg(base, entry.value, panelSize);
-      final otherRadius =
-          math.min(otherScaled.cfg.width, otherScaled.cfg.height) / 2;
-      final dx = movingCenter.dx - otherScaled.center.dx;
-      final dy = movingCenter.dy - otherScaled.center.dy;
-      final dist = math.sqrt((dx * dx) + (dy * dy));
-      if (dist < (movingRadius + otherRadius)) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: currentScaled.center,
+        fromRadius: _visibleRadius(currentScaled.cfg),
+        toCentre: movingScaled.center,
+        toRadius: _visibleRadius(movingScaled.cfg),
+        otherCentre: otherScaled.center,
+        otherRadius: _visibleRadius(otherScaled.cfg),
+      )) {
         return true;
       }
     }
@@ -2307,6 +2312,11 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
 
+/// Radius of the visible face of a button drawn with [cfg] (an image
+/// button of diameter min(width, height)).
+double _visibleRadius(BtnCfg cfg) =>
+    GamepadEditMetrics.buttonVisibleRadius(math.min(cfg.width, cfg.height));
+
 BtnCfg _defaultRenderedCfg(BtnCfg base, Size panel) {
   return _scaledHoldCfg(base, const _ButtonLayout(0.5, 0.5, 0.30), panel).cfg;
 }
@@ -2662,16 +2672,30 @@ class _LayoutPadPanel extends StatelessWidget {
         final size = Size(c.maxWidth, c.maxHeight);
         final defaults = _defaultLayoutForIds(size, specs, ids);
         final effective = <String, _ButtonLayout>{...defaults, ...layout};
+        final placed = <String, _ScaledHoldCfg>{
+          for (final id in ids)
+            if (specs[id] != null && effective[id] != null)
+              id: _scaledHoldCfg(specs[id]!.cfg, effective[id]!, size),
+        };
         return Stack(
           children: ids.map((id) {
+            final scaled = placed[id];
             final spec = specs[id];
-            final l = effective[id];
-            if (spec == null || l == null) {
+            if (spec == null || scaled == null) {
               return const SizedBox.shrink();
             }
-            final scaled = _scaledHoldCfg(spec.cfg, l, size);
             final cx = scaled.center.dx;
             final cy = scaled.center.dy;
+            final touchRadius = GamepadEditMetrics.touchRadius(
+              centre: scaled.center,
+              visibleRadius: _visibleRadius(scaled.cfg),
+              maxRadius: math.min(scaled.cfg.width, scaled.cfg.height) / 2,
+              others: [
+                for (final entry in placed.entries)
+                  if (entry.key != id)
+                    (entry.value.center, _visibleRadius(entry.value.cfg)),
+              ],
+            );
             return Positioned(
               left: cx - scaled.cfg.width / 2,
               top: cy - scaled.cfg.height / 2,
@@ -2685,6 +2709,7 @@ class _LayoutPadPanel extends StatelessWidget {
                     asset: scaled.cfg.iconAsset ?? '',
                     diameter: math.min(scaled.cfg.width, scaled.cfg.height),
                     showLabel: false,
+                    touchRadius: touchRadius,
                     onPressChanged: (id, down) => onPressChanged(id, down),
                   ),
                 ),
@@ -2773,16 +2798,14 @@ class _EditableButtonState extends State<_EditableButton> {
       movingLayout,
       widget.panelSize,
     );
-    final movingRadius =
-        math.min(movingScaled.cfg.width, movingScaled.cfg.height) / 2;
+    final movingRadius = _visibleRadius(movingScaled.cfg);
     final movingCenter = movingScaled.center;
     final currentScaled = _scaledHoldCfg(
       widget.cfg,
       widget.layout,
       widget.panelSize,
     );
-    final currentRadius =
-        math.min(currentScaled.cfg.width, currentScaled.cfg.height) / 2;
+    final currentRadius = _visibleRadius(currentScaled.cfg);
     var near = false;
     for (final entry in widget.allLayouts.entries) {
       final id = entry.key;
@@ -2794,8 +2817,7 @@ class _EditableButtonState extends State<_EditableButton> {
         entry.value,
         widget.panelSize,
       );
-      final otherRadius =
-          math.min(otherScaled.cfg.width, otherScaled.cfg.height) / 2;
+      final otherRadius = _visibleRadius(otherScaled.cfg);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: currentScaled.center,
         fromRadius: currentRadius,
@@ -2880,6 +2902,21 @@ class _EditableButtonState extends State<_EditableButton> {
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour instead of stopping where the last
+      // accepted update was (with the grid on, centres stay on grid points).
+      if (widget.snapToGrid) return;
+      final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: (centre) => _collisionState(
+          _ButtonLayout(centre.dx / w, centre.dy / h, _startLayout.size),
+        ).$1,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(
+        _ButtonLayout(contact.dx / w, contact.dy / h, _startLayout.size),
+      );
       return;
     }
     if (_colliding) {
@@ -2899,23 +2936,40 @@ class _EditableButtonState extends State<_EditableButton> {
         _nearCollision ||
         _nearEdgeWarning ||
         widget.externalWarning;
+    // Drawn like the drive-mode button (2 px inset, contain) so the
+    // editor shows the real size and spacing.
     Widget buildButtonVisual() => Padding(
-      padding: EdgeInsets.all(diameter * 0.08),
-      child: ClipOval(
-        child: Image.asset(
-          scaled.cfg.iconAsset ?? '',
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: _opacity(Colors.red, 0.18),
-            alignment: Alignment.center,
-            child: Text(
-              widget.id.split(':').last,
-              style: Theme.of(context).textTheme.labelSmall,
-              textAlign: TextAlign.center,
-            ),
+      padding: const EdgeInsets.all(GamepadEditMetrics.buttonImageInset),
+      child: Image.asset(
+        scaled.cfg.iconAsset ?? '',
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: _opacity(Colors.red, 0.18),
+          alignment: Alignment.center,
+          child: Text(
+            widget.id.split(':').last,
+            style: Theme.of(context).textTheme.labelSmall,
+            textAlign: TextAlign.center,
           ),
         ),
       ),
+    );
+    final touchRadius = GamepadEditMetrics.touchRadius(
+      centre: scaled.center,
+      visibleRadius: _visibleRadius(scaled.cfg),
+      maxRadius: diameter / 2,
+      others: [
+        for (final entry in widget.allLayouts.entries)
+          if (entry.key != widget.id && widget.specs[entry.key] != null)
+            () {
+              final o = _scaledHoldCfg(
+                widget.specs[entry.key]!.cfg,
+                entry.value,
+                widget.panelSize,
+              );
+              return (o.center, _visibleRadius(o.cfg));
+            }(),
+      ],
     );
     final buttonContent = SizedBox(
       width: diameter,
@@ -2932,7 +2986,6 @@ class _EditableButtonState extends State<_EditableButton> {
       left: cx - scaled.cfg.width / 2,
       top: cy - scaled.cfg.height / 2,
       child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
         onScaleStart: widget.locked ? null : _onScaleStart,
         onScaleUpdate: widget.locked ? null : _onScaleUpdate,
         onScaleEnd: widget.locked
@@ -2949,10 +3002,13 @@ class _EditableButtonState extends State<_EditableButton> {
                 widget.onEnd();
               },
         onTap: widget.onTap,
-        child: SizedBox(
-          width: scaled.cfg.width,
-          height: scaled.cfg.height,
-          child: Center(child: IgnorePointer(child: buttonContent)),
+        child: CircularHitArea(
+          radius: touchRadius,
+          child: SizedBox(
+            width: scaled.cfg.width,
+            height: scaled.cfg.height,
+            child: Center(child: IgnorePointer(child: buttonContent)),
+          ),
         ),
       ),
     );

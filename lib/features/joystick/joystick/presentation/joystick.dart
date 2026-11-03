@@ -10,6 +10,7 @@ import '../../../../core/widgets/control_background.dart';
 import '../../../../core/widgets/gamepad_edit_hint.dart';
 import '../../../../core/ui/gamepad_edit_metrics.dart';
 import '../../../../core/widgets/gamepad_edit_grid.dart';
+import '../../../../core/widgets/circular_hit_area.dart';
 import '../../../../core/widgets/control_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
@@ -858,19 +859,29 @@ class _JoystickPageState extends State<JoystickPage> {
   /// [def] moved to the nearest spot that does not crowd the controls
   /// already on the pad. New buttons used to land on the right joystick.
   _JoyLayout _placeOnFreeSpot(String id, _JoyLayout def, Size panel) {
-    double radius(String key, _JoyLayout layout) =>
-        (_isButtonId(key) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
-        layout.size /
-        2;
+    double radius(String key, _JoyLayout layout) => _joyVisibleRadius(
+      key,
+      (_isButtonId(key) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+          layout.size,
+    );
     // Same edge rule as dragging a control on this page.
     const edge = 16.0;
     final w = panel.width;
     final h = panel.height;
-    final r = radius(id, def);
+    // The edge rule uses the whole box; spacing uses the visible face.
+    final half =
+        (_isButtonId(id) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+        def.size /
+        2;
     final spot = GamepadEditMetrics.freeSpotFor(
       preferred: Offset(def.cx * w, def.cy * h),
-      radius: r,
-      centreArea: Rect.fromLTRB(edge + r, edge + r, w - edge - r, h - edge - r),
+      radius: radius(id, def),
+      centreArea: Rect.fromLTRB(
+        edge + half,
+        edge + half,
+        w - edge - half,
+        h - edge - half,
+      ),
       others: [
         for (final other in _activeIds)
           if (other != id && _layout[other] != null)
@@ -1419,11 +1430,11 @@ class _JoystickPageState extends State<JoystickPage> {
       final otherSizePx = otherBase * other.size;
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(current.cx * w, current.cy * h),
-        fromRadius: base * current.size / 2,
+        fromRadius: _joyVisibleRadius(id, base * current.size),
         toCentre: Offset(cx, cy),
-        toRadius: sizePx / 2,
+        toRadius: _joyVisibleRadius(id, sizePx),
         otherCentre: Offset(ox, oy),
-        otherRadius: otherSizePx / 2,
+        otherRadius: _joyVisibleRadius(entry.key, otherSizePx),
       )) {
         collides = true;
         break;
@@ -2363,6 +2374,23 @@ class _JoystickPageState extends State<JoystickPage> {
     final half = btnSize / 2;
     final cx = (layout.cx * size.width).clamp(half, size.width - half);
     final cy = (layout.cy * size.height).clamp(half, size.height - half);
+    // Face buttons split the space between them, so a touch never reaches
+    // two buttons however close they are placed.
+    final touchRadius = GamepadEditMetrics.touchRadius(
+      centre: Offset(cx, cy),
+      visibleRadius: GamepadEditMetrics.buttonVisibleRadius(btnSize),
+      maxRadius: half,
+      others: [
+        for (final entry in allLayouts.entries)
+          if (entry.key != id && _isButtonId(entry.key))
+            (
+              Offset(entry.value.cx * size.width, entry.value.cy * size.height),
+              GamepadEditMetrics.buttonVisibleRadius(
+                baseSize * entry.value.size,
+              ),
+            ),
+      ],
+    );
     final btnWidget = SizedBox(
       width: btnSize,
       height: btnSize,
@@ -2370,6 +2398,7 @@ class _JoystickPageState extends State<JoystickPage> {
         label: label,
         asset: asset,
         diameter: btnSize,
+        touchRadius: touchRadius,
         onPressChanged: (down) => _onButtonChanged(id, down),
       ),
     );
@@ -2411,6 +2440,7 @@ class _JoystickPageState extends State<JoystickPage> {
       onCollision: _showOverlapWarning,
       onBoundaryWarning: _showBoundaryWarning,
       externalWarning: _editWarningId == id,
+      touchRadius: touchRadius,
       child: btnWidget,
     );
   }
@@ -2437,16 +2467,32 @@ class _GuideState {
       snap = false;
 }
 
+bool _isFaceButtonId(String id) =>
+    id == kBtnTriangleId ||
+    id == kBtnCrossId ||
+    id == kBtnSquareId ||
+    id == kBtnCircleId;
+
+/// Radius of a control's visible edge: the round face of a face button's
+/// artwork; a joystick fills its whole circle.
+double _joyVisibleRadius(String id, double sizePx) => _isFaceButtonId(id)
+    ? GamepadEditMetrics.buttonVisibleRadius(sizePx)
+    : sizePx / 2;
+
 class _JoyImagePressHoldButton extends StatefulWidget {
   final String label;
   final String asset;
   final double diameter;
   final ValueChanged<bool>? onPressChanged;
+
+  /// Touches outside this radius reach the control underneath.
+  final double? touchRadius;
   const _JoyImagePressHoldButton({
     required this.label,
     required this.asset,
     this.diameter = 120,
     this.onPressChanged,
+    this.touchRadius,
   });
   @override
   State<_JoyImagePressHoldButton> createState() =>
@@ -2479,7 +2525,8 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
       theme.colorScheme.primary,
       theme.brightness == Brightness.dark ? 0.65 : 0.45,
     );
-    return Listener(
+    final radius = widget.touchRadius;
+    final listener = Listener(
       onPointerDown: (_) => _onDown(),
       onPointerUp: (_) => _onUpOrCancel(),
       onPointerCancel: (_) => _onUpOrCancel(),
@@ -2583,6 +2630,9 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
         ),
       ),
     );
+    return radius == null
+        ? listener
+        : CircularHitArea(radius: radius, child: listener);
   }
 }
 
@@ -2739,34 +2789,43 @@ class _EditableJoystickState extends State<_EditableJoystick> {
         widget.onBoundaryWarning?.call();
       }
     }
-    var collides = false;
-    for (final entry in widget.allLayouts.entries) {
-      if (entry.key == widget.id) continue;
-      final other = entry.value;
-      final ox = other.cx * w;
-      final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key)
-          ? (_baseBtnSize(w, h))
-          : widget.baseSize;
-      final otherSizePx = otherBase * other.size;
-      if (GamepadEditMetrics.crowdsNeighbour(
-        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.baseSize * widget.layout.size / 2,
-        toCentre: Offset(cx, cy),
-        toRadius: sizePx / 2,
-        otherCentre: Offset(ox, oy),
-        otherRadius: otherSizePx / 2,
-      )) {
-        collides = true;
-        break;
+    final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+    bool blockedAt(Offset centre) {
+      for (final entry in widget.allLayouts.entries) {
+        if (entry.key == widget.id) continue;
+        final other = entry.value;
+        final otherBase = _isButtonId(entry.key)
+            ? (_baseBtnSize(w, h))
+            : widget.baseSize;
+        if (GamepadEditMetrics.crowdsNeighbour(
+          fromCentre: from,
+          fromRadius: widget.baseSize * widget.layout.size / 2,
+          toCentre: centre,
+          toRadius: sizePx / 2,
+          otherCentre: Offset(other.cx * w, other.cy * h),
+          otherRadius: _joyVisibleRadius(entry.key, otherBase * other.size),
+        )) {
+          return true;
+        }
       }
+      return false;
     }
-    if (collides) {
+
+    if (blockedAt(Offset(cx, cy))) {
       if (!_colliding) {
         HapticFeedback.vibrate();
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour (moves only; grid keeps grid points).
+      if (widget.snapToGrid || nextSize != widget.layout.size) return;
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: blockedAt,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(_JoyLayout(contact.dx / w, contact.dy / h, nextSize));
       return;
     }
     if (_colliding) {
@@ -2859,6 +2918,7 @@ class _EditableButtonItem extends StatefulWidget {
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
+  final double? touchRadius;
   final Widget child;
   const _EditableButtonItem({
     required this.id,
@@ -2879,6 +2939,7 @@ class _EditableButtonItem extends StatefulWidget {
     this.onCollision,
     this.onBoundaryWarning,
     this.externalWarning = false,
+    this.touchRadius,
     required this.child,
   });
   @override
@@ -2994,32 +3055,47 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onBoundaryWarning?.call();
       }
     }
-    var collides = false;
-    for (final entry in widget.allLayouts.entries) {
-      if (entry.key == widget.id) continue;
-      if (!_isButtonEditId(entry.key)) continue;
-      final other = entry.value;
-      final ox = other.cx * w;
-      final oy = other.cy * h;
-      final otherSizePx = widget.baseSize * other.size;
-      if (GamepadEditMetrics.crowdsNeighbour(
-        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.baseSize * widget.layout.size / 2,
-        toCentre: Offset(cx, cy),
-        toRadius: sizePx / 2,
-        otherCentre: Offset(ox, oy),
-        otherRadius: otherSizePx / 2,
-      )) {
-        collides = true;
-        break;
+    final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+    final fromRadius = GamepadEditMetrics.buttonVisibleRadius(
+      widget.baseSize * widget.layout.size,
+    );
+    final toRadius = GamepadEditMetrics.buttonVisibleRadius(sizePx);
+    bool blockedAt(Offset centre) {
+      for (final entry in widget.allLayouts.entries) {
+        if (entry.key == widget.id) continue;
+        if (!_isButtonEditId(entry.key)) continue;
+        final other = entry.value;
+        if (GamepadEditMetrics.crowdsNeighbour(
+          fromCentre: from,
+          fromRadius: fromRadius,
+          toCentre: centre,
+          toRadius: toRadius,
+          otherCentre: Offset(other.cx * w, other.cy * h),
+          otherRadius: GamepadEditMetrics.buttonVisibleRadius(
+            widget.baseSize * other.size,
+          ),
+        )) {
+          return true;
+        }
       }
+      return false;
     }
-    if (collides) {
+
+    if (blockedAt(Offset(cx, cy))) {
       if (!_colliding) {
         HapticFeedback.vibrate();
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour (moves only; grid keeps grid points).
+      if (widget.snapToGrid || nextSize != widget.layout.size) return;
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: blockedAt,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(_JoyLayout(contact.dx / w, contact.dy / h, nextSize));
       return;
     }
     if (_colliding) {
@@ -3079,6 +3155,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onEnd();
       },
       onTap: widget.onSelect,
+      touchRadius: widget.touchRadius,
       child: buttonContent,
     );
   }

@@ -60,17 +60,74 @@ final _pages = <String, _Page>{
 Finder _byTypeName(String name) =>
     find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
 
-double _gap(Rect a, Rect b) =>
-    (a.center - b.center).distance - a.shortestSide / 2 - b.shortestSide / 2;
+/// Radius of a control's visible edge: the round face of a button's
+/// artwork, or a joystick's whole circle.
+double _faceRadius(Rect box, {bool joystick = false}) => joystick
+    ? box.shortestSide / 2
+    : GamepadEditMetrics.buttonVisibleRadius(box.shortestSide);
+
+/// Clear space between two controls' visible edges.
+double _gap(Rect a, Rect b, {bool aJoystick = false, bool bJoystick = false}) =>
+    (a.center - b.center).distance -
+    _faceRadius(a, joystick: aJoystick) -
+    _faceRadius(b, joystick: bJoystick);
 
 void main() {
   group('GamepadEditMetrics', () {
-    test('snapToGrid rounds to the nearest 24 dp line', () {
-      expect(GamepadEditMetrics.gridStep, 24);
+    test('snapToGrid rounds to the nearest 12 dp line', () {
+      expect(GamepadEditMetrics.gridStep, 12);
       expect(GamepadEditMetrics.snapToGrid(0), 0);
-      expect(GamepadEditMetrics.snapToGrid(11.9), 0);
-      expect(GamepadEditMetrics.snapToGrid(12.1), 24);
+      expect(GamepadEditMetrics.snapToGrid(5.9), 0);
+      expect(GamepadEditMetrics.snapToGrid(6.1), 12);
       expect(GamepadEditMetrics.snapToGrid(100), 96);
+      expect(GamepadEditMetrics.snapToGrid(103), 108);
+    });
+
+    test('a button face is ~77 % of its image, 2 px inside the box', () {
+      // 88 px box -> 84 px image -> ~64 px face.
+      expect(
+        GamepadEditMetrics.buttonVisibleRadius(88),
+        closeTo(84 * 0.766 / 2, 0.01),
+      );
+      expect(GamepadEditMetrics.buttonVisibleRadius(2), 0);
+    });
+
+    test('touchRadius splits the space to the nearest neighbour', () {
+      double touch(List<(Offset, double)> others) =>
+          GamepadEditMetrics.touchRadius(
+            centre: Offset.zero,
+            visibleRadius: 30,
+            maxRadius: 44,
+            others: others,
+          );
+      // Alone or far away: the whole box.
+      expect(touch(const []), 44);
+      expect(touch(const [(Offset(200, 0), 30)]), 44);
+      // 64 apart -> 4 px clear between faces -> 2 px each.
+      expect(touch(const [(Offset(64, 0), 30)]), 32);
+      // The nearest neighbour wins.
+      expect(touch(const [(Offset(80, 0), 30), (Offset(0, 70), 30)]), 35);
+      // Never less than the face.
+      expect(touch(const [(Offset(50, 0), 30)]), 30);
+    });
+
+    test('slideToward stops right at the first blocked point', () {
+      // Blocked from x = 40 on.
+      final stop = GamepadEditMetrics.slideToward(
+        from: Offset.zero,
+        to: const Offset(100, 0),
+        blocked: (c) => c.dx >= 40,
+      );
+      expect(stop.dx, closeTo(40, 0.05));
+      expect(stop.dx, lessThan(40));
+      expect(
+        GamepadEditMetrics.slideToward(
+          from: Offset.zero,
+          to: const Offset(30, 0),
+          blocked: (c) => c.dx >= 40,
+        ),
+        const Offset(30, 0),
+      );
     });
 
     bool crowds(Offset from, Offset to, {double radius = 20}) =>
@@ -84,10 +141,11 @@ void main() {
         );
 
     test('crowdsNeighbour refuses moving into the minimum gap', () {
-      expect(GamepadEditMetrics.minControlGap, 6);
-      // 60 apart = 20 dp gap; 44 apart = 4 dp gap.
+      expect(GamepadEditMetrics.minControlGap, 4);
+      // 60 apart = 20 dp gap; 44 apart = 4 dp; 43 apart = 3 dp.
       expect(crowds(const Offset(60, 0), const Offset(50, 0)), isFalse);
-      expect(crowds(const Offset(60, 0), const Offset(44, 0)), isTrue);
+      expect(crowds(const Offset(60, 0), const Offset(44, 0)), isFalse);
+      expect(crowds(const Offset(60, 0), const Offset(43, 0)), isTrue);
       expect(crowds(const Offset(60, 0), const Offset(30, 0)), isTrue);
     });
 
@@ -108,7 +166,8 @@ void main() {
         otherRadius: 20,
       );
       expect(grow(22), isFalse); // 8 dp gap left
-      expect(grow(26), isTrue); // 4 dp gap left
+      expect(grow(26), isFalse); // 4 dp gap left
+      expect(grow(27), isTrue); // 3 dp gap left
     });
   });
 
@@ -237,6 +296,24 @@ void main() {
         await closePage(tester);
       });
 
+      if (page.key != 'joystick') {
+        testWidgets('${page.key}: the editor draws buttons like drive mode '
+            '(2 px inset)', (tester) async {
+          await openEditor(tester, page.value.build());
+          final control = _byTypeName(page.value.controlType).first;
+          final box = tester.getRect(control);
+          final image = tester.getRect(
+            find.descendant(of: control, matching: find.byType(Image)).first,
+          );
+          final side =
+              box.shortestSide - 2 * GamepadEditMetrics.buttonImageInset;
+          expect(image.width, closeTo(side, 0.5));
+          expect(image.center.dx, closeTo(box.center.dx, 0.5));
+          expect(image.center.dy, closeTo(box.center.dy, 0.5));
+          await closePage(tester);
+        });
+      }
+
       testWidgets('${page.key}: a dragged control lands on a drawn grid line', (
         tester,
       ) async {
@@ -284,42 +361,50 @@ void main() {
         await closePage(tester);
       });
 
-      testWidgets('${page.key}: dragging into a neighbour keeps a 6 dp gap', (
-        tester,
-      ) async {
+      testWidgets('${page.key}: a fast drag into a neighbour slides up to '
+          '4 dp from its visible face', (tester) async {
         await openEditor(tester, page.value.build());
         final controls = _byTypeName(page.value.controlType);
         // A control and the neighbour it is dragged straight towards.
         final (index, neighbour, offset) = switch (page.key) {
-          'four-button' => (2, 3, const Offset(60, 0)),
+          'four-button' => (2, 3, const Offset(160, 0)),
           'eight-button' => (2, 3, const Offset(160, 0)),
           _ => (0, 1, const Offset(400, 0)),
         };
         final control = controls.at(index);
-        final other = controls.at(neighbour);
-        expect(
-          _gap(tester.getRect(control), tester.getRect(other)),
-          greaterThan(GamepadEditMetrics.minControlGap),
+        final joystick = page.key == 'joystick';
+        double gapTo(int i) => _gap(
+          tester.getRect(control),
+          tester.getRect(controls.at(i)),
+          aJoystick: joystick,
+          bJoystick: joystick,
         );
+        expect(gapTo(neighbour), greaterThan(GamepadEditMetrics.minControlGap));
 
         await tester.tap(control);
         await tester.pumpAndSettle();
+        // Fast: the updates jump past the limit; the control must still
+        // end up touching the 4 dp line, not stop short.
         await tester.timedDrag(
           control,
           offset,
-          const Duration(milliseconds: 600),
+          const Duration(milliseconds: 120),
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
 
+        var closest = double.infinity;
         for (var i = 0; i < controls.evaluate().length; i++) {
           if (i == index) continue;
+          final gap = gapTo(i);
           expect(
-            _gap(tester.getRect(control), tester.getRect(controls.at(i))),
+            gap,
             greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
             reason: 'gap to control $i',
           );
+          if (gap < closest) closest = gap;
         }
+        expect(closest, lessThan(GamepadEditMetrics.minControlGap + 0.5));
 
         await closePage(tester);
       });
@@ -425,16 +510,24 @@ void main() {
     }
 
     void expectNoCrowding(WidgetTester tester, Finder controls) {
-      final rects = [
+      final items = [
         for (final element in controls.evaluate())
-          tester.getRect(find.byWidget(element.widget)),
+          (
+            tester.getRect(find.byWidget(element.widget)),
+            element.widget.runtimeType.toString() == '_EditableJoystick',
+          ),
       ];
-      for (var i = 0; i < rects.length; i++) {
-        for (var j = i + 1; j < rects.length; j++) {
+      for (var i = 0; i < items.length; i++) {
+        for (var j = i + 1; j < items.length; j++) {
           expect(
-            _gap(rects[i], rects[j]),
+            _gap(
+              items[i].$1,
+              items[j].$1,
+              aJoystick: items[i].$2,
+              bJoystick: items[j].$2,
+            ),
             greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
-            reason: '${rects[i]} vs ${rects[j]}',
+            reason: '${items[i].$1} vs ${items[j].$1}',
           );
         }
       }

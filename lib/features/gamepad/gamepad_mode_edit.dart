@@ -19,6 +19,7 @@ import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
 import '../../core/widgets/gamepad_edit_grid.dart';
+import '../../core/widgets/circular_hit_area.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
@@ -1116,11 +1117,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       final otherSizePx = other.size * s;
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(cx, cy),
-        fromRadius: current.size * s / 2,
+        fromRadius: _visibleRadius(current.size * s),
         toCentre: Offset(cx, cy),
-        toRadius: sizePx / 2,
+        toRadius: _visibleRadius(sizePx),
         otherCentre: Offset(ox, oy),
-        otherRadius: otherSizePx / 2,
+        otherRadius: _visibleRadius(otherSizePx),
       )) {
         collides = true;
         break;
@@ -1280,7 +1281,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final r = def.size * unit / 2;
     final spot = GamepadEditMetrics.freeSpotFor(
       preferred: Offset(def.cx * w, def.cy * h),
-      radius: r,
+      radius: _visibleRadius(2 * r),
       centreArea: Rect.fromLTRB(
         GamepadEditMetrics.safeEdgePad + r,
         GamepadEditMetrics.safeTopEdgePad + r,
@@ -1292,7 +1293,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           if (other != id && _layoutAll[other] != null)
             (
               Offset(_layoutAll[other]!.cx * w, _layoutAll[other]!.cy * h),
-              _layoutAll[other]!.size * unit / 2,
+              _visibleRadius(_layoutAll[other]!.size * unit),
             ),
       ],
     );
@@ -2794,6 +2795,10 @@ class _BtnSpec {
   const _BtnSpec(this.label, this.sendValue, this.asset);
 }
 
+/// Radius of a button's visible face for a layout box of side [side].
+double _visibleRadius(double side) =>
+    GamepadEditMetrics.buttonVisibleRadius(side);
+
 Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
   final w = size.width;
   final h = size.height;
@@ -3107,6 +3112,7 @@ class _LayoutPadPanel extends StatelessWidget {
         final w = size.width;
         final h = size.height;
         final s = GamepadEditMetrics.panelUnit(size);
+        Offset centreOf(_ButtonLayout l) => Offset(l.cx * w, l.cy * h);
         return Stack(
           children: ids.map((id) {
             final spec = specs[id];
@@ -3117,6 +3123,19 @@ class _LayoutPadPanel extends StatelessWidget {
             final d = l.size * s;
             final cx = l.cx * w;
             final cy = l.cy * h;
+            final touchRadius = GamepadEditMetrics.touchRadius(
+              centre: Offset(cx, cy),
+              visibleRadius: _visibleRadius(d),
+              maxRadius: d / 2,
+              others: [
+                for (final other in ids)
+                  if (other != id && effective[other] != null)
+                    (
+                      centreOf(effective[other]!),
+                      _visibleRadius(effective[other]!.size * s),
+                    ),
+              ],
+            );
             return Positioned(
               left: cx - d / 2,
               top: cy - d / 2,
@@ -3127,6 +3146,7 @@ class _LayoutPadPanel extends StatelessWidget {
                 diameter: d,
                 showLabel: false,
                 lightImpactBeforeBuzz: true,
+                touchRadius: touchRadius,
                 onPressChanged: onPressChanged,
               ),
             );
@@ -3258,32 +3278,45 @@ class _EditableButtonState extends State<_EditableButton> {
         widget.onBoundaryWarning?.call();
       }
     }
-    var collides = false;
-    for (final entry in widget.allLayouts.entries) {
-      if (entry.key == widget.id) continue;
-      if (!_isButtonEditId(entry.key)) continue;
-      final other = entry.value;
-      final ox = other.cx * w;
-      final oy = other.cy * h;
-      final otherSizePx = s * other.size;
-      if (GamepadEditMetrics.crowdsNeighbour(
-        fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.layout.size * s / 2,
-        toCentre: Offset(cx, cy),
-        toRadius: sizePx / 2,
-        otherCentre: Offset(ox, oy),
-        otherRadius: otherSizePx / 2,
-      )) {
-        collides = true;
-        break;
+    final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+    final fromRadius = _visibleRadius(widget.layout.size * s);
+    final toRadius = _visibleRadius(sizePx);
+    bool blockedAt(Offset centre) {
+      for (final entry in widget.allLayouts.entries) {
+        if (entry.key == widget.id) continue;
+        if (!_isButtonEditId(entry.key)) continue;
+        final other = entry.value;
+        if (GamepadEditMetrics.crowdsNeighbour(
+          fromCentre: from,
+          fromRadius: fromRadius,
+          toCentre: centre,
+          toRadius: toRadius,
+          otherCentre: Offset(other.cx * w, other.cy * h),
+          otherRadius: _visibleRadius(s * other.size),
+        )) {
+          return true;
+        }
       }
+      return false;
     }
-    if (collides) {
+
+    if (blockedAt(Offset(cx, cy))) {
       if (!_colliding) {
         HapticFeedback.vibrate();
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour instead of stopping where the last
+      // accepted update was (moves only; with the grid on, centres stay on
+      // grid points).
+      if (widget.snapToGrid || size != widget.layout.size) return;
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: blockedAt,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(_ButtonLayout(contact.dx / w, contact.dy / h, size));
       return;
     }
     if (_colliding) {
@@ -3302,23 +3335,36 @@ class _EditableButtonState extends State<_EditableButton> {
     final cy = widget.layout.cy * h;
     final showWarning =
         _colliding || _nearEdgeWarning || widget.externalWarning;
+    // Drawn like the drive-mode button (2 px inset, contain) so the
+    // editor shows the real size and spacing.
     Widget buildButtonVisual() => Padding(
-      padding: EdgeInsets.all(size * 0.08),
-      child: ClipOval(
-        child: Image.asset(
-          widget.asset,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: _opacity(Colors.red, 0.18),
-            alignment: Alignment.center,
-            child: Text(
-              widget.asset.split('/').last.split('.').first,
-              style: Theme.of(context).textTheme.labelSmall,
-              textAlign: TextAlign.center,
-            ),
+      padding: const EdgeInsets.all(GamepadEditMetrics.buttonImageInset),
+      child: Image.asset(
+        widget.asset,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: _opacity(Colors.red, 0.18),
+          alignment: Alignment.center,
+          child: Text(
+            widget.asset.split('/').last.split('.').first,
+            style: Theme.of(context).textTheme.labelSmall,
+            textAlign: TextAlign.center,
           ),
         ),
       ),
+    );
+    final touchRadius = GamepadEditMetrics.touchRadius(
+      centre: Offset(cx, cy),
+      visibleRadius: _visibleRadius(size),
+      maxRadius: size / 2,
+      others: [
+        for (final entry in widget.allLayouts.entries)
+          if (entry.key != widget.id && _isButtonEditId(entry.key))
+            (
+              Offset(entry.value.cx * w, entry.value.cy * h),
+              _visibleRadius(entry.value.size * s),
+            ),
+      ],
     );
     final buttonContent = SizedBox(
       width: size,
@@ -3351,7 +3397,10 @@ class _EditableButtonState extends State<_EditableButton> {
                 widget.onEnd();
               },
         onTap: widget.onTap,
-        child: SizedBox(width: size, height: size, child: buttonContent),
+        child: CircularHitArea(
+          radius: touchRadius,
+          child: SizedBox(width: size, height: size, child: buttonContent),
+        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../../core/widgets/circular_hit_area.dart';
 
 class GamepadButtonLayout {
   final double cx;
@@ -570,6 +571,10 @@ class GamepadEditableButtonFrame extends StatelessWidget {
   final VoidCallback? onTap;
   final Widget child;
 
+  /// When set, only touches within this radius of the centre select or
+  /// drag the control; the rest reach the control underneath.
+  final double? touchRadius;
+
   const GamepadEditableButtonFrame({
     super.key,
     required this.left,
@@ -586,10 +591,23 @@ class GamepadEditableButtonFrame extends StatelessWidget {
     required this.onScaleEnd,
     required this.onTap,
     required this.child,
+    this.touchRadius,
   });
 
   @override
   Widget build(BuildContext context) {
+    final radius = touchRadius;
+    final frame = SizedBox(
+      width: width,
+      height: height,
+      child: GamepadEditSelectionVisual(
+        selected: selected,
+        dimmed: dimmed,
+        warning: warning,
+        selectionMask: selectionMask,
+        child: child,
+      ),
+    );
     return Positioned(
       left: left,
       top: top,
@@ -597,23 +615,18 @@ class GamepadEditableButtonFrame extends StatelessWidget {
         // The whole frame takes taps and drags. The Joystick page wraps its
         // buttons in IgnorePointer (so they do not fire while editing); with
         // the default deferToChild nothing in the frame was hittable and
-        // those buttons could never be selected, moved or deleted.
-        behavior: HitTestBehavior.opaque,
+        // those buttons could never be selected, moved or deleted. With a
+        // touch radius, the circle takes the touches instead.
+        behavior: radius == null
+            ? HitTestBehavior.opaque
+            : HitTestBehavior.deferToChild,
         onScaleStart: locked ? null : onScaleStart,
         onScaleUpdate: locked ? null : onScaleUpdate,
         onScaleEnd: locked ? null : onScaleEnd,
         onTap: onTap,
-        child: SizedBox(
-          width: width,
-          height: height,
-          child: GamepadEditSelectionVisual(
-            selected: selected,
-            dimmed: dimmed,
-            warning: warning,
-            selectionMask: selectionMask,
-            child: child,
-          ),
-        ),
+        child: radius == null
+            ? frame
+            : CircularHitArea(radius: radius, child: frame),
       ),
     );
   }
