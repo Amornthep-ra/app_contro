@@ -350,3 +350,31 @@ Read Sensor
 
 ### Not yet verified on a real device
 The three pages on Android and iOS: the badge pill and BLE sheet from LineSonic, the frosted header while scrolling, the bottom bar with the keyboard (it hides) and on iPhone home-indicator insets, blur cost of one `GlassPanel` per step on low-end Android with many steps, the ⋯ menu, Undo snack bar over the bottom bar, the Save preset dialog above the keyboard.
+
+---
+
+## 12. Closer control spacing — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+The owner confirmed section 11 on the phone and asked whether controls can be placed closer together.
+
+### Findings (before, 800×360, the owner's phone)
+- The 6 dp rule is measured between the controls' layout boxes (88 dp at this size), but the button PNGs (`assets/icons/Gamepad_Mode_Edit/*.png`, 1024 px) have about 10–15 % transparent margin per side, and the drive-mode buttons draw the image 2 px inside the box. The visible edges therefore stay **~36–37 dp apart** at the closest allowed position (measured: 4 BTN ← dragged into → stops at 94 dp between centres).
+- 8 BTN's default diamond (↑ ← → ↓, 88 dp boxes 95 dp apart) is already at the limit (6.8 dp box gap), so it cannot be tightened at all.
+- A fast drag stops up to ~6 dp before the limit: an update that would crowd a neighbour is dropped and the control stays at the last accepted point.
+- With Grid on, centres snap to 24 dp.
+- The 4 BTN / 8 BTN editors draw the button with an 8 % inset and BoxFit.cover in a ClipOval, smaller than the drive-mode button (2 px inset, contain), so the editor under-shows how close buttons really are.
+- Drive-mode buttons take touches over their whole square box and only then check a circle; where two boxes overlap, the top one swallows the touch even outside its circle.
+
+### Decisions (owner)
+1. Measure spacing between the **visible** artwork, minimum **4 dp**.
+2. Each button's touch area is a circle: its visible circle plus up to half the space to its nearest neighbour (never past the old box), so neighbours never share a touch point; touches outside it fall through to the control underneath.
+3. A blocked drag slides to the closest allowed point instead of stopping early.
+4. Grid snaps every **12 dp** (24 dp lines keep their old look; the new half lines are fainter).
+
+### Phases
+1. `GamepadEditMetrics`: visible radius of an image button, 4 dp gap, slide-to-contact helper, touch radius helper, 12 dp grid; `CircularHitArea` widget.
+2. 8 BTN, 4 BTN, Joystick: spacing checks (drag, resize, free spot) use visible radii (joysticks keep their full circle), drags slide to contact, editor draws buttons like drive mode, drive and editor touch areas use the touch radius.
+3. Tests, before/after renders and measurements, notes.
+
+### Must not change
+Button IDs, packets, joystick axes, △○✕□, saved layout format (positions saved by older versions load unchanged), default layouts.
