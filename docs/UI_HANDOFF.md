@@ -1,4 +1,4 @@
-# UI Handoff — PB Controller (updated 2026-11-03, LineSonic pages)
+# UI Handoff — PB Controller (updated 2026-11-03, LineSonic pages + closer control spacing)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
@@ -7,7 +7,8 @@
 > งานทั้งหมดอยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`); `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
 > ทดสอบมือถือรอบ 2 (หัวข้อ 10): ปุ่ม △✕□○ ของ Joystick เลือก/ลาก/ลบได้แล้ว, ปุ่มที่เพิ่มใหม่ไปวางที่ว่าง, เมนู Buttons แบบ Lavender ใช้ร่วมกันทุกโหมด (มีใน 4 BTN/8 BTN ด้วย), ปุ่ม Start/Stop เหลือแต่รูป, Settings เลือกโหมดแล้วกด Edit layout/Saved layouts ไปโหมดนั้นเลย
 > รอบล่าสุด (หัวข้อ 11): หน้า LineSonic ทั้ง 3 หน้า (เมนู, PID Tuning, Read Sensor) เป็น Lavender Glass แล้ว — หัวหน้าเดียวกัน (ปุ่มแมว, ป้าย BLE ตัวกลางที่เปิด sheet), การ์ด Step แบบกระจก ปุ่ม 48px, เมนู ⋯, แถบปุ่มส่งคำสั่งติดด้านล่าง, Undo/ถามยืนยัน, ชื่อ "Junction hold", หน้า Sensor แบบช่องกระจก; คำสั่ง BLE ไม่เปลี่ยน
-> test ผ่าน 346 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> เจ้าของทดสอบ LineSonic ผ่านแล้ว รอบล่าสุด (หัวข้อ 12): ปุ่มวางชิดกันได้ถึง 4dp วัดจากขอบปุ่มที่มองเห็น (เดิมเหลือ ~36dp), ลากเร็วแล้วไหลไปชิดได้, Grid ขยับทีละ 12dp, หน้า Edit layout แสดงปุ่มขนาดเท่าตอนขับ, พื้นที่รับนิ้วของปุ่มที่อยู่ชิดกันแบ่งครึ่งทางไม่แย่งกัน
+> test ผ่าน 354 ตัว และ `flutter analyze` ไม่เจอปัญหา
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -21,7 +22,7 @@
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 346 passing; `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 354 passing; `flutter analyze lib test` → no issues |
 | Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
@@ -75,13 +76,16 @@
 | `a11343e` | Read Sensor restyle; shared `linesonic_controls.dart` |
 | `492d29d` | PID: Save preset dialog owns its text controller (was disposed during the closing animation) |
 | `a7e25fa` | `test/linesonic_ui_test.dart` (15 tests) |
+| `5a11f6a` | Handoff notes |
+| `8b3de84` | Spacing plan (section 12) |
+| `4b8276d` | Controls 4 dp apart on visible faces, slide to contact, 12 dp grid, editor drawn like drive mode, split touch areas (+ tests) |
 
 ### Suggested next steps
 1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
 2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
 3. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
 4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
-5. Owner re-test of the **LineSonic** pages on the phone (section 11, "Not yet verified").
+5. Owner re-test of the closer spacing on the phone (section 12, "Not yet verified").
 6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
 
 ### How the owner likes to work
@@ -378,3 +382,16 @@ The owner confirmed section 11 on the phone and asked whether controls can be pl
 
 ### Must not change
 Button IDs, packets, joystick axes, △○✕□, saved layout format (positions saved by older versions load unchanged), default layouts.
+
+### Result — DONE (`4b8276d`)
+Done as one commit (the metric, the three pages and the tests depend on each other).
+- `GamepadEditMetrics` (`lib/core/ui/gamepad_edit_metrics.dart`): `minControlGap` 4 (visible edges), `buttonArtworkFraction` 0.766, `buttonImageInset` 2, `buttonVisibleRadius(boxSide)`, `touchRadius(...)`, `slideToward(...)`, `gridStep` 12. `GamepadEditGrid` draws 12 dp lines faint, 24 dp as the old minor lines, 96 dp strongest.
+- `lib/core/widgets/circular_hit_area.dart` (new): claims touches only inside a circle (and all touches inside it).
+- `GamepadImageHoldButton(touchRadius:)` (4 / 8 BTN drive mode) and the Joystick `_JoyImagePressHoldButton(touchRadius:)`; `GamepadEditableButtonFrame(touchRadius:)` (Joystick face buttons in the editor); the 4 / 8 BTN editable buttons wrap their gesture area in `CircularHitArea`.
+- Visible radius per control: image buttons `buttonVisibleRadius(diameter)`; joysticks their whole circle. Joystick face buttons still only check spacing against each other (as before), and their touch areas split only between face buttons.
+- Slide to contact applies to moves only (not pinch-resize) and not with Grid on (grid points kept).
+- Measured at 800×360: 4 BTN ← into → now stops at 68 px between centres (94 before), slow and fast alike; 8 BTN ← moves ~55 px further toward → before meeting ↑ / ↓.
+- Unchanged: IDs, packets, axes, default layouts, saved format. Old saved layouts load as they were (they are wider than the new limit).
+
+### Not yet verified on a real device
+Dragging buttons together on the phone (feel of the slide), pressing two buttons placed 4 dp apart while driving (thumb accuracy), the larger editor buttons, the 12 dp grid's look on a small screen.
