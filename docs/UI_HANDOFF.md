@@ -1,4 +1,4 @@
-# UI Handoff — PB Controller (updated 2026-11-03, LineSonic pages + closer control spacing)
+# UI Handoff — PB Controller (updated 2026-11-03, LineSonic + spacing + layout editor leftovers)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
@@ -8,7 +8,8 @@
 > ทดสอบมือถือรอบ 2 (หัวข้อ 10): ปุ่ม △✕□○ ของ Joystick เลือก/ลาก/ลบได้แล้ว, ปุ่มที่เพิ่มใหม่ไปวางที่ว่าง, เมนู Buttons แบบ Lavender ใช้ร่วมกันทุกโหมด (มีใน 4 BTN/8 BTN ด้วย), ปุ่ม Start/Stop เหลือแต่รูป, Settings เลือกโหมดแล้วกด Edit layout/Saved layouts ไปโหมดนั้นเลย
 > รอบล่าสุด (หัวข้อ 11): หน้า LineSonic ทั้ง 3 หน้า (เมนู, PID Tuning, Read Sensor) เป็น Lavender Glass แล้ว — หัวหน้าเดียวกัน (ปุ่มแมว, ป้าย BLE ตัวกลางที่เปิด sheet), การ์ด Step แบบกระจก ปุ่ม 48px, เมนู ⋯, แถบปุ่มส่งคำสั่งติดด้านล่าง, Undo/ถามยืนยัน, ชื่อ "Junction hold", หน้า Sensor แบบช่องกระจก; คำสั่ง BLE ไม่เปลี่ยน
 > เจ้าของทดสอบ LineSonic ผ่านแล้ว รอบล่าสุด (หัวข้อ 12): ปุ่มวางชิดกันได้ถึง 4dp วัดจากขอบปุ่มที่มองเห็น (เดิมเหลือ ~36dp), ลากเร็วแล้วไหลไปชิดได้, Grid ขยับทีละ 12dp, หน้า Edit layout แสดงปุ่มขนาดเท่าตอนขับ, พื้นที่รับนิ้วของปุ่มที่อยู่ชิดกันแบ่งครึ่งทางไม่แย่งกัน
-> test ผ่าน 354 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> รอบล่าสุด (หัวข้อ 13): Toolbar หน้าแก้ layout จัดกลุ่มแล้ว, Reset ถามก่อน, ปุ่ม Done สีม่วงมีคำว่า Done, ขอบบน 12dp, ตำแหน่งเริ่มต้น 4 BTN ห่างเท่ากัน 24dp
+> test ผ่าน 363 ตัว และ `flutter analyze` ไม่เจอปัญหา
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -22,7 +23,7 @@
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 354 passing; `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 363 passing; `flutter analyze lib test` → no issues |
 | Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
@@ -79,11 +80,17 @@
 | `5a11f6a` | Handoff notes |
 | `8b3de84` | Spacing plan (section 12) |
 | `4b8276d` | Controls 4 dp apart on visible faces, slide to contact, 12 dp grid, editor drawn like drive mode, split touch areas (+ tests) |
+| `895c080`, `2430723`, `ee621eb` | Handoff notes / section 13 plan |
+| `b26a669` | Editor toolbar groups (`GamepadCenteredToolbar.groupStarts`) |
+| `76a5e28` | Reset asks first |
+| `1f921ca` | Done as a filled violet pill (`GamepadToolIconPill.primary`) |
+| `753f922` | 12 dp top edge for 4 / 8 BTN |
+| `07f870b` | 4 BTN defaults: 20 % / 80 % clusters, equal 24 dp face gaps |
 
 ### Suggested next steps
 1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
 2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
-3. **Layout editor leftovers** the owner did not pick yet (section 6, "Layout editor — not done"): group the edit toolbar, 12 px top edge, even 4 BTN default spacing.
+3. Owner re-test of section 13 on the phone (toolbar groups, Reset dialog, Done, top edge, 4 BTN defaults). Left for later: 8 BTN editor vs drive size at 640×360 (section 13, finding 4).
 4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
 5. Sections 11 (LineSonic) and 12 (spacing) passed on the owner's Android phone; iOS still untested.
 6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
@@ -415,3 +422,15 @@ Section 6 "Layout editor — not done", reviewed again at 800×360 (owner's phon
 4. Top edge 12 dp like the others, for dragging and resizing; saved layouts are not moved.
 5. 4 BTN defaults: ↑↓ and ←→ with the same 24 dp between visible faces (scaled with the pad), ↑↓ column at 20 % and ←→ row at 80 % of the layout frame. Saved layouts unchanged.
 Item 4 of the findings is left for later.
+
+### Result — DONE (one commit per item)
+1. `b26a669`: `GamepadCenteredToolbar(groupStarts:)`, `itemGap` 6, `groupGap` 16 (falls back to even spacing if the groups do not fit at 48 px). All three pages: Done, Buttons, Lock, −, +, Delete, Grid, Undo, Redo, Reset with groups at {1, 2, 6, 7, 9}. Slots 67 px at 800×360, 51 px at 640×360; one row at text scale 2.
+2. `76a5e28`: `_resetLayouts` / `_resetLayout` ask "Reset layout?" (destructive Lavender dialog), then `_applyReset` (unchanged reset). Undo restores.
+3. `1f921ca`: `GamepadToolIconPill(primary: true)`: violet gradient pill, white ✓, "Done" when the slot is ≥ 64 px and text scale ≤ 1.3 (800: yes, 640: no). Tests that close the Buttons sheet tap the sheet's own Done (`_sheetDone`).
+4. `753f922`: `GamepadEditMetrics.safeTopEdgePad` 12. A control dragged up stops 12 dp under the pad's top (at 800×360 its ears can still touch the left end of the editor hint pill by a few dp). Saved positions are not moved.
+5. `07f870b`: 4 BTN `_defaultLayoutForIds`: ↑↓ column at 20 % and ←→ row at 80 % of `defaultLayoutFrame`, layout size 0.30, clear space between faces = 3/8 of a face diameter (`_defaultFaceGapRatio`, 24 dp at 800×360); positions no longer depend on which buttons are shown. Removed the 2.0 constants `_panelEdgeInset` / `_panelRowGap` / `_panelColGap` and `_defaultRenderedCfg`.
+
+Tests added in `test/gamepad_edit_layout_test.dart` (Reset dialog + Undo on all pages, Done pill at 800 / 640, 12 dp top edge on 4 / 8 BTN, even 4 BTN defaults at 800 / 640) and `test/gamepad_toolbar_responsive_test.dart` (new order and group gaps).
+
+### Not yet verified on a real device
+Everything in this section.
