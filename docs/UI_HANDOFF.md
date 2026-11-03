@@ -1,4 +1,4 @@
-# UI Handoff — PB Controller (updated 2026-11-03, LineSonic + spacing + layout editor leftovers)
+# UI Handoff — PB Controller (updated 2026-11-03, LineSonic + spacing + editor + backend fixes)
 
 > **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
 > รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
@@ -9,7 +9,8 @@
 > รอบล่าสุด (หัวข้อ 11): หน้า LineSonic ทั้ง 3 หน้า (เมนู, PID Tuning, Read Sensor) เป็น Lavender Glass แล้ว — หัวหน้าเดียวกัน (ปุ่มแมว, ป้าย BLE ตัวกลางที่เปิด sheet), การ์ด Step แบบกระจก ปุ่ม 48px, เมนู ⋯, แถบปุ่มส่งคำสั่งติดด้านล่าง, Undo/ถามยืนยัน, ชื่อ "Junction hold", หน้า Sensor แบบช่องกระจก; คำสั่ง BLE ไม่เปลี่ยน
 > เจ้าของทดสอบ LineSonic ผ่านแล้ว รอบล่าสุด (หัวข้อ 12): ปุ่มวางชิดกันได้ถึง 4dp วัดจากขอบปุ่มที่มองเห็น (เดิมเหลือ ~36dp), ลากเร็วแล้วไหลไปชิดได้, Grid ขยับทีละ 12dp, หน้า Edit layout แสดงปุ่มขนาดเท่าตอนขับ, พื้นที่รับนิ้วของปุ่มที่อยู่ชิดกันแบ่งครึ่งทางไม่แย่งกัน
 > รอบล่าสุด (หัวข้อ 13): Toolbar หน้าแก้ layout จัดกลุ่มแล้ว, Reset ถามก่อน, ปุ่ม Done สีม่วงมีคำว่า Done, ขอบบน 12dp, ตำแหน่งเริ่มต้น 4 BTN ห่างเท่ากัน 24dp
-> test ผ่าน 363 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> Backend (หัวข้อ 14): review แล้ว แก้ 2 ข้อระดับสูง — 8 BTN ไม่ค้างสิทธิ์ควบคุมเมื่อออกระหว่างกด Start, Joystick ส่ง packet ศูนย์ทุก 150ms ตอนอยู่นิ่ง (ใช้ Library เดิมได้)
+> test ผ่าน 371 ตัว และ `flutter analyze` ไม่เจอปัญหา
 > **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
 ---
@@ -23,7 +24,7 @@
 | PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
 | `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
 | `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
-| Tests | `flutter test` → 363 passing; `flutter analyze lib test` → no issues |
+| Tests | `flutter test` → 371 passing; `flutter analyze lib test` → no issues |
 | Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
 | Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
@@ -86,11 +87,15 @@
 | `1f921ca` | Done as a filled violet pill (`GamepadToolIconPill.primary`) |
 | `753f922` | 12 dp top edge for 4 / 8 BTN |
 | `07f870b` | 4 BTN defaults: 20 % / 80 % clusters, equal 24 dp face gaps |
+| `0bb5a73`, `6f41e97` | Handoff notes / section 14 backend review + plan |
+| `1f54651` | 8 BTN releases control ownership when Start finishes after leaving / switching |
+| `8e455c0` | Joystick idle keepalive: zero frame every 150 ms while started |
 
 ### Suggested next steps
 1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
 2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
 3. Owner re-test of section 13 on the phone (toolbar groups, Reset dialog, Done, top edge, 4 BTN defaults). Left for later: 8 BTN editor vs drive size at 640×360 (section 13, finding 4).
+4. Owner re-test of section 14 (Joystick: Start, wait 2 s, then move; 8 BTN: Start then Back quickly, then Start on another page / LineSonic). Then pick the next backend group from section 14's medium / low findings.
 4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
 5. Sections 11 (LineSonic) and 12 (spacing) passed on the owner's Android phone; iOS still untested.
 6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
@@ -454,3 +459,12 @@ Low: partial text line left on the board after a failed chunk; iOS skips the per
 2. Joystick: while started, not editing and idle, send the existing zero joystick frame every 150 ms (as 4 / 8 BTN). Same bytes, only more often while idle; it also re-sends the real state within 150 ms if a release frame was dropped. Tests: idle frames with no gap over 400 ms after Start, none before Start or in the editor, 50 ms while held.
 
 No library change: both fixes use packets the Arduino library already receives (STOP on release; the zero joystick frame that 4 / 8 BTN already send while idle). The board can stay on its current library version.
+
+### Result — DONE (high items)
+1. `1f54651`: `GamepadModeEdit(acquireControl:)` seam; `_leavingControlPage` (Back, system back via `_exitControlPage`, dispose; part of `_canStartControl`); after `acquireControlForStart`, `stopAndReleaseControl` when unmounted / leaving / switching mode. Tests in `test/review_regressions_test.dart`: "abandoned Start" now includes 8 BTN; new "a mode switch during Start releases its owner" on all three pages (8 BTN fails on the previous code, and its leaked owner then breaks the next test in the same run, which is the bug itself).
+2. `8e455c0`: `kJoystickIdleKeepaliveMs` 150, `kJoystickTickMs` 25, `joystickIdleKeepaliveDue(ticks)`; the control timer counts ticks since the last frame and, when idle, re-sends `JoystickPacket(0, 0, 0, 0)` with no buttons. Held sticks / buttons keep the old 50 ms wall-clock keepalive (finding "wall-clock timing" still open). `JoystickPage(onControlFrameForTesting:)` seam. Tests in `test/joystick_keepalive_test.dart` (previous code: 1 frame in 1 s).
+
+Library: unchanged and not needed (STOP on release, zero joystick frame while idle — both already sent by the app today).
+
+### Not yet verified on a real device
+Both fixes. Joystick: Start, wait 2 s, then move a stick — the robot should respond. 8 BTN: tap Start and Back at once, then Start on another page or open LineSonic — no "BLE is busy".
