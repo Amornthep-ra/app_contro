@@ -15,6 +15,7 @@ import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
+import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/gamepad_edit_grid.dart';
 import '../../core/widgets/circular_hit_area.dart';
 import '../../core/ui/app_assets.dart';
@@ -821,7 +822,24 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     return false;
   }
 
-  void _resetLayouts() async {
+  /// Reset tool: asks first, then puts every control back to its default
+  /// place and size (Undo still brings the layout back).
+  Future<void> _resetLayouts() async {
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      title: 'Reset layout?',
+      message:
+          'Every control goes back to its default place and size. '
+          'Undo brings your layout back.',
+      confirmLabel: 'Reset',
+      icon: Icons.restart_alt_rounded,
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await _applyReset();
+  }
+
+  Future<void> _applyReset() async {
     _pushHistory();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);

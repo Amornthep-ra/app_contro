@@ -1176,7 +1176,24 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     });
   } // ignore: unused_element
 
-  void _resetLayouts() async {
+  /// Reset tool: asks first, then puts every control back to its default
+  /// place and size (Undo still brings the layout back).
+  Future<void> _resetLayouts() async {
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      title: 'Reset layout?',
+      message:
+          'Every control goes back to its default place and size. '
+          'Undo brings your layout back.',
+      confirmLabel: 'Reset',
+      icon: Icons.restart_alt_rounded,
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await _applyReset();
+  }
+
+  Future<void> _applyReset() async {
     _pushHistory();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);

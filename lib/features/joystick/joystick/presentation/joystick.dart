@@ -9,6 +9,7 @@ import '../../../../core/widgets/control_input_gate.dart';
 import '../../../../core/widgets/control_background.dart';
 import '../../../../core/widgets/gamepad_edit_hint.dart';
 import '../../../../core/ui/gamepad_edit_metrics.dart';
+import '../../../../core/ui/lavender_glass.dart';
 import '../../../../core/widgets/gamepad_edit_grid.dart';
 import '../../../../core/widgets/circular_hit_area.dart';
 import '../../../../core/widgets/control_start_stop.dart';
@@ -900,7 +901,24 @@ class _JoystickPageState extends State<JoystickPage> {
     _toggleActive(id);
   }
 
-  void _resetLayout() async {
+  /// Reset tool: asks first, then puts every control back to its default
+  /// place and size (Undo still brings the layout back).
+  Future<void> _resetLayout() async {
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      title: 'Reset layout?',
+      message:
+          'Every control goes back to its default place and size. '
+          'Undo brings your layout back.',
+      confirmLabel: 'Reset',
+      icon: Icons.restart_alt_rounded,
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await _applyReset();
+  }
+
+  Future<void> _applyReset() async {
     _pushHistory();
     final defaultActive = Set<String>.from(kJoyDefaultActiveIds);
     final defaultLayout = _panelSize != null

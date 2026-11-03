@@ -314,6 +314,48 @@ void main() {
         });
       }
 
+      testWidgets('${page.key}: Reset asks first, and Undo brings the layout '
+          'back', (tester) async {
+        await openEditor(tester, page.value.build());
+        final control = _byTypeName(page.value.controlType).first;
+        final home = tester.getRect(control).center;
+        await tester.tap(control);
+        await tester.pumpAndSettle();
+        await tester.drag(control, const Offset(0, 40));
+        await tester.pumpAndSettle();
+        final moved = tester.getRect(control).center;
+        expect((moved - home).distance, greaterThan(10));
+
+        await tester.tap(find.byTooltip('Reset'));
+        await tester.pumpAndSettle();
+        expect(find.text('Reset layout?'), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(control).center, moved);
+
+        await tester.tap(find.byTooltip('Reset'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Reset'));
+        await tester.pumpAndSettle();
+        expect(
+          (tester.getRect(_byTypeName(page.value.controlType).first).center -
+                  home)
+              .distance,
+          lessThan(0.5),
+        );
+
+        await tester.tap(find.byTooltip('Undo'));
+        await tester.pumpAndSettle();
+        expect(
+          (tester.getRect(_byTypeName(page.value.controlType).first).center -
+                  moved)
+              .distance,
+          lessThan(0.5),
+        );
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+
       testWidgets('${page.key}: a dragged control lands on a drawn grid line', (
         tester,
       ) async {
