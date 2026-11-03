@@ -12,6 +12,10 @@ TextStyle gamepadControlTextStyle(BuildContext context) =>
     );
 
 /// Measurements are shared by PreferredSize and the rendered rows.
+///
+/// The first [leadingCount] items (Back, then Start/Stop) are pinned to the
+/// left edge and the last item (Settings) to the right edge; the items in
+/// between are centred. Pinned items keep the larger [edgeGap] around them.
 class GamepadControlLayout {
   static const double controlGap = 6;
   static const double edgeActionGap = 16;
@@ -21,22 +25,43 @@ class GamepadControlLayout {
     this.rows,
     this.itemHeight,
     this.visualHeight,
-    this.edgeGap,
-  );
+    this.edgeGap, {
+    this.leadingCount = 1,
+    this.compactBle = false,
+  });
   final List<double> widths;
   final List<List<int>> rows;
   final double itemHeight;
   final double visualHeight;
   final double edgeGap;
+  final int leadingCount;
+
+  /// True when the BLE badge shows short labels so the toolbar fits one row.
+  final bool compactBle;
+
   double get height =>
       8 + rows.length * itemHeight + (rows.length - 1) * controlGap;
 
-  double gapBefore(int index) => gapBeforeIndex(index, widths.length, edgeGap);
+  double gapBefore(int index) =>
+      gapBeforeIndex(index, widths.length, edgeGap, leadingCount: leadingCount);
 
   factory GamepadControlLayout.measure(
     BuildContext context,
+    List<String> labels, {
+    int leadingCount = 1,
+  }) {
+    final full = _measure(context, labels, leadingCount, compactBle: false);
+    if (full.rows.length == 1 || !labels.contains('@ble')) return full;
+    final compact = _measure(context, labels, leadingCount, compactBle: true);
+    return compact.rows.length < full.rows.length ? compact : full;
+  }
+
+  static GamepadControlLayout _measure(
+    BuildContext context,
     List<String> labels,
-  ) {
+    int leadingCount, {
+    required bool compactBle,
+  }) {
     final style = gamepadControlTextStyle(context);
     final scaler = MediaQuery.textScalerOf(context);
     double measure(String text) {
@@ -50,6 +75,11 @@ class GamepadControlLayout {
       return width;
     }
 
+    Iterable<String> bleLabels() => BlePresentationKind.values.map((kind) {
+      final state = BlePresentationState(kind);
+      return compactBle ? state.shortLabel : state.label;
+    });
+
     final available = math.max(
       48.0,
       MediaQuery.sizeOf(context).width -
@@ -59,13 +89,7 @@ class GamepadControlLayout {
     final widths = labels.map((label) {
       if (label.isEmpty) return 48.0;
       if (label == '@ble') {
-        return math.max(
-          48.0,
-          BlePresentationKind.values
-                  .map((kind) => measure(BlePresentationState(kind).label))
-                  .reduce(math.max) +
-              38,
-        );
+        return math.max(48.0, bleLabels().map(measure).reduce(math.max) + 38);
       }
       if (label.startsWith('@speed:')) {
         return math.max(48.0, measure(label.substring(7)) + 36);
@@ -80,9 +104,7 @@ class GamepadControlLayout {
       );
       final label = labels[i];
       final samples = label == '@ble'
-          ? BlePresentationKind.values.map(
-              (kind) => BlePresentationState(kind).label,
-            )
+          ? bleLabels()
           : [label.startsWith('@speed:') ? label.substring(7) : label];
       final extra = label == '@ble'
           ? 40
@@ -103,7 +125,12 @@ class GamepadControlLayout {
     final rows = <List<int>>[[]];
     double used = 0;
     for (var i = 0; i < widths.length; i++) {
-      final gap = gapBeforeIndex(i, widths.length, edgeGap);
+      final gap = gapBeforeIndex(
+        i,
+        widths.length,
+        edgeGap,
+        leadingCount: leadingCount,
+      );
       if (rows.last.isNotEmpty && used + gap + widths[i] > available) {
         rows.add([]);
         used = 0;
@@ -117,11 +144,124 @@ class GamepadControlLayout {
       math.max(48, visualHeight),
       visualHeight,
       edgeGap,
+      leadingCount: leadingCount,
+      compactBle: compactBle,
     );
   }
 
-  static double gapBeforeIndex(int index, int itemCount, double edgeGap) =>
-      index == 1 || index == itemCount - 1 ? edgeGap : controlGap;
+  /// Left edge of slot [index] inside a toolbar [rowWidth] wide, measured
+  /// from the start of the toolbar's content area (inside its 12 px padding).
+  ///
+  /// Mirrors how [GamepadControlRows] places pinned and centred items, so a
+  /// panel can be lined up under a toolbar control without measuring it.
+  double slotLeft(int index, double rowWidth) {
+    final row = rows.firstWhere((r) => r.contains(index));
+    final last = widths.length - 1;
+    final pinEdges = widths.length >= 2;
+    final leading = [
+      if (pinEdges)
+        for (final i in row)
+          if (i < leadingCount && i != last) i,
+    ];
+    final pinEnd = pinEdges && row.last == last && last >= leadingCount;
+    final middle = [
+      for (final i in row)
+        if (!leading.contains(i) && !(pinEnd && i == last)) i,
+    ];
+
+    double runWidth(List<int> items) {
+      var width = 0.0;
+      for (final i in items) {
+        if (i != items.first) width += gapBefore(i);
+        width += widths[i];
+      }
+      return width;
+    }
+
+    double leftIn(List<int> items, double start) {
+      var x = start;
+      for (final i in items) {
+        if (i != items.first) x += gapBefore(i);
+        if (i == index) return x;
+        x += widths[i];
+      }
+      throw ArgumentError.value(index, 'index', 'not in this run');
+    }
+
+    if (pinEnd && index == last) return rowWidth - widths[last];
+    if (leading.contains(index)) return leftIn(leading, 0);
+    if (leading.isEmpty && !pinEnd) {
+      return leftIn(row, (rowWidth - runWidth(row)) / 2);
+    }
+    final regionStart = leading.isEmpty
+        ? 0.0
+        : runWidth(leading) + gapBefore(middle.first);
+    final regionEnd = pinEnd
+        ? rowWidth - widths[last] - gapBefore(last)
+        : rowWidth;
+    return leftIn(
+      middle,
+      regionStart + (regionEnd - regionStart - runWidth(middle)) / 2,
+    );
+  }
+
+  /// Pinned items (the leading group and the last item) get [edgeGap] on
+  /// their inner side; items in the middle get [controlGap].
+  static double gapBeforeIndex(
+    int index,
+    int itemCount,
+    double edgeGap, {
+    int leadingCount = 1,
+  }) => (index >= 1 && index <= leadingCount) || index == itemCount - 1
+      ? edgeGap
+      : controlGap;
+}
+
+/// Floats a dropdown panel just under the control toolbar, its left edge
+/// lined up with toolbar slot [slotIndex] and kept inside the screen.
+///
+/// Put it in the page's top-level [Stack], after the [Scaffold], so it covers
+/// the controls instead of pushing them down while it is open.
+class GamepadToolbarDropdown extends StatelessWidget {
+  const GamepadToolbarDropdown({
+    super.key,
+    required this.layout,
+    required this.slotIndex,
+    required this.panelWidth,
+    required this.child,
+    this.gap = 4,
+  });
+
+  final GamepadControlLayout layout;
+  final int slotIndex;
+  final double panelWidth;
+  final Widget child;
+
+  /// Space between the bottom of the toolbar and the top of the panel.
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    // The toolbar content sits inside the safe area plus 12 px each side.
+    final contentLeft = padding.left + 12;
+    final rowWidth = size.width - padding.horizontal - 24;
+    final maxLeft = math.max(
+      contentLeft,
+      size.width - padding.right - 12 - panelWidth,
+    );
+    final left = (contentLeft + layout.slotLeft(slotIndex, rowWidth)).clamp(
+      contentLeft,
+      maxLeft,
+    );
+    return Positioned(
+      left: left,
+      top: padding.top + layout.height + gap,
+      // Outside the Scaffold, so give sliders and ink splashes a Material.
+      child: Material(type: MaterialType.transparency, child: child),
+    );
+  }
 }
 
 class GamepadControlScope extends InheritedWidget {
@@ -138,6 +278,11 @@ class GamepadControlScope extends InheritedWidget {
       layout != oldWidget.layout;
 }
 
+/// Lays out the control toolbar.
+///
+/// The first item (Back) is pinned to the left edge and the last item
+/// (Settings) to the right edge, like a normal app bar; everything else is
+/// centred between them. Rows wrap when the text is too large to fit.
 class GamepadControlRows extends StatelessWidget {
   const GamepadControlRows({
     super.key,
@@ -146,33 +291,98 @@ class GamepadControlRows extends StatelessWidget {
   });
   final GamepadControlLayout layout;
   final List<Widget> children;
+
+  Widget _slot(int i) => SizedBox(
+    key: ValueKey('gamepad-control-slot-$i'),
+    width: layout.widths[i],
+    height: layout.itemHeight,
+    child: children[i],
+  );
+
+  Widget _centredRun(List<int> items) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (final i in items) ...[
+        if (i != items.first) SizedBox(width: layout.gapBefore(i)),
+        _slot(i),
+      ],
+    ],
+  );
+
+  Widget _row(List<int> row, {required bool pinEdges}) {
+    final last = layout.widths.length - 1;
+    final leading = [
+      if (pinEdges)
+        for (final i in row)
+          if (i < layout.leadingCount && i != last) i,
+    ];
+    final pinEnd = pinEdges && row.last == last && last >= layout.leadingCount;
+    final middle = [
+      for (final i in row)
+        if (!leading.contains(i) && !(pinEnd && i == last)) i,
+    ];
+    if (leading.isEmpty && !pinEnd) return _centredRun(row);
+    final leadingRun = leading.isEmpty ? null : _centredRun(leading);
+    if (middle.isEmpty) {
+      return Row(
+        mainAxisAlignment: leadingRun != null && pinEnd
+            ? MainAxisAlignment.spaceBetween
+            : (leadingRun != null
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.end),
+        children: [?leadingRun, if (pinEnd) _slot(last)],
+      );
+    }
+    // Widths and gaps match GamepadControlLayout.measure, so a row that fit
+    // there fits here; the spare width is split evenly around the middle.
+    return Row(
+      children: [
+        ?leadingRun,
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: leadingRun != null ? layout.gapBefore(middle.first) : 0,
+              right: pinEnd ? layout.gapBefore(last) : 0,
+            ),
+            child: Center(child: _centredRun(middle)),
+          ),
+        ),
+        if (pinEnd) _slot(last),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     assert(children.length == layout.widths.length);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Pinning needs a bounded width and at least Back + Settings.
+        final pinEdges =
+            constraints.hasBoundedWidth && layout.widths.length >= 2;
+        final rows = [
           for (var r = 0; r < layout.rows.length; r++) ...[
             if (r > 0) const SizedBox(height: GamepadControlLayout.controlGap),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final i in layout.rows[r]) ...[
-                  if (i != layout.rows[r].first)
-                    SizedBox(width: layout.gapBefore(i)),
-                  SizedBox(
-                    key: ValueKey('gamepad-control-slot-$i'),
-                    width: layout.widths[i],
-                    height: layout.itemHeight,
-                    child: children[i],
-                  ),
-                ],
-              ],
-            ),
+            _row(layout.rows[r], pinEdges: pinEdges),
           ],
-        ],
-      ),
+        ];
+        if (!pinEdges) {
+          return Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: rows),
+          );
+        }
+        return Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: rows,
+            ),
+          ),
+        );
+      },
     );
   }
 }

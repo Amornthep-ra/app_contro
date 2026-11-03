@@ -4,6 +4,7 @@ import 'gamepad_control_toolbar.dart';
 import 'app_back_button.dart';
 import 'gamepad_app_bar.dart';
 import '../ui/app_assets.dart';
+import '../ui/lavender_glass.dart';
 import '../ui/language_controller.dart';
 
 Color _opacity(Color color, double opacity) =>
@@ -263,8 +264,19 @@ class GamepadStartStopControlButton extends StatelessWidget {
   static const Color startColor = Color(0xFF22C55E);
   static const Color emergencyStopColor = Color(0xFFEF4444);
 
+  // The round face of the Start/Stop artwork is not centred in its image:
+  // the cat ears add height on top. Fractions of the image size, measured
+  // from control_start.png and control_stop.png.
+  static const double _startFaceCenterY = 0.541;
+  static const double _stopFaceCenterY = 0.551;
+
+  /// From the centre of a [diameter] image to the centre of its round face.
+  static Offset faceOffset(double diameter, {required bool started}) => Offset(
+    0,
+    diameter * ((started ? _stopFaceCenterY : _startFaceCenterY) - 0.5),
+  );
+
   final double diameter;
-  final String heroTag;
   final bool isStarted;
   final bool isBusy;
   final VoidCallback? onPressed;
@@ -272,7 +284,6 @@ class GamepadStartStopControlButton extends StatelessWidget {
   const GamepadStartStopControlButton({
     super.key,
     this.diameter = 48,
-    required this.heroTag,
     required this.isStarted,
     this.isBusy = false,
     required this.onPressed,
@@ -290,7 +301,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
         ? (isThai ? 'Emergency Stop' : 'Emergency Stop')
         : label;
     return _buildButton(
-      heroTag: heroTag,
+      faceOffset: faceOffset(diameter, started: isStarted),
       label: actionLabel,
       asset: isStarted ? AppAssets.controlStop : AppAssets.controlStart,
       fallback: isStarted
@@ -303,7 +314,7 @@ class GamepadStartStopControlButton extends StatelessWidget {
   }
 
   Widget _buildButton({
-    required String heroTag,
+    required Offset faceOffset,
     required String label,
     required String asset,
     required IconData fallback,
@@ -317,57 +328,46 @@ class GamepadStartStopControlButton extends StatelessWidget {
       label: label,
       child: Tooltip(
         message: label,
-        child: Hero(
-          tag: heroTag,
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onPressed,
-              customBorder: const CircleBorder(),
-              child: SizedBox(
-                width: diameter < 48 ? 48 : diameter,
-                height: diameter < 48 ? 48 : diameter,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      width: diameter * .75,
-                      height: diameter * .75,
-                      decoration: BoxDecoration(
-                        color: color.withAlpha(isBusy ? 38 : 24),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withAlpha(
-                              onPressed == null ? 45 : 150,
-                            ),
-                            blurRadius: isBusy ? 24 : 18,
-                            spreadRadius: isBusy ? 3 : 1,
-                          ),
-                        ],
-                      ),
+        // No Hero: every control page has this button in the same spot,
+        // and a shared Hero made it fly over the page transition instead
+        // of leaving with its page.
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: SizedBox(
+              width: diameter < 48 ? 48 : diameter,
+              height: diameter < 48 ? 48 : diameter,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Artwork only: the toolbar already makes the button
+                  // stand out, and halos/glows were cut off by the cat
+                  // ears, paw and tail (owner's device test).
+                  Opacity(
+                    opacity: onPressed == null ? 0.4 : 1,
+                    child: Image.asset(
+                      asset,
+                      width: diameter,
+                      height: diameter,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          Icon(fallback, size: diameter * .83, color: color),
                     ),
-                    Opacity(
-                      opacity: onPressed == null ? 0.4 : 1,
-                      child: Image.asset(
-                        asset,
-                        width: diameter,
-                        height: diameter,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Icon(fallback, size: diameter * .83, color: color),
-                      ),
-                    ),
-                    if (isBusy)
-                      const SizedBox(
+                  ),
+                  // The spinner centres on the artwork's round face, which
+                  // sits a little below the image centre.
+                  if (isBusy)
+                    Transform.translate(
+                      offset: faceOffset,
+                      child: const SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(strokeWidth: 2.5),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -878,6 +878,12 @@ class GamepadToolIconPill extends StatelessWidget {
   final Key? pillKey;
   final bool active;
 
+  /// The way out of the editor (Done): a filled violet pill that also
+  /// shows [label] when its slot is at least [primaryLabelMinWidth] wide.
+  final bool primary;
+
+  static const double primaryLabelMinWidth = 64;
+
   const GamepadToolIconPill({
     super.key,
     required this.icon,
@@ -886,10 +892,87 @@ class GamepadToolIconPill extends StatelessWidget {
     required this.onTap,
     this.pillKey,
     this.active = false,
+    this.primary = false,
   });
+
+  Widget _buildPrimary(BuildContext context) {
+    final metrics = GamepadAppBarMetrics.forWidth(
+      MediaQuery.of(context).size.width,
+    );
+    final radius = BorderRadius.circular(999);
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: label,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final showLabel =
+                  constraints.maxWidth >= primaryLabelMinWidth &&
+                  MediaQuery.textScalerOf(context).scale(1) <= 1.3;
+              return Center(
+                child: DecoratedBox(
+                  key: pillKey,
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        LavenderPalette.violet,
+                        LavenderPalette.violetBright,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: LavenderPalette.violet.withValues(alpha: 0.30),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    height: metrics.controlHeight,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, size: 18, color: Colors.white),
+                        if (showLabel) ...[
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.clip,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (primary) return _buildPrimary(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final enabled = onTap != null;
@@ -912,13 +995,20 @@ class GamepadToolIconPill extends StatelessWidget {
       label: label,
       child: Tooltip(
         message: label,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.5,
-          child: GamepadGlassTopPill(
-            pillKey: pillKey,
-            onTap: onTap,
-            padding: EdgeInsets.zero,
-            child: Icon(icon, size: 18, color: iconColor),
+        // The pill draws at the short visual height, but the whole 48 px
+        // slot around it takes the tap, so a tap just above or below the
+        // pill still works. Taps on the pill itself keep its ripple.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: GamepadGlassTopPill(
+              pillKey: pillKey,
+              onTap: onTap,
+              padding: EdgeInsets.zero,
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
           ),
         ),
       ),

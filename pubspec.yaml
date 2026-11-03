@@ -59,16 +59,21 @@ flutter:
         - asset: assets/fonts/Roboto/static/Roboto-BoldItalic.ttf
           weight: 700
           style: italic
+    - family: Kanit
+      fonts:
+        - asset: assets/fonts/Kanit/Kanit-Regular.ttf
+        - asset: assets/fonts/Kanit/Kanit-Bold.ttf
+          weight: 700
 
 flutter_native_splash:
   android: true
   ios: true
   web: false
-  color: "#050910"
+  color: "#EDE3F6"
   image: assets/Logo/splash_logo.png
 
   android_12:
-    color: "#050910"
+    color: "#EDE3F6"
     image: assets/Logo/splash_android12.png
 
 

@@ -6,7 +6,13 @@ import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
-import '../../../../core/widgets/editable_start_stop.dart';
+import '../../../../core/widgets/control_background.dart';
+import '../../../../core/widgets/gamepad_edit_hint.dart';
+import '../../../../core/ui/gamepad_edit_metrics.dart';
+import '../../../../core/ui/lavender_glass.dart';
+import '../../../../core/widgets/gamepad_edit_grid.dart';
+import '../../../../core/widgets/circular_hit_area.dart';
+import '../../../../core/widgets/control_start_stop.dart';
 import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +27,7 @@ import '../joystick_theme.dart';
 import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../../core/ui/gamepad_assets.dart';
+import '../../../gamepad/widgets/gamepad_controls_sheet.dart';
 import '../../../../core/ui/control_mode_preference.dart';
 import '../../../../core/ui/gamepad_components.dart';
 import '../../../../core/ui/app_assets.dart';
@@ -38,7 +45,6 @@ const double kJoyMinSize = 0.6;
 const double kJoyMaxSize = 1.6;
 const double kJoyBtnMinSize = 0.6;
 const double kJoyBtnMaxSize = 1.6;
-const double _gridStep = 0.05;
 const String kJoyLeftId = 'joy_left';
 const String kJoyRightId = 'joy_right';
 const String kJoyYOnlyId = 'joy_y_only';
@@ -48,16 +54,42 @@ const String kBtnCrossId = 'btn_cross';
 const String kBtnSquareId = 'btn_square';
 const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
-double _snapToGrid(double value) {
-  if (_gridStep <= 0) return value;
-  return (value / _gridStep).round() * _gridStep;
-}
+
+/// While Start is on and nothing is touched, the Joystick page re-sends the
+/// zero joystick frame this often. The board stops and drops the session
+/// after 400 ms without a valid packet (docs/PB_CONTROL_PROTOCOL_V2.md); 4 / 8
+/// BTN already refresh it every 150 ms while idle.
+const int kJoystickIdleKeepaliveMs = 150;
+
+/// The Joystick page's control timer period.
+const int kJoystickTickMs = 25;
+
+/// Whether the idle keepalive is due after [ticksSinceSend] timer ticks
+/// without a frame. Counted in ticks, not wall-clock time, so a change of
+/// the phone's clock cannot stop it.
+@visibleForTesting
+bool joystickIdleKeepaliveDue(int ticksSinceSend) =>
+    ticksSinceSend * kJoystickTickMs >= kJoystickIdleKeepaliveMs;
 
 class JoystickPage extends StatefulWidget {
-  const JoystickPage({super.key, this.acquireControl});
+  const JoystickPage({
+    super.key,
+    this.acquireControl,
+    this.openOnArrival,
+    this.onControlFrameForTesting,
+  });
 
   // Optional transport seam for exercising delayed Start completion in tests.
   final Future<int?> Function()? acquireControl;
+
+  /// Called with every control frame the page hands to BleManager (tests).
+  @visibleForTesting
+  final void Function(JoystickPacket packet, Set<int> buttons)?
+  onControlFrameForTesting;
+
+  /// Set when Settings switched to this mode to edit it or open its saved
+  /// layouts (see [ControlPageArguments]).
+  final ControlModeOpen? openOnArrival;
   @override
   State<JoystickPage> createState() => _JoystickPageState();
 }
@@ -79,8 +111,6 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _editMode = false;
   bool _menuOpen = false;
   String? _selectedId;
-  StartStopPlacement _startStop = const StartStopPlacement();
-  final _startStopKey = GlobalKey<EditableStartStopSurfaceState>();
   Size? _panelSize;
   Map<String, _JoyLayout> _layout = {};
   Set<String> _activeIds = {kJoyLeftId, kJoyRightId};
@@ -112,6 +142,9 @@ class _JoystickPageState extends State<JoystickPage> {
   static const double _delta = 0.005;
   static const int _activeKeepaliveMs = 50;
   int _lastControlSendMs = 0;
+
+  /// Control timer ticks since the last frame (idle keepalive).
+  int _ticksSinceSend = 0;
   double _lerp(double a, double b, double t) => a + (b - a) * t;
   String _fmt(double v) => v.toStringAsFixed(2);
   final _leftDebug = ValueNotifier<String>("X:0.00 Y:0.00");
@@ -192,6 +225,8 @@ class _JoystickPageState extends State<JoystickPage> {
     final owner = _bleTrafficOwner;
     if (owner == null) return;
     _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
+    _ticksSinceSend = 0;
+    widget.onControlFrameForTesting?.call(packet, buttons ?? const <int>{});
     unawaited(
       BleManager.instance.sendJoystickBinary(
         packet: packet,
@@ -360,7 +395,9 @@ class _JoystickPageState extends State<JoystickPage> {
       }
     };
     LanguageController.isThai.addListener(_langListener);
-    _loadLayout();
+    final layoutLoaded = _loadLayout();
+    final open = widget.openOnArrival;
+    if (open != null) unawaited(_openAfterLoad(layoutLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
       _resetInputState();
@@ -369,8 +406,9 @@ class _JoystickPageState extends State<JoystickPage> {
         unawaited(_releaseTrafficOwnershipForExit());
       }
     });
-    _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: kJoystickTickMs), (_) {
       if (!_controlStarted || _editMode) return;
+      _ticksSinceSend++;
       final packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
       final buttonsChanged = buttonsKey != _lastButtonsKey;
@@ -418,8 +456,19 @@ class _JoystickPageState extends State<JoystickPage> {
           (packet.ry - _lastRY).abs() > _delta;
       if (!changed && !buttonsChanged) {
         final active = !nearZero || buttonsKey != 0;
+        if (!active) {
+          // Idle: refresh the board's 400 ms watchdog with the same zero
+          // frame that Start and releasing a stick send.
+          if (joystickIdleKeepaliveDue(_ticksSinceSend)) {
+            _sendBinary(
+              JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
+              buttons: _pressedButtons(),
+            );
+          }
+          return;
+        }
         final now = DateTime.now().millisecondsSinceEpoch;
-        if (!active || now - _lastControlSendMs < _activeKeepaliveMs) {
+        if (now - _lastControlSendMs < _activeKeepaliveMs) {
           return;
         }
       }
@@ -435,6 +484,7 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _switchToControlMode({
     required String route,
     required String source,
+    ControlModeOpen? open,
   }) async {
     if (_modeSwitchInProgress || _editMode) return;
     final manager = BleManager.instance;
@@ -457,35 +507,107 @@ class _JoystickPageState extends State<JoystickPage> {
       manager.handoffControlForModeSwitch(owner: owner, source: source);
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed<void, bool>(route, result: true);
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      route,
+      result: true,
+      arguments: ControlPageArguments(open: open),
+    );
   }
 
   Future<void> _openSettings() async {
     if (_editMode || _modeSwitchInProgress) return;
-    final action = await Navigator.of(context).push<ControlModeSettingsAction>(
+    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.joystick,
         onManageLayouts: _showPresetSheet,
       ),
     );
-    if (!mounted) return;
-    switch (action) {
-      case ControlModeSettingsAction.editLayout:
-        _toggleEdit();
-      case ControlModeSettingsAction.selectFourButton:
+    if (!mounted || result == null) return;
+    switch (result.mode) {
+      case ControlMode.joystick:
+        _openFromSettings(result.open);
+      case ControlMode.fourButton:
         await _switchToControlMode(
           route: AppRoutes.gamepad4Button,
           source: 'joystick_to_gamepad_4',
+          open: result.open,
         );
-      case ControlModeSettingsAction.selectEightButton:
+      case ControlMode.eightButton:
         await _switchToControlMode(
           route: AppRoutes.gamepad8Button,
           source: 'joystick_to_gamepad_8',
+          open: result.open,
         );
-      case ControlModeSettingsAction.selectJoystick:
+    }
+  }
+
+  /// Opens what Settings asked for, on this page.
+  void _openFromSettings(ControlModeOpen? open) {
+    switch (open) {
+      case ControlModeOpen.layoutEditor:
+        if (!_editMode) _toggleEdit();
+      case ControlModeOpen.savedLayouts:
+        unawaited(_showPresetSheet());
       case null:
         break;
     }
+  }
+
+  /// Reached by switching from Settings: open the editor or Saved layouts
+  /// once the saved layout has loaded and the pad has been laid out.
+  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
+    await loaded;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openFromSettings(open);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _showStartFirstNotice() {
+    showGamepadTopNotice(
+      context,
+      message: 'Tap Start to drive',
+      style: GamepadNoticeStyle.warning,
+    );
+  }
+
+  Widget _buildToolbarStartStop() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => ControlStartStopButton(
+        started: _controlStarted && !suspended,
+        busy: _startInProgress,
+        onPressed: _controlStarted && !suspended
+            ? _stopControl
+            : (_canStartControl ? _startControl : null),
+      ),
+    );
+  }
+
+  Widget _buildStartHint(GamepadControlLayout layout) {
+    final padding = MediaQuery.paddingOf(context);
+    return ValueListenableBuilder<bool>(
+      valueListenable: BleManager.instance.controlSuspendedListenable,
+      builder: (context, suspended, _) => Positioned(
+        left: padding.left,
+        right: padding.right,
+        top: padding.top + layout.height,
+        bottom: 0,
+        child: Stack(
+          children: [
+            ControlStartHint(
+              // Only under a one-row toolbar, where it sits right below Start.
+              visible:
+                  layout.rows.length == 1 &&
+                  !(_controlStarted && !suspended) &&
+                  !_startInProgress,
+              anchorX: ControlStartHint.anchorXFor(layout),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -591,12 +713,6 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Future<void> _loadLayout() async {
     final prefs = await SharedPreferences.getInstance();
-    final systemRaw = prefs.getString('${_prefsLayout}_start_stop');
-    if (systemRaw != null) {
-      try {
-        _startStop = StartStopPlacement.fromJson(jsonDecode(systemRaw));
-      } catch (_) {}
-    }
     final raw = prefs.getString(_prefsLayout);
     final activeRaw = prefs.getString(_prefsActive);
     if (raw != null && raw.isNotEmpty) {
@@ -615,10 +731,6 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _saveLayout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsLayout, jsonEncode(_encodeLayout(_layout)));
-    await prefs.setString(
-      '${_prefsLayout}_start_stop',
-      jsonEncode(_startStop.toJson()),
-    );
   }
 
   Future<void> _saveActive() async {
@@ -685,7 +797,7 @@ class _JoystickPageState extends State<JoystickPage> {
 
   void _toggleSelectedLock() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     _pushHistory();
     setState(() {
       if (_lockedIds.contains(id)) {
@@ -706,7 +818,6 @@ class _JoystickPageState extends State<JoystickPage> {
 
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
-      startStop: _startStop,
       layout: _cloneLayout(_layout),
       activeIds: Set<String>.from(_activeIds),
       lockedIds: Set<String>.from(_lockedIds),
@@ -715,7 +826,6 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
-    _startStop = snap.startStop;
     _layout = _cloneLayout(snap.layout);
     _activeIds = Set<String>.from(snap.activeIds);
     _lockedIds
@@ -724,9 +834,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _selectedId = snap.selectedId;
     _layout.removeWhere((k, _) => !_activeIds.contains(k));
     _lockedIds.removeWhere((id) => !_layout.containsKey(id));
-    if (_selectedId != null &&
-        _selectedId != startStopEditId &&
-        !_layout.containsKey(_selectedId)) {
+    if (_selectedId != null && !_layout.containsKey(_selectedId)) {
       _selectedId = null;
     }
   }
@@ -771,13 +879,20 @@ class _JoystickPageState extends State<JoystickPage> {
         if (_isLeftJoy(id)) _resetLeftJoystick();
         if (_isRightJoy(id)) _resetRightJoystick();
       } else {
-        _activeIds.add(id);
-        if (_panelSize != null) {
-          final defaults = _defaultLayout(_panelSize!, _activeIds);
-          final def = defaults[id];
-          if (def != null) {
-            _layout[id] = def;
+        final panel = _panelSize;
+        if (panel != null) {
+          // Pin what is already on the pad: default spots depend on which
+          // controls are active, and adding one must not move the others.
+          final before = _defaultLayout(panel, _activeIds);
+          for (final other in _activeIds) {
+            final def = before[other];
+            if (def != null) _layout.putIfAbsent(other, () => def);
           }
+        }
+        _activeIds.add(id);
+        if (panel != null) {
+          final def = _defaultLayout(panel, _activeIds)[id];
+          if (def != null) _layout[id] = _placeOnFreeSpot(id, def, panel);
         }
       }
     });
@@ -785,15 +900,69 @@ class _JoystickPageState extends State<JoystickPage> {
     _saveActive();
   }
 
+  /// [def] moved to the nearest spot that does not crowd the controls
+  /// already on the pad. New buttons used to land on the right joystick.
+  _JoyLayout _placeOnFreeSpot(String id, _JoyLayout def, Size panel) {
+    double radius(String key, _JoyLayout layout) => _joyVisibleRadius(
+      key,
+      (_isButtonId(key) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+          layout.size,
+    );
+    // Same edge rule as dragging a control on this page.
+    const edge = 16.0;
+    final w = panel.width;
+    final h = panel.height;
+    // The edge rule uses the whole box; spacing uses the visible face.
+    final half =
+        (_isButtonId(id) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+        def.size /
+        2;
+    final spot = GamepadEditMetrics.freeSpotFor(
+      preferred: Offset(def.cx * w, def.cy * h),
+      radius: radius(id, def),
+      centreArea: Rect.fromLTRB(
+        edge + half,
+        edge + half,
+        w - edge - half,
+        h - edge - half,
+      ),
+      others: [
+        for (final other in _activeIds)
+          if (other != id && _layout[other] != null)
+            (
+              Offset(_layout[other]!.cx * w, _layout[other]!.cy * h),
+              radius(other, _layout[other]!),
+            ),
+      ],
+    );
+    return _JoyLayout(spot.dx / w, spot.dy / h, def.size);
+  }
+
   void _removeSelected() {
     final id = _selectedId;
-    if (id == null || id == startStopEditId) return;
+    if (id == null) return;
     _toggleActive(id);
   }
 
-  void _resetLayout() async {
+  /// Reset tool: asks first, then puts every control back to its default
+  /// place and size (Undo still brings the layout back).
+  Future<void> _resetLayout() async {
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      title: 'Reset layout?',
+      message:
+          'Every control goes back to its default place and size. '
+          'Undo brings your layout back.',
+      confirmLabel: 'Reset',
+      icon: Icons.restart_alt_rounded,
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await _applyReset();
+  }
+
+  Future<void> _applyReset() async {
     _pushHistory();
-    _startStop = const StartStopPlacement();
     final defaultActive = Set<String>.from(kJoyDefaultActiveIds);
     final defaultLayout = _panelSize != null
         ? _defaultLayout(_panelSize!, defaultActive)
@@ -946,6 +1115,7 @@ class _JoystickPageState extends State<JoystickPage> {
     required VoidCallback? onTap,
     Key? key,
     bool active = false,
+    bool primary = false,
   }) {
     return GamepadToolIconPill(
       pillKey: key,
@@ -954,6 +1124,7 @@ class _JoystickPageState extends State<JoystickPage> {
       accent: accent,
       onTap: onTap,
       active: active,
+      primary: primary,
     );
   }
 
@@ -1044,7 +1215,6 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'startStop': _startStop.toJson(),
       'layout': _encodeLayout(_layout),
       'active': _activeIds.toList(),
     };
@@ -1062,7 +1232,6 @@ class _JoystickPageState extends State<JoystickPage> {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return;
-      _startStop = StartStopPlacement.fromJson(obj['startStop']);
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       if (layoutRaw is Map) {
@@ -1135,307 +1304,72 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _openButtonsMenu() async {
-    await _showEditMenuAndroid();
-  }
-
-  Future<void> _showEditMenuAndroid() async {
-    if (_menuOpen) return;
+    if (_menuOpen || !mounted) return;
     _menuOpen = true;
-    if (!mounted) {
-      _menuOpen = false;
-      return;
-    }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: false,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: const Color(0x6635206B),
-      builder: (context) {
-        final maxHeight = MediaQuery.of(context).size.height * 0.7;
-        final theme = Theme.of(context);
-        final isDark = theme.brightness == Brightness.dark;
-        final scrollController = ScrollController();
-        return SafeArea(
-          top: false,
-          child: StatefulBuilder(
-            builder: (context, setSheetState) {
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: CatGlassModalSurface(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: maxHeight),
-                    child: _buildButtonsSheetContent(
-                      context: context,
-                      scrollController: scrollController,
-                      isDark: isDark,
-                      setSheetState: setSheetState,
-                      showTutorial: false,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-    _menuOpen = false;
-  }
-
-  Widget _buildButtonsSheetContent({
-    required BuildContext context,
-    required ScrollController scrollController,
-    required bool isDark,
-    required void Function(VoidCallback fn) setSheetState,
-    required bool showTutorial,
-  }) {
-    final isThai = LanguageController.isThai.value;
-    final tutorialLock = showTutorial;
-    final accent = const Color(0xFF38BDF8);
-    final titleColor = _opacity(
-      isDark ? Colors.white : const Color(0xFF0F172A),
-      0.94,
-    );
-    final subtitleColor = _opacity(
-      isDark ? Colors.white : const Color(0xFF0F172A),
-      0.70,
-    );
-    Widget row(String id, String label, bool active) {
-      final rowTextColor = _opacity(
-        isDark ? Colors.white : const Color(0xFF0F172A),
-        0.92,
-      );
-      return InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: tutorialLock
-            ? null
-            : () {
-                gamepadBuzz();
-                _toggleActive(id);
-                setSheetState(() {});
-              },
-        child: Opacity(
-          opacity: tutorialLock ? 0.6 : 1.0,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            decoration: BoxDecoration(
-              color: _opacity(Colors.white, active ? 0.12 : 0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _opacity(
-                  active ? accent : Colors.white,
-                  active ? 0.56 : 0.12,
-                ),
+    try {
+      await showGamepadControlsSheet(
+        context: context,
+        groups: const [
+          GamepadControlGroup(
+            title: 'Joysticks',
+            choices: [
+              GamepadControlChoice(
+                id: kJoyLeftId,
+                label: 'Left Joystick',
+                icon: Icons.control_camera_rounded,
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: _opacity(accent, active ? 0.22 : 0.08),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: _opacity(accent, active ? 0.66 : 0.25),
-                    ),
-                  ),
-                  child: Icon(
-                    active ? Icons.check_rounded : Icons.add_rounded,
-                    size: 14,
-                    color: active
-                        ? accent
-                        : _opacity(
-                            isDark ? Colors.white : const Color(0xFF0F172A),
-                            0.62,
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: rowTextColor,
-                      fontSize: 13.5,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Icon(
-                  active
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  size: 16,
-                  color: active
-                      ? accent
-                      : _opacity(
-                          isDark ? Colors.white : const Color(0xFF0F172A),
-                          0.30,
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return ScrollbarTheme(
-      data: isDark
-          ? const ScrollbarThemeData()
-          : ScrollbarThemeData(
-              thumbColor: WidgetStateProperty.all(Colors.white),
-            ),
-      child: Scrollbar(
-        controller: scrollController,
-        thumbVisibility: true,
-        trackVisibility: true,
-        thickness: 4,
-        radius: const Radius.circular(999),
-        child: SingleChildScrollView(
-          controller: scrollController,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!showTutorial)
-                Center(
-                  child: Container(
-                    width: 30,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: _opacity(accent, isDark ? 0.55 : 0.35),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-              if (!showTutorial) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: _opacity(accent, isDark ? 0.20 : 0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.tune_rounded,
-                              size: 13,
-                              color: accent,
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                          Text(
-                            isThai ? 'Buttons' : 'Buttons',
-                            style: TextStyle(
-                              color: titleColor,
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        gamepadBuzz();
-                        Navigator.pop(context);
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: _opacity(
-                          isDark ? Colors.white : const Color(0xFF0F172A),
-                          0.72,
-                        ),
-                      ),
-                      child: Text(isThai ? 'Cancel' : 'Cancel'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isThai
-                      ? 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.'
-                      : 'Tap to enable or disable joysticks and buttons. Enabled items appear on the control area.',
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 12,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Text(
-                isThai ? 'Joysticks' : 'Joysticks',
-                style: TextStyle(
-                  color: subtitleColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              GamepadControlChoice(
+                id: kJoyRightId,
+                label: 'Right Joystick',
+                icon: Icons.control_camera_rounded,
               ),
-              row(
-                kJoyLeftId,
-                isThai ? 'Left Joystick' : 'Left Joystick',
-                _activeIds.contains(kJoyLeftId),
+              GamepadControlChoice(
+                id: kJoyYOnlyId,
+                label: 'Joystick (Y only)',
+                icon: Icons.swap_vert_rounded,
               ),
-              row(
-                kJoyRightId,
-                isThai ? 'Right Joystick' : 'Right Joystick',
-                _activeIds.contains(kJoyRightId),
+              GamepadControlChoice(
+                id: kJoyXOnlyId,
+                label: 'Joystick (X only)',
+                icon: Icons.swap_horiz_rounded,
               ),
-              row(
-                kJoyYOnlyId,
-                isThai ? 'Joystick (Y only)' : 'Joystick (Y only)',
-                _activeIds.contains(kJoyYOnlyId),
-              ),
-              row(
-                kJoyXOnlyId,
-                isThai ? 'Joystick (X only)' : 'Joystick (X only)',
-                _activeIds.contains(kJoyXOnlyId),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                isThai ? 'Buttons' : 'Buttons',
-                style: TextStyle(
-                  color: subtitleColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              row(
-                kBtnTriangleId,
-                isThai ? 'Triangle' : 'Triangle',
-                _activeIds.contains(kBtnTriangleId),
-              ),
-              row(
-                kBtnCrossId,
-                isThai ? 'Cross' : 'Cross',
-                _activeIds.contains(kBtnCrossId),
-              ),
-              row(
-                kBtnSquareId,
-                isThai ? 'Square' : 'Square',
-                _activeIds.contains(kBtnSquareId),
-              ),
-              row(
-                kBtnCircleId,
-                isThai ? 'Circle' : 'Circle',
-                _activeIds.contains(kBtnCircleId),
-              ),
-              if (!showTutorial) const SizedBox(height: 4),
             ],
           ),
-        ),
-      ),
-    );
+          GamepadControlGroup(
+            title: 'Buttons',
+            choices: [
+              GamepadControlChoice(
+                id: kBtnTriangleId,
+                label: 'Triangle',
+                asset: kGamepad8AssetTriangle,
+              ),
+              GamepadControlChoice(
+                id: kBtnCrossId,
+                label: 'Cross',
+                asset: kGamepad8AssetCross,
+              ),
+              GamepadControlChoice(
+                id: kBtnSquareId,
+                label: 'Square',
+                asset: kGamepad8AssetSquare,
+              ),
+              GamepadControlChoice(
+                id: kBtnCircleId,
+                label: 'Circle',
+                asset: kGamepad8AssetCircle,
+              ),
+            ],
+          ),
+        ],
+        isActive: (id) => _activeIds.contains(id),
+        onToggle: (id) {
+          gamepadBuzz();
+          _toggleActive(id);
+        },
+      );
+    } finally {
+      _menuOpen = false;
+    }
   }
 
   void _showSizeLimit(bool atMax) {
@@ -1510,10 +1444,6 @@ class _JoystickPageState extends State<JoystickPage> {
   void _adjustSelectedSize(double delta) {
     final id = _selectedId;
     if (id == null) return;
-    if (id == startStopEditId) {
-      _startStopKey.currentState?.adjustSize(delta);
-      return;
-    }
     if (_lockedIds.contains(id)) return;
     final panel = _panelSize;
     if (panel == null) return;
@@ -1561,24 +1491,19 @@ class _JoystickPageState extends State<JoystickPage> {
           ? _baseBtnSize(panel)
           : _baseJoySize(panel);
       final otherSizePx = otherBase * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dx = cx - ox;
-      final dy = cy - oy;
-      final dist = math.sqrt(dx * dx + dy * dy);
-      if (dist < minDist) {
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: Offset(current.cx * w, current.cy * h),
+        fromRadius: _joyVisibleRadius(id, base * current.size),
+        toCentre: Offset(cx, cy),
+        toRadius: _joyVisibleRadius(id, sizePx),
+        otherCentre: Offset(ox, oy),
+        otherRadius: _joyVisibleRadius(entry.key, otherSizePx),
+      )) {
         collides = true;
         break;
       }
     }
-    if (collides ||
-        ((_startStopKey.currentState?.blocksRect(
-              Rect.fromCenter(
-                center: Offset(cx, cy),
-                width: sizePx,
-                height: sizePx,
-              ),
-            ) ??
-            false))) {
+    if (collides) {
       HapticFeedback.vibrate();
       _showOverlapWarning();
       _flashEditWarning(id);
@@ -1598,26 +1523,8 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Widget _buildGridOverlay() {
     if (!_editMode || !_showGrid) return const SizedBox.shrink();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final minor = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.14 : 0.16,
-    );
-    final major = _opacity(
-      isDark ? Colors.white : Colors.black,
-      isDark ? 0.24 : 0.30,
-    );
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(
-          painter: _GridPainter(
-            step: _gridStep,
-            minorColor: minor,
-            majorColor: major,
-          ),
-        ),
-      ),
-    );
+    // The joystick pad fills this Stack, so the grid lines up with snapping.
+    return const Positioned.fill(child: GamepadEditGrid());
   }
 
   bool _isButtonId(String id) {
@@ -1807,6 +1714,7 @@ class _JoystickPageState extends State<JoystickPage> {
       textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
       children: [
         _buildAppBarBackButton(appBarMetrics),
+        _buildToolbarStartStop(),
         ...telemetry,
         ..._buildAppBarActions(
           isThai: isThai,
@@ -1833,21 +1741,31 @@ class _JoystickPageState extends State<JoystickPage> {
     return GamepadCenteredToolbar(
       textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
       singleRow: true,
+      // [Done] | [Buttons] | [Lock - + Delete] | [Grid] | [Undo Redo] | [Reset]
+      groupStarts: const {1, 2, 6, 7, 9},
       children: [
         _toolIconPill(
           icon: Icons.done_rounded,
           label: 'Done',
           accent: const Color(0xFF60A5FA),
           onTap: withBuzz(_toggleEdit),
+          primary: true,
+        ),
+        // Choose which joysticks and buttons (△ ✕ □ ○) are on the pad.
+        // This entry point was lost when the editor moved to this toolbar.
+        _toolIconPill(
+          key: const ValueKey('joystick-edit-controls'),
+          icon: Icons.videogame_asset_outlined,
+          label: 'Buttons',
+          accent: const Color(0xFF34D399),
+          onTap: withBuzz(_openButtonsMenu),
         ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_toggleSelectedLock)
-              : null,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
@@ -1862,6 +1780,12 @@ class _JoystickPageState extends State<JoystickPage> {
           label: isThai ? 'เพิ่มขนาด' : 'Increase size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
+        ),
+        _toolIconPill(
+          icon: Icons.delete_outline,
+          label: isThai ? 'ลบ' : 'Delete',
+          accent: const Color(0xFFF87171),
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
         _toolIconPill(
           icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
@@ -1887,14 +1811,6 @@ class _JoystickPageState extends State<JoystickPage> {
           label: 'Reset',
           accent: const Color(0xFFF59E0B),
           onTap: withBuzz(_resetLayout),
-        ),
-        _toolIconPill(
-          icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
-          accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_removeSelected)
-              : null,
         ),
       ],
     );
@@ -1943,9 +1859,7 @@ class _JoystickPageState extends State<JoystickPage> {
           label: isThai ? 'ลบ' : 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_removeSelected)
-              : null,
+          onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
         GamepadOverflowAction(
           label: 'Reset',
@@ -1979,9 +1893,7 @@ class _JoystickPageState extends State<JoystickPage> {
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
-          onTap: hasSelection && _selectedId != startStopEditId
-              ? withBuzz(_toggleSelectedLock)
-              : null,
+          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
       ],
     );
@@ -2222,34 +2134,19 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Widget _buildStartStopSurface({required Widget child}) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: BleManager.instance.controlSuspendedListenable,
-      builder: (context, suspended, _) => EditableStartStopSurface(
-        key: _startStopKey,
-        placement: _startStop,
-        editing: _editMode,
-        selected: _selectedId == startStopEditId,
-        snapToGrid: _showGrid,
-        started: _controlStarted && !suspended,
-        busy: _startInProgress,
-        onPressed: _controlStarted && !suspended
-            ? _stopControl
-            : (_canStartControl ? _startControl : null),
-        onSelect: () => setState(() => _selectedId = startStopEditId),
-        onBeginChange: _pushHistory,
-        onChanged: (next) {
-          setState(() => _startStop = next);
-          _saveLayout();
-        },
-        onBlocked: _showBoundaryWarning,
-        child: child,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final controlLayout = _editMode
+        ? null
+        : GamepadControlLayout.measure(context, [
+            '',
+            '',
+            'CMD 255',
+            'X:-1.00 Y:-1.00',
+            'X:-1.00 Y:-1.00',
+            '@ble',
+            '',
+          ], leadingCount: 2);
     final width = MediaQuery.of(context).size.width;
     final appBarMetrics = GamepadAppBarMetrics.forWidth(width);
     final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
@@ -2268,19 +2165,10 @@ class _JoystickPageState extends State<JoystickPage> {
           Scaffold(
             extendBodyBehindAppBar: true,
             appBar: GamepadUnifiedAppBar(
-              controlLayout: _editMode
-                  ? null
-                  : GamepadControlLayout.measure(context, [
-                      '',
-                      'CMD 255',
-                      'X:-1.00 Y:-1.00',
-                      'X:-1.00 Y:-1.00',
-                      '@ble',
-                      '',
-                    ]),
+              controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
-              toolbarItemCount: _editMode ? 9 : 6,
+              toolbarItemCount: _editMode ? 10 : 7,
               singleRowToolbar: _editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,
@@ -2297,18 +2185,14 @@ class _JoystickPageState extends State<JoystickPage> {
             ),
             body: Stack(
               children: [
-                Positioned.fill(
-                  child: Image.asset(
-                    AppAssets.controlBackground,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                  ),
-                ),
+                Positioned.fill(child: const ControlBackground()),
                 SafeArea(
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
                       _buildGridOverlay(),
+                      if (_editMode)
+                        GamepadEditHint(hasSelection: _selectedId != null),
                       _buildAlignmentGuides(),
                       LayoutBuilder(
                         builder: (context, c) {
@@ -2423,21 +2307,21 @@ class _JoystickPageState extends State<JoystickPage> {
                               ),
                             );
                           }
-                          return _buildStartStopSurface(
-                            child: ControlInputGate(
-                              started: _controlStarted,
-                              editing: _editMode,
-                              suspended: BleManager
-                                  .instance
-                                  .controlSuspendedListenable,
-                              child: Stack(children: widgets),
-                            ),
+                          return ControlInputGate(
+                            started: _controlStarted,
+                            editing: _editMode,
+                            suspended:
+                                BleManager.instance.controlSuspendedListenable,
+                            onLockedTap: _showStartFirstNotice,
+                            child: Stack(children: widgets),
                           );
                         },
                       ),
                     ],
                   ),
                 ),
+
+                if (controlLayout != null) _buildStartHint(controlLayout),
               ],
             ),
           ),
@@ -2501,11 +2385,7 @@ class _JoystickPageState extends State<JoystickPage> {
       ),
     );
     if (!_editMode) {
-      return Positioned(
-        left: cx - half,
-        top: cy - half,
-        child: StartStopObstacle(child: joyWidget),
-      );
+      return Positioned(left: cx - half, top: cy - half, child: joyWidget);
     }
     return _EditableJoystick(
       id: id,
@@ -2541,7 +2421,7 @@ class _JoystickPageState extends State<JoystickPage> {
       onCollision: _showOverlapWarning,
       onBoundaryWarning: _showBoundaryWarning,
       externalWarning: _editWarningId == id,
-      child: StartStopObstacle(child: joyWidget),
+      child: joyWidget,
     );
   }
 
@@ -2560,6 +2440,23 @@ class _JoystickPageState extends State<JoystickPage> {
     final half = btnSize / 2;
     final cx = (layout.cx * size.width).clamp(half, size.width - half);
     final cy = (layout.cy * size.height).clamp(half, size.height - half);
+    // Face buttons split the space between them, so a touch never reaches
+    // two buttons however close they are placed.
+    final touchRadius = GamepadEditMetrics.touchRadius(
+      centre: Offset(cx, cy),
+      visibleRadius: GamepadEditMetrics.buttonVisibleRadius(btnSize),
+      maxRadius: half,
+      others: [
+        for (final entry in allLayouts.entries)
+          if (entry.key != id && _isButtonId(entry.key))
+            (
+              Offset(entry.value.cx * size.width, entry.value.cy * size.height),
+              GamepadEditMetrics.buttonVisibleRadius(
+                baseSize * entry.value.size,
+              ),
+            ),
+      ],
+    );
     final btnWidget = SizedBox(
       width: btnSize,
       height: btnSize,
@@ -2567,15 +2464,12 @@ class _JoystickPageState extends State<JoystickPage> {
         label: label,
         asset: asset,
         diameter: btnSize,
+        touchRadius: touchRadius,
         onPressChanged: (down) => _onButtonChanged(id, down),
       ),
     );
     if (!_editMode) {
-      return Positioned(
-        left: cx - half,
-        top: cy - half,
-        child: StartStopObstacle(child: btnWidget),
-      );
+      return Positioned(left: cx - half, top: cy - half, child: btnWidget);
     }
     return _EditableButtonItem(
       id: id,
@@ -2612,45 +2506,9 @@ class _JoystickPageState extends State<JoystickPage> {
       onCollision: _showOverlapWarning,
       onBoundaryWarning: _showBoundaryWarning,
       externalWarning: _editWarningId == id,
-      child: StartStopObstacle(child: btnWidget),
+      touchRadius: touchRadius,
+      child: btnWidget,
     );
-  }
-}
-
-class _GridPainter extends CustomPainter {
-  final double step;
-  final Color minorColor;
-  final Color majorColor;
-  const _GridPainter({
-    required this.step,
-    required this.minorColor,
-    required this.majorColor,
-  });
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (step <= 0) return;
-    final paint = Paint()..strokeWidth = 1;
-    final dx = size.width * step;
-    final dy = size.height * step;
-    if (dx <= 0 || dy <= 0) return;
-    const int majorEvery = 4;
-    int ix = 1;
-    for (double x = dx; x < size.width; x += dx, ix++) {
-      paint.color = (ix % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    int iy = 1;
-    for (double y = dy; y < size.height; y += dy, iy++) {
-      paint.color = (iy % majorEvery == 0) ? majorColor : minorColor;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GridPainter oldDelegate) {
-    return oldDelegate.step != step ||
-        oldDelegate.minorColor != minorColor ||
-        oldDelegate.majorColor != majorColor;
   }
 }
 
@@ -2675,16 +2533,32 @@ class _GuideState {
       snap = false;
 }
 
+bool _isFaceButtonId(String id) =>
+    id == kBtnTriangleId ||
+    id == kBtnCrossId ||
+    id == kBtnSquareId ||
+    id == kBtnCircleId;
+
+/// Radius of a control's visible edge: the round face of a face button's
+/// artwork; a joystick fills its whole circle.
+double _joyVisibleRadius(String id, double sizePx) => _isFaceButtonId(id)
+    ? GamepadEditMetrics.buttonVisibleRadius(sizePx)
+    : sizePx / 2;
+
 class _JoyImagePressHoldButton extends StatefulWidget {
   final String label;
   final String asset;
   final double diameter;
   final ValueChanged<bool>? onPressChanged;
+
+  /// Touches outside this radius reach the control underneath.
+  final double? touchRadius;
   const _JoyImagePressHoldButton({
     required this.label,
     required this.asset,
     this.diameter = 120,
     this.onPressChanged,
+    this.touchRadius,
   });
   @override
   State<_JoyImagePressHoldButton> createState() =>
@@ -2717,7 +2591,8 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
       theme.colorScheme.primary,
       theme.brightness == Brightness.dark ? 0.65 : 0.45,
     );
-    return Listener(
+    final radius = widget.touchRadius;
+    final listener = Listener(
       onPointerDown: (_) => _onDown(),
       onPointerUp: (_) => _onUpOrCancel(),
       onPointerCancel: (_) => _onUpOrCancel(),
@@ -2821,17 +2696,18 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
         ),
       ),
     );
+    return radius == null
+        ? listener
+        : CircularHitArea(radius: radius, child: listener);
   }
 }
 
 class _EditSnapshot {
-  final StartStopPlacement startStop;
   final Map<String, _JoyLayout> layout;
   final Set<String> activeIds;
   final Set<String> lockedIds;
   final String? selectedId;
   const _EditSnapshot({
-    this.startStop = const StartStopPlacement(),
     required this.layout,
     required this.activeIds,
     required this.lockedIds,
@@ -2937,10 +2813,8 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
     if (widget.snapToGrid) {
-      double nx = _snapToGrid(cx / w);
-      double ny = _snapToGrid(cy / h);
-      cx = nx * w;
-      cy = ny * h;
+      cx = GamepadEditMetrics.snapToGrid(cx);
+      cy = GamepadEditMetrics.snapToGrid(cy);
     }
     final normalizedCx = cx / w;
     final normalizedCy = cy / h;
@@ -2981,42 +2855,47 @@ class _EditableJoystickState extends State<_EditableJoystick> {
         widget.onBoundaryWarning?.call();
       }
     }
-    var collides = false;
-    for (final entry in widget.allLayouts.entries) {
-      if (entry.key == widget.id) continue;
-      final other = entry.value;
-      final ox = other.cx * w;
-      final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key)
-          ? (_baseBtnSize(w, h))
-          : widget.baseSize;
-      final otherSizePx = otherBase * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dxItem = cx - ox;
-      final dyItem = cy - oy;
-      final dist = math.sqrt(dxItem * dxItem + dyItem * dyItem);
-      if (dist < minDist) {
-        collides = true;
-        break;
+    final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+    bool blockedAt(Offset centre) {
+      for (final entry in widget.allLayouts.entries) {
+        if (entry.key == widget.id) continue;
+        final other = entry.value;
+        final otherBase = _isButtonId(entry.key)
+            ? (_baseBtnSize(w, h))
+            : widget.baseSize;
+        if (GamepadEditMetrics.crowdsNeighbour(
+          fromCentre: from,
+          fromRadius: widget.baseSize * widget.layout.size / 2,
+          toCentre: centre,
+          toRadius: sizePx / 2,
+          otherCentre: Offset(other.cx * w, other.cy * h),
+          otherRadius: _joyVisibleRadius(entry.key, otherBase * other.size),
+        )) {
+          return true;
+        }
       }
+      return false;
     }
-    if (collides) {
+
+    if (blockedAt(Offset(cx, cy))) {
       if (!_colliding) {
         HapticFeedback.vibrate();
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour (moves only; grid keeps grid points).
+      if (widget.snapToGrid || nextSize != widget.layout.size) return;
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: blockedAt,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(_JoyLayout(contact.dx / w, contact.dy / h, nextSize));
       return;
     }
     if (_colliding) {
       setState(() => _colliding = false);
-    }
-    if (EditableStartStopSurface.blocks(
-      context,
-      Rect.fromCenter(center: Offset(cx, cy), width: sizePx, height: sizePx),
-    )) {
-      widget.onCollision?.call();
-      return;
     }
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
@@ -3105,6 +2984,7 @@ class _EditableButtonItem extends StatefulWidget {
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
+  final double? touchRadius;
   final Widget child;
   const _EditableButtonItem({
     required this.id,
@@ -3125,6 +3005,7 @@ class _EditableButtonItem extends StatefulWidget {
     this.onCollision,
     this.onBoundaryWarning,
     this.externalWarning = false,
+    this.touchRadius,
     required this.child,
   });
   @override
@@ -3173,10 +3054,8 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
     if (widget.snapToGrid) {
-      double nx = _snapToGrid(cx / w);
-      double ny = _snapToGrid(cy / h);
-      cx = nx * w;
-      cy = ny * h;
+      cx = GamepadEditMetrics.snapToGrid(cx);
+      cy = GamepadEditMetrics.snapToGrid(cy);
     }
     double? snapX;
     double? snapY;
@@ -3242,40 +3121,51 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onBoundaryWarning?.call();
       }
     }
-    var collides = false;
-    for (final entry in widget.allLayouts.entries) {
-      if (entry.key == widget.id) continue;
-      if (!_isButtonEditId(entry.key)) continue;
-      final other = entry.value;
-      final ox = other.cx * w;
-      final oy = other.cy * h;
-      final otherSizePx = widget.baseSize * other.size;
-      final minDist = (sizePx / 2) + (otherSizePx / 2);
-      final dxButton = cx - ox;
-      final dyButton = cy - oy;
-      final dist = math.sqrt(dxButton * dxButton + dyButton * dyButton);
-      if (dist < minDist) {
-        collides = true;
-        break;
+    final from = Offset(widget.layout.cx * w, widget.layout.cy * h);
+    final fromRadius = GamepadEditMetrics.buttonVisibleRadius(
+      widget.baseSize * widget.layout.size,
+    );
+    final toRadius = GamepadEditMetrics.buttonVisibleRadius(sizePx);
+    bool blockedAt(Offset centre) {
+      for (final entry in widget.allLayouts.entries) {
+        if (entry.key == widget.id) continue;
+        if (!_isButtonEditId(entry.key)) continue;
+        final other = entry.value;
+        if (GamepadEditMetrics.crowdsNeighbour(
+          fromCentre: from,
+          fromRadius: fromRadius,
+          toCentre: centre,
+          toRadius: toRadius,
+          otherCentre: Offset(other.cx * w, other.cy * h),
+          otherRadius: GamepadEditMetrics.buttonVisibleRadius(
+            widget.baseSize * other.size,
+          ),
+        )) {
+          return true;
+        }
       }
+      return false;
     }
-    if (collides) {
+
+    if (blockedAt(Offset(cx, cy))) {
       if (!_colliding) {
         HapticFeedback.vibrate();
         setState(() => _colliding = true);
         widget.onCollision?.call();
       }
+      // Slide up to the neighbour (moves only; grid keeps grid points).
+      if (widget.snapToGrid || nextSize != widget.layout.size) return;
+      final contact = GamepadEditMetrics.slideToward(
+        from: from,
+        to: Offset(cx, cy),
+        blocked: blockedAt,
+      );
+      if ((contact - from).distance < 0.5) return;
+      widget.onChanged(_JoyLayout(contact.dx / w, contact.dy / h, nextSize));
       return;
     }
     if (_colliding) {
       setState(() => _colliding = false);
-    }
-    if (EditableStartStopSurface.blocks(
-      context,
-      Rect.fromCenter(center: Offset(cx, cy), width: sizePx, height: sizePx),
-    )) {
-      widget.onCollision?.call();
-      return;
     }
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
@@ -3331,6 +3221,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onEnd();
       },
       onTap: widget.onSelect,
+      touchRadius: widget.touchRadius,
       child: buttonContent,
     );
   }

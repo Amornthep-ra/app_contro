@@ -213,6 +213,75 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  // Landscape phones with the keyboard up leave about 100-170 px. The
+  // dialog used to show only Cancel and Pair there (and overflowed).
+  for (final (size, keyboard) in [
+    (const Size(800, 360), 240.0),
+    (const Size(914, 411), 200.0),
+  ]) {
+    testWidgets('code field and Pair stay visible above a landscape keyboard: '
+        '${size.width.toInt()}x${size.height.toInt()}', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: _DialogHost()));
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final visibleBottom = size.height - keyboard;
+      for (final finder in [
+        find.byType(TextField),
+        find.widgetWithText(TextButton, 'Cancel'),
+        find.widgetWithText(FilledButton, 'Pair'),
+      ]) {
+        final rect = tester.getRect(finder);
+        expect(rect.top, greaterThanOrEqualTo(0), reason: '$finder');
+        expect(
+          rect.bottom,
+          lessThanOrEqualTo(visibleBottom),
+          reason: '$finder',
+        );
+      }
+
+      await tester.enterText(find.byType(TextField), 'iLoU1234');
+      await tester.pump();
+      await tester.tap(find.text('Pair'));
+      await tester.pumpAndSettle();
+      expect(find.text('iLoU1234'), findsOneWidget);
+    });
+  }
+
+  testWidgets('the field keeps focus and text when the keyboard opens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const MaterialApp(home: _DialogHost()));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.text('English/Number · 8–16'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'ABCD12');
+    await tester.pump();
+    final fieldState = tester.state(find.byType(EditableText));
+
+    // The keyboard slides up: the dialog switches to its one-row layout.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+    await tester.pumpAndSettle();
+
+    expect(find.text('English/Number · 8–16'), findsNothing);
+    expect(tester.state(find.byType(EditableText)), same(fieldState));
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    expect(editable.focusNode.hasFocus, isTrue);
+    expect(editable.controller.text, 'ABCD12');
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _SessionCoordinator extends BleConnectionCoordinator {

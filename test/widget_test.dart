@@ -430,11 +430,11 @@ void main() {
             (widget.image as AssetImage).assetName == AppAssets.controlBack,
       ),
     );
-    expect(backImage.width, 24);
-    expect(backImage.height, 24);
+    expect(backImage.width, 40);
+    expect(backImage.height, 40);
   });
 
-  testWidgets('LineSonic uses Cat Glass navigation and the shared back asset', (
+  testWidgets('LineSonic uses the shared header, back asset and BLE badge', (
     WidgetTester tester,
   ) async {
     LanguageController.isThai.value = false;
@@ -446,11 +446,7 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
-                  builder: (_) => LineSonicPage(
-                    blePageBuilder: (_) => const BluetoothBlePage(
-                      enableBlePlatformBindings: false,
-                    ),
-                  ),
+                  builder: (_) => const LineSonicPage(),
                 ),
               ),
               child: const Text('Open LineSonic'),
@@ -473,8 +469,8 @@ void main() {
             (widget.image as AssetImage).assetName == AppAssets.controlBack,
       ),
     );
-    expect(backImage.width, 24);
-    expect(backImage.height, 24);
+    expect(backImage.width, 40);
+    expect(backImage.height, 40);
 
     await tester.tap(find.text('PID Tuning'));
     await tester.pumpAndSettle();
@@ -488,9 +484,10 @@ void main() {
     await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Open BLE connection'));
-    await tester.pumpAndSettle();
-    expect(find.text('BLE Connection'), findsOneWidget);
+    // The hub uses the shared badge (opens the BLE status sheet, like the
+    // controller pages) instead of its own pill that opened the BLE page.
+    expect(find.byType(ConnectionStatusBadge), findsOneWidget);
+    expect(find.byTooltip('Open BLE connection'), findsNothing);
   });
 
   test(
@@ -546,7 +543,7 @@ void main() {
     WidgetTester tester,
   ) async {
     LanguageController.isThai.value = false;
-    ControlModeSettingsAction? selectedAction;
+    ControlModeSettingsResult? result;
     var presetCalls = 0;
 
     await tester.pumpWidget(
@@ -555,8 +552,8 @@ void main() {
           body: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                selectedAction = await Navigator.of(context)
-                    .push<ControlModeSettingsAction>(
+                result = await Navigator.of(context)
+                    .push<ControlModeSettingsResult>(
                       controlModeSettingsRoute(
                         mode: ControlMode.fourButton,
                         onManageLayouts: () async {
@@ -579,9 +576,12 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    Future<void> openSettings() async {
+      await tester.tap(find.text('Open settings'));
+      await tester.pumpAndSettle();
+    }
 
+    await openSettings();
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Control mode'), findsOneWidget);
     expect(find.text('4 BTN'), findsOneWidget);
@@ -589,51 +589,57 @@ void main() {
     expect(find.text('Joystick'), findsOneWidget);
     expect(find.text('Edit layout'), findsOneWidget);
     expect(find.text('Saved layouts'), findsOneWidget);
+    // The Layout section names the mode it applies to.
+    expect(find.text('Layout · 4 BTN'), findsOneWidget);
 
     await tester.tap(find.text('Edit layout'));
     await tester.pumpAndSettle();
-
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
+    expect(result?.mode, ControlMode.fourButton);
+    expect(result?.open, ControlModeOpen.layoutEditor);
     expect(find.text('Settings'), findsNothing);
 
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    // Saved layouts of the current mode open over Settings.
+    await openSettings();
     await tester.tap(find.text('Saved layouts'));
     await tester.pumpAndSettle();
-
     expect(presetCalls, 1);
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
     expect(find.text('Close presets'), findsOneWidget);
-
     await tester.tap(find.text('Close presets'));
     await tester.pumpAndSettle();
-
     expect(find.text('Settings'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp(r'^4 BTN, selected')), findsOneWidget);
 
+    // Picking a mode keeps Settings open; Back switches to it.
     await tester.tap(find.text('8 BTN'));
     await tester.pumpAndSettle();
-
     expect(find.text('Settings'), findsOneWidget);
-    expect(selectedAction, ControlModeSettingsAction.editLayout);
-
+    expect(find.text('Layout · 8 BTN'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('Back'));
     await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.eightButton);
+    expect(result?.open, isNull);
 
-    expect(selectedAction, ControlModeSettingsAction.selectEightButton);
-
-    await tester.tap(find.text('Open settings'));
-    await tester.pumpAndSettle();
+    // Another mode + Edit layout: switch there and open its editor.
+    await openSettings();
     await tester.tap(find.text('Joystick'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Settings'), findsOneWidget);
-    expect(selectedAction, ControlModeSettingsAction.selectEightButton);
-
-    await tester.tap(find.bySemanticsLabel('Back'));
+    expect(find.text('Layout · Joystick'), findsOneWidget);
+    await tester.tap(find.text('Edit layout'));
     await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.joystick);
+    expect(result?.open, ControlModeOpen.layoutEditor);
 
-    expect(selectedAction, ControlModeSettingsAction.selectJoystick);
+    // Another mode + Saved layouts: switch there and open them; the current
+    // mode's sheet is not shown.
+    await openSettings();
+    await tester.tap(find.text('8 BTN'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Saved layouts'));
+    await tester.pumpAndSettle();
+    expect(result?.mode, ControlMode.eightButton);
+    expect(result?.open, ControlModeOpen.savedLayouts);
+    expect(presetCalls, 1);
+    expect(find.text('Settings'), findsNothing);
   });
 
   testWidgets('Start control uses a fixed-size action with loading state', (
@@ -645,7 +651,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: GamepadStartStopControlButton(
-            heroTag: 'test_start',
             isStarted: false,
             onPressed: () => startCalls++,
           ),
@@ -665,7 +670,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: const GamepadStartStopControlButton(
-            heroTag: 'test_start_loading',
             isStarted: false,
             isBusy: true,
             onPressed: null,
@@ -681,7 +685,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: GamepadStartStopControlButton(
-            heroTag: 'test_emergency_stop',
             isStarted: true,
             onPressed: () => emergencyStopCalls++,
           ),
@@ -690,17 +693,20 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('Emergency Stop'), findsOneWidget);
-    final emergencyBackground = tester.widget<AnimatedContainer>(
+    // The Stop artwork alone: no red glow or halo behind it any more.
+    final stopImage = tester.widget<Image>(
+      find.descendant(
+        of: find.byType(GamepadStartStopControlButton),
+        matching: find.byType(Image),
+      ),
+    );
+    expect((stopImage.image as AssetImage).assetName, AppAssets.controlStop);
+    expect(
       find.descendant(
         of: find.byType(GamepadStartStopControlButton),
         matching: find.byType(AnimatedContainer),
       ),
-    );
-    final emergencyDecoration =
-        emergencyBackground.decoration! as BoxDecoration;
-    expect(
-      emergencyDecoration.color,
-      GamepadStartStopControlButton.emergencyStopColor.withAlpha(24),
+      findsNothing,
     );
     expect(BleManager.emergencyStopRepeats, 3);
 

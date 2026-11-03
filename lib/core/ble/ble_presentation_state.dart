@@ -151,6 +151,17 @@ class BlePresentationState {
     BlePresentationKind.connected => 'Connected',
   };
 
+  /// Shorter wording for narrow toolbars. Screen readers still get
+  /// [semanticLabel], which uses the full [label].
+  String get shortLabel => switch (kind) {
+    BlePresentationKind.checking => 'Checking…',
+    BlePresentationKind.unavailable => 'Unavailable',
+    BlePresentationKind.permissionNeeded => 'Needs permission',
+    BlePresentationKind.turningOn => 'Turning on…',
+    BlePresentationKind.turningOff => 'Turning off…',
+    _ => label,
+  };
+
   String get semanticLabel => 'Bluetooth connection: $label';
 
   bool get isConnected => kind == BlePresentationKind.connected;

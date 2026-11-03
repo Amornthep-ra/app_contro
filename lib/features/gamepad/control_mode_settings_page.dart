@@ -5,23 +5,47 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/ui/app_assets.dart';
+import '../../core/ui/lavender_glass.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/ui/language_controller.dart';
 
 enum ControlMode { fourButton, eightButton, joystick }
 
-enum ControlModeSettingsAction {
-  editLayout,
-  selectFourButton,
-  selectEightButton,
-  selectJoystick,
+/// What to open in the chosen control mode once Settings closes.
+enum ControlModeOpen { layoutEditor, savedLayouts }
+
+/// What Settings asks the control page to do when it closes: switch to
+/// [mode] when it is not the page's own mode, then open [open] there.
+///
+/// So "pick Joystick, then Edit layout" lands in the Joystick editor in one
+/// go, instead of editing the mode Settings was opened from.
+@immutable
+class ControlModeSettingsResult {
+  const ControlModeSettingsResult(this.mode, {this.open});
+
+  final ControlMode mode;
+  final ControlModeOpen? open;
 }
 
-PageRouteBuilder<ControlModeSettingsAction> controlModeSettingsRoute({
+/// Route argument for a control page reached by switching from Settings.
+@immutable
+class ControlPageArguments {
+  const ControlPageArguments({this.open});
+
+  final ControlModeOpen? open;
+}
+
+String controlModeName(ControlMode mode) => switch (mode) {
+  ControlMode.fourButton => '4 BTN',
+  ControlMode.eightButton => '8 BTN',
+  ControlMode.joystick => 'Joystick',
+};
+
+PageRouteBuilder<ControlModeSettingsResult> controlModeSettingsRoute({
   required ControlMode mode,
   required FutureOr<void> Function() onManageLayouts,
 }) {
-  return PageRouteBuilder<ControlModeSettingsAction>(
+  return PageRouteBuilder<ControlModeSettingsResult>(
     transitionDuration: const Duration(milliseconds: 160),
     reverseTransitionDuration: Duration.zero,
     pageBuilder: (_, _, _) =>
@@ -179,7 +203,11 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
                                       SizedBox(height: compact ? 12 : 14),
                                       _SettingsSection(
                                         key: const ValueKey('layout-section'),
-                                        title: labels.layout,
+                                        // Edit layout and Saved layouts act
+                                        // on the mode picked above.
+                                        title:
+                                            '${labels.layout} · '
+                                            '${controlModeName(_selectedMode)}',
                                         compact: compact,
                                         child: Column(
                                           children: [
@@ -199,9 +227,8 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
                                               title: labels.savedLayouts,
                                               trailingLabel: labels.open,
                                               compact: compact,
-                                              onTap: () => _runCallback(
-                                                widget.onManageLayouts,
-                                              ),
+                                              onTap: () =>
+                                                  _openSavedLayouts(context),
                                             ),
                                           ],
                                         ),
@@ -239,16 +266,23 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
   }
 
   void _closeSettings(BuildContext context) {
-    Navigator.of(context).pop(_actionForSelectedMode());
+    Navigator.of(context).pop(ControlModeSettingsResult(_selectedMode));
   }
 
-  ControlModeSettingsAction? _actionForSelectedMode() {
-    if (_selectedMode == widget.mode) return null;
-    return switch (_selectedMode) {
-      ControlMode.fourButton => ControlModeSettingsAction.selectFourButton,
-      ControlMode.eightButton => ControlModeSettingsAction.selectEightButton,
-      ControlMode.joystick => ControlModeSettingsAction.selectJoystick,
-    };
+  /// Saved layouts of the current mode open over Settings; for another
+  /// mode, Settings closes, the mode switches and they open there.
+  Future<void> _openSavedLayouts(BuildContext context) async {
+    if (_selectedMode == widget.mode) {
+      await _runCallback(widget.onManageLayouts);
+      return;
+    }
+    HapticFeedback.selectionClick();
+    Navigator.of(context).pop(
+      ControlModeSettingsResult(
+        _selectedMode,
+        open: ControlModeOpen.savedLayouts,
+      ),
+    );
   }
 
   Future<void> _runCallback(FutureOr<void> Function() callback) async {
@@ -258,7 +292,12 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
 
   void _openEditLayout(BuildContext context) {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pop(ControlModeSettingsAction.editLayout);
+    Navigator.of(context).pop(
+      ControlModeSettingsResult(
+        _selectedMode,
+        open: ControlModeOpen.layoutEditor,
+      ),
+    );
   }
 }
 
@@ -529,7 +568,8 @@ class _CatSettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = const Color(0xFFF472D0);
+    // Same violet as the rest of the app (was pink).
+    const accent = LavenderPalette.violet;
     final semanticLabel = selected ? '$title, $selectedLabel' : title;
     final tileHeight = compact ? 56.0 : 66.0;
     final iconSize = compact ? 40.0 : 48.0;
@@ -553,7 +593,7 @@ class _CatSettingsTile extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 color: selected
-                    ? const Color(0xFFFFEEF9).withAlpha(210)
+                    ? const Color(0xFFF1EBFF).withAlpha(225)
                     : Colors.white.withAlpha(148),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(

@@ -94,7 +94,18 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
   static const _purple = Color(0xFF7256B6);
   static const _cyan = Color(0xFFDDA9DF);
 
+  /// Below this much height (screen minus keyboard and safe areas) the full
+  /// layout leaves only Cancel and Pair visible, e.g. a landscape phone with
+  /// the keyboard up. The dialog then becomes one row: code, Cancel, Pair.
+  static const double compactBelowHeight = 300;
+
   final _controller = TextEditingController();
+
+  // The field moves between the two layouts when the keyboard opens. A
+  // GlobalKey and an owned FocusNode keep its state, so it stays focused and
+  // the keyboard stays up instead of closing and flipping the layout back.
+  final _fieldKey = GlobalKey();
+  final _focusNode = FocusNode();
   bool _showValidationError = false;
   bool _submitting = false;
   String? _pairingError;
@@ -147,27 +158,185 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Space the dialog really gets: its box (already smaller when a
+        // Scaffold or SafeArea took the keyboard/insets out) minus any
+        // keyboard and safe-area insets still reported to it.
+        final media = MediaQuery.of(context);
+        final boxHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : media.size.height;
+        final availableHeight =
+            boxHeight - media.viewInsets.bottom - media.padding.vertical;
+        return availableHeight < compactBelowHeight
+            ? _buildCompact(context)
+            : _buildFull(context);
+      },
+    );
+  }
+
+  Color _background(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? Theme.of(context).colorScheme.surfaceContainerHighest
+      : const Color(0xFFF8EEFF);
+
+  ShapeBorder get _shape => RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(28),
+    side: BorderSide(color: Colors.white.withAlpha(238), width: 1.35),
+  );
+
+  Widget _buildField(BuildContext context, {required bool compact}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colors = Theme.of(context).colorScheme;
     final valid = _isValid;
+    final isThai = widget.isThai;
+    return TextField(
+      key: _fieldKey,
+      focusNode: _focusNode,
+      controller: _controller,
+      enabled: !_submitting,
+      textInputAction: TextInputAction.done,
+      cursorColor: _purple,
+      autofocus: true,
+      autocorrect: false,
+      enableSuggestions: false,
+      textCapitalization: TextCapitalization.characters,
+      maxLength: 16,
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+      ],
+      onChanged: (_) => setState(() {
+        _pairingError = null;
+      }),
+      onSubmitted: (_) => _submit(),
+      style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w700),
+      decoration: InputDecoration(
+        isDense: compact,
+        hintText: compact ? 'Code set on your board' : 'Enter code',
+        labelText: isThai ? 'Pair Code' : 'Pair Code',
+        helperText: compact
+            ? null
+            : isThai
+            ? 'English/Number · 8–16'
+            : 'English/Number · 8–16',
+        helperMaxLines: 2,
+        // The 0/16 counter would add a line the compact row has no room for.
+        counterText: compact ? '' : null,
+        errorMaxLines: compact ? 2 : 4,
+        errorText:
+            _pairingError ??
+            (_showValidationError && !valid
+                ? (isThai
+                      ? 'Enter a valid 8–16 character code.'
+                      : 'Enter a valid 8–16 character code.')
+                : null),
+        prefixIcon: const Icon(Icons.key_rounded),
+        filled: true,
+        fillColor: isDark ? colors.surface : Colors.white.withAlpha(174),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFC7B7E8)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: _purple, width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCancel() {
+    final isThai = widget.isThai;
+    return TextButton(
+      style: TextButton.styleFrom(
+        foregroundColor: _purple,
+        minimumSize: const Size(100, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+      child: Text(isThai ? 'Cancel' : 'Cancel'),
+    );
+  }
+
+  Widget _buildPair() {
+    final valid = _isValid;
+    return FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: _purple,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(120, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      onPressed: valid && !_submitting ? _submit : null,
+      child: _submitting
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: _purple),
+            )
+          : const Text('Pair'),
+    );
+  }
+
+  /// One row for short screens: the field's label is the title.
+  Widget _buildCompact(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      backgroundColor: _background(context),
+      surfaceTintColor: Colors.transparent,
+      shape: _shape,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.replacingSavedCode)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Saved Pair Code no longer works. Enter the current code.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildField(context, compact: true)),
+                  const SizedBox(width: 8),
+                  _buildCancel(),
+                  const SizedBox(width: 8),
+                  _buildPair(),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFull(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     final isThai = widget.isThai;
 
     return AlertDialog(
       scrollable: true,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      backgroundColor: isDark
-          ? colors.surfaceContainerHighest
-          : const Color(0xFFF8EEFF),
+      backgroundColor: _background(context),
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
-        side: BorderSide(color: Colors.white.withAlpha(238), width: 1.35),
-      ),
+      shape: _shape,
       titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
       contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       actionsPadding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
@@ -211,86 +380,8 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
           ),
         ],
       ),
-      content: TextField(
-        controller: _controller,
-        enabled: !_submitting,
-        textInputAction: TextInputAction.done,
-        cursorColor: _purple,
-        autofocus: true,
-        autocorrect: false,
-        enableSuggestions: false,
-        textCapitalization: TextCapitalization.characters,
-        maxLength: 16,
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-        ],
-        onChanged: (_) => setState(() {
-          _pairingError = null;
-        }),
-        onSubmitted: (_) => _submit(),
-        style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w700),
-        decoration: InputDecoration(
-          hintText: 'Enter code',
-          labelText: isThai ? 'Pair Code' : 'Pair Code',
-          helperText: isThai
-              ? 'English/Number · 8–16'
-              : 'English/Number · 8–16',
-          helperMaxLines: 2,
-          errorMaxLines: 4,
-          errorText:
-              _pairingError ??
-              (_showValidationError && !valid
-                  ? (isThai
-                        ? 'Enter a valid 8–16 character code.'
-                        : 'Enter a valid 8–16 character code.')
-                  : null),
-          prefixIcon: const Icon(Icons.key_rounded),
-          filled: true,
-          fillColor: isDark ? colors.surface : Colors.white.withAlpha(174),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xFFC7B7E8)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: _purple, width: 1.5),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          style: TextButton.styleFrom(
-            foregroundColor: _purple,
-            minimumSize: const Size(100, 48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-          child: Text(isThai ? 'Cancel' : 'Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: _purple,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(120, 48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          onPressed: valid && !_submitting ? _submit : null,
-          child: _submitting
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: _purple,
-                  ),
-                )
-              : const Text('Pair'),
-        ),
-      ],
+      content: _buildField(context, compact: false),
+      actions: [_buildCancel(), _buildPair()],
     );
   }
 }

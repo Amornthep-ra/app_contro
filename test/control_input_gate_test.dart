@@ -6,7 +6,7 @@ import 'package:pb_controller/features/joystick/joystick/joystick_view.dart';
 
 void main() {
   testWidgets(
-    'Stop locks and dims; Start unlocks; suspension locks; editing works',
+    'Stop locks and desaturates; Start unlocks; suspension locks; editing works',
     (tester) async {
       final suspended = ValueNotifier(false);
       addTearDown(suspended.dispose);
@@ -41,26 +41,32 @@ void main() {
                 .first,
           )
           .opacity;
+      Finder lockedLook() => find.byKey(const ValueKey('control-locked-look'));
       await show();
-      expect(opacity(), 0.4);
+      expect(opacity(), ControlInputGate.lockedOpacity);
+      expect(lockedLook(), findsOneWidget);
       await tester.tap(find.text('Drive'), warnIfMissed: false);
       expect(taps, 0);
       await show(started: true);
       expect(opacity(), 1);
+      expect(lockedLook(), findsNothing);
       await tester.tap(find.text('Drive'));
       expect(taps, 1);
       suspended.value = true;
       await tester.pump();
-      expect(opacity(), 0.4);
+      expect(opacity(), ControlInputGate.lockedOpacity);
+      expect(lockedLook(), findsOneWidget);
       await tester.tap(find.text('Drive'), warnIfMissed: false);
       expect(taps, 1);
       await show(editing: true);
       expect(opacity(), 1);
+      expect(lockedLook(), findsNothing);
       await tester.tap(find.text('Drive'));
       expect(taps, 2);
       suspended.value = false;
       await show();
-      expect(opacity(), 0.4);
+      expect(opacity(), ControlInputGate.lockedOpacity);
+      expect(lockedLook(), findsOneWidget);
     },
   );
 
@@ -102,4 +108,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.buildPacket().lx, 0);
   });
+
+  testWidgets('tapping locked controls asks the page to explain', (
+    tester,
+  ) async {
+    final suspended = ValueNotifier(false);
+    addTearDown(suspended.dispose);
+    var explained = 0;
+    var driven = 0;
+    Future<void> show({required bool started}) => tester.pumpWidget(
+      MaterialApp(
+        home: ControlInputGate(
+          started: started,
+          editing: false,
+          suspended: suspended,
+          onLockedTap: () => explained++,
+          child: Center(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => driven++,
+              child: const SizedBox(width: 100, height: 100),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await show(started: false);
+    await tester.tapAt(tester.getCenter(find.byType(ControlInputGate)));
+    await tester.pump();
+    expect(explained, 1);
+    expect(driven, 0);
+
+    await show(started: true);
+    await tester.tapAt(tester.getCenter(find.byType(ControlInputGate)));
+    await tester.pump();
+    expect(explained, 1);
+    expect(driven, 1);
+  });
+
+  testWidgets('controls keep their state across lock and unlock', (
+    tester,
+  ) async {
+    final suspended = ValueNotifier(false);
+    addTearDown(suspended.dispose);
+    final key = GlobalKey<_CounterState>();
+    Future<void> show(bool started) => tester.pumpWidget(
+      MaterialApp(
+        home: ControlInputGate(
+          started: started,
+          editing: false,
+          suspended: suspended,
+          onLockedTap: () {},
+          child: _Counter(key: key),
+        ),
+      ),
+    );
+
+    await show(true);
+    key.currentState!.count = 7;
+    await show(false);
+    await show(true);
+    expect(key.currentState!.count, 7);
+  });
+}
+
+class _Counter extends StatefulWidget {
+  const _Counter({super.key});
+  @override
+  State<_Counter> createState() => _CounterState();
+}
+
+class _CounterState extends State<_Counter> {
+  int count = 0;
+  @override
+  Widget build(BuildContext context) => Text('$count');
 }

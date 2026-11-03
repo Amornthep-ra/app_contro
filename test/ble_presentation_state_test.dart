@@ -462,8 +462,10 @@ void main() {
         BlePresentationKind.connected,
       );
       await tester.pump();
-      expect(find.text('Connected'), findsOneWidget);
-      expect(find.text('Connected · PrinceBot'), findsOneWidget);
+      // Home shows the device name as its title and "Connected" on the
+      // status line; the badge shows "Connected".
+      expect(find.text('Connected'), findsNWidgets(2));
+      expect(find.text('PrinceBot'), findsOneWidget);
     });
 
     testWidgets('long BLE wording remains visible on a small Home', (

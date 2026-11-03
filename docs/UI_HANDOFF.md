@@ -1,62 +1,470 @@
-# UI Handoff — Splash & Home (2026-11-02)
+# UI Handoff — PB Controller (updated 2026-11-03, LineSonic + spacing + editor + backend fixes)
 
-Branch: `release/2.1.0-android`
+> **สรุปสั้น (ไทย):** ปรับ UI ทั้งแอปเป็นธีม "Lavender Glass" แล้ว 5 ส่วน คือ Splash, หน้า Home, หน้า BLE Connection, หน้า Controller (4 BTN / 8 BTN / Joystick) และ **BLE status sheet** (แผ่นที่เปิดจากปุ่ม Bluetooth บน toolbar)
+> รอบก่อน: แผงความเร็ว 4/8 BTN ลอยใต้ปุ่ม Speed, หน้า Edit layout (ปุ่มเครื่องมือกดได้เต็ม 48px, กริด 24dp ตรงจุด snap, ปุ่มห่างกันอย่างน้อย 6dp)
+> รอบล่าสุด: ทำ BLE status sheet ตามแผนหัวข้อ 7 ครบทุกข้อ (หัวข้อตรงกับ badge, Scanning Ns + Stop, Close เห็นเสมอ, แถวหุ่นยนต์แบบหน้า BLE, Diagnostics แบบ A, Forget อยู่ในเมนู ⋯ และถามก่อน, ปุ่ม 48px)
+> จากการทดสอบบนมือถือจริงของเจ้าของ แก้แล้ว 4 ข้อ (หัวข้อ 9): ปุ่ม Start/Stop ไม่ลอยค้างตอนเปลี่ยนโหมด, วงไฮไลต์ Start/Stop ตรงกลางวงกลมจริง, กล่อง Pair Code ใช้ได้ตอนแป้นพิมพ์ขึ้นในแนวนอน, คืนปุ่ม Buttons ใน Edit layout ของ Joystick (ค่าเริ่มต้นยังเป็นจอยซ้าย+ขวา ตามที่เจ้าของเลือก)
+> งานทั้งหมดอยู่ใน **PR #2** (`claude/admiring-tesla-o410lj` → `release/2.1.0-android`); `claude/quirky-albattani-uads8u` เป็นสำเนาเดียวกัน
+> ทดสอบมือถือรอบ 2 (หัวข้อ 10): ปุ่ม △✕□○ ของ Joystick เลือก/ลาก/ลบได้แล้ว, ปุ่มที่เพิ่มใหม่ไปวางที่ว่าง, เมนู Buttons แบบ Lavender ใช้ร่วมกันทุกโหมด (มีใน 4 BTN/8 BTN ด้วย), ปุ่ม Start/Stop เหลือแต่รูป, Settings เลือกโหมดแล้วกด Edit layout/Saved layouts ไปโหมดนั้นเลย
+> รอบล่าสุด (หัวข้อ 11): หน้า LineSonic ทั้ง 3 หน้า (เมนู, PID Tuning, Read Sensor) เป็น Lavender Glass แล้ว — หัวหน้าเดียวกัน (ปุ่มแมว, ป้าย BLE ตัวกลางที่เปิด sheet), การ์ด Step แบบกระจก ปุ่ม 48px, เมนู ⋯, แถบปุ่มส่งคำสั่งติดด้านล่าง, Undo/ถามยืนยัน, ชื่อ "Junction hold", หน้า Sensor แบบช่องกระจก; คำสั่ง BLE ไม่เปลี่ยน
+> เจ้าของทดสอบ LineSonic ผ่านแล้ว รอบล่าสุด (หัวข้อ 12): ปุ่มวางชิดกันได้ถึง 4dp วัดจากขอบปุ่มที่มองเห็น (เดิมเหลือ ~36dp), ลากเร็วแล้วไหลไปชิดได้, Grid ขยับทีละ 12dp, หน้า Edit layout แสดงปุ่มขนาดเท่าตอนขับ, พื้นที่รับนิ้วของปุ่มที่อยู่ชิดกันแบ่งครึ่งทางไม่แย่งกัน
+> รอบล่าสุด (หัวข้อ 13): Toolbar หน้าแก้ layout จัดกลุ่มแล้ว, Reset ถามก่อน, ปุ่ม Done สีม่วงมีคำว่า Done, ขอบบน 12dp, ตำแหน่งเริ่มต้น 4 BTN ห่างเท่ากัน 24dp
+> Backend (หัวข้อ 14): review แล้ว แก้ 2 ข้อระดับสูง — 8 BTN ไม่ค้างสิทธิ์ควบคุมเมื่อออกระหว่างกด Start, Joystick ส่ง packet ศูนย์ทุก 150ms ตอนอยู่นิ่ง (ใช้ Library เดิมได้)
+> test ผ่าน 371 ตัว และ `flutter analyze` ไม่เจอปัญหา
+> **กฎจากเจ้าของ:** ห้ามแก้อะไรที่กระทบ Arduino Library (ดูหัวข้อ 0)
 
-## 1. Splash Screen — DONE
+---
 
-- Source images:
-  - `assets/Logo/splash_logo.png` — 1152×1152, transparent, D-pad + "PB CONTROLLER" (iOS + Android ≤11, shown at 288dp/pt)
-  - `assets/Logo/splash_android12.png` — 1152×1152, transparent, D-pad + PB only, fits inside the 768px Android 12 mask circle
-- Old `assets/Logo/Splash_Screen.png` removed (had a Gemini ✦ watermark, full-bleed square, 3.6 MB).
-- `pubspec.yaml` → `flutter_native_splash`: background `#050910`, no `*_dark` keys (dark = light), `web: false`.
-- Regenerated with `dart run flutter_native_splash:remove` + `create`.
-- Splash PNG size: Android ~16 MB → 3.7 MB, iOS ~6 MB → 0.7 MB.
+## 0. Start here (next session)
 
-Gotchas when regenerating:
-- The plugin rewrites `ios/Runner/Info.plist` (indentation only) — `git checkout -- ios/Runner/Info.plist` afterwards.
-- `remove` leaves `drawable-night*/launch_background.xml` with **no logo layer** → dark mode on Android ≤11 shows an empty screen. Delete `drawable-night/` and `drawable-night-v21/` after `create` (already done).
-- PIL quantization (256 colors) visibly bands the neon glow — don't use it. Use `pngquant` if more compression is needed.
+| Item | Value |
+|---|---|
+| Working branch | `claude/admiring-tesla-o410lj` (PR #2 head) = `claude/home-lavender-glass` + the commits from `ea4b98b` on, including the BLE status sheet commits (`aa0e05c` … `94038e1`). `claude/quirky-albattani-uads8u` is the same commits (the session that built the sheet pushed there first, then fast-forwarded PR #2 with the owner's OK). |
+| Based on | `origin/release/2.1.0-android` (v2.1.1+21) |
+| PR | **#2 open**: `claude/admiring-tesla-o410lj` → `release/2.1.0-android` (https://github.com/Amornthep-ra/app_contro/pull/2). Mergeable, no reviews yet, no CI in the repo. Pushing to the branch updates the PR. |
+| `claude/home-lavender-glass` | older copy of the same work (stops at `7c83c16`); do not push new work there, it is not the PR head |
+| `main` / `claude/clever-johnson-5fxeqr` | untouched (still 2.0.8 code; do not use). An earlier attempt built on `main` was discarded. |
+| Tests | `flutter test` → 371 passing; `flutter analyze lib test` → no issues |
+| Branches | **Use `claude/admiring-tesla-o410lj` only.** `claude/home-lavender-glass` is an old copy without the last 20+ commits; the owner once ran it by mistake and saw the old BLE sheet. |
+| Flutter used | 3.47.9 stable (Dart 3.13.7); `pubspec.lock` needs Flutter ≥ 3.44 |
 
-Not yet verified on a real device: Android ≤11, Android 12+, iOS small screen (SE/mini), dark mode.
+### Owner rules (must keep)
+1. **Do not change anything the Arduino library depends on**: BLE packets/commands, button IDs and names, joystick axis directions (Y- is up, Y+ down), the △ ○ ✕ □ face buttons, and the CMD / DRV / TRN / X / Y telemetry text and numbers.
+2. **Keep the backgrounds** `assets/BG_Portrait.png` (portrait pages) and `assets/BG.png` (control pages) unchanged. Restyle everything else to match them.
+3. English-only UI (`LanguageController` is locked to English on this branch).
 
-## 2. Home page (`lib/features/home/home_page.dart`) — REVIEWED, NOT STARTED
+### Commits on the branch (oldest → newest)
+| Commit | What |
+|---|---|
+| `9c500d1` | Home → Lavender Glass + ambient animated background |
+| `3f25a4e` | Lavender native splash |
+| `181728c` | Shared design system moved to `lib/core/ui/lavender_glass.dart` |
+| `3e9b062` | BLE Connection page restyle + layout bug fixes |
+| `d340293` | Shared 40 px `CatBackButton` (BLE + LineSonic) |
+| `3651aab` | Controller phase 1 — Start/Stop prominence, locked-control look |
+| `9f68f3d` | Controller phase 2 — toolbar: Back left, Settings right |
+| `bab2601` | Controller phase 3 — speed panel / Settings / editor hint to glass |
+| `a7c2aaf` | Controller phase 4 — veil over corner cats on short screens |
+| `d4d9cf4` | Start/Stop moved into the toolbar next to Back; placement editing removed |
+| `ea4b98b` | 4/8 BTN speed panels float under Speed instead of pushing the pad down |
+| `23c28e5`, `a18fdb3`, `cf47bbf`, `9f439de` | Layout editor: full 48 px tool taps, square 24 dp grid aligned with snapping, 6 dp minimum control gap, tests |
+| `38ab1bf`, `08d2696`, `a4818cb` | Handoff notes |
+| `aa0e05c` | BLE status sheet moved verbatim to `lib/core/widgets/ble_connection_sheet.dart` (LF), no behaviour change |
+| `b281f23` | Sheet header follows the badge; Scanning Ns + Stop; empty state; Close; fixed header/footer, 85% height in landscape |
+| `a135011` | Robot rows shared with the BLE page (`ble_device_row.dart`); "Connect <name>"; spinner only on the tapped row |
+| `798250e` | Diagnostics behind a footer button (option A) with Copy inside; Forget in a ⋯ menu with confirmation |
+| `94038e1` | `test/ble_sheet_ui_test.dart` (17 tests, incl. 48 px targets) |
+| `faaf5b4`, `f114011` | Handoff notes |
+| `6d0444a` | Device test: Start/Stop no longer a Hero (it flew over the page transition when switching modes) |
+| `69d98aa` | Device test: Start ring, Stop halo, glow and spinner centred on the artwork's round face |
+| `c1333af` | Device test: one-row Pair Code dialog when the keyboard leaves < 300 px |
+| `6ffc92d` | Device test: "Buttons" tool back in the Joystick layout editor |
+| `57cdb74` | Handoff notes |
+| `4c26dd4` | Device test 2: Joystick face buttons selectable in the editor (frame hit-tests its whole box) |
+| `f9f6d80` | Device test 2: shared Lavender "Buttons" sheet (`gamepad_controls_sheet.dart`) for Joystick and 8 BTN |
+| `1e2239e` | Device test 2: Buttons tool on 8 BTN and 4 BTN |
+| `850c7e3` | Device test 2: added controls go to a free spot (`GamepadEditMetrics.freeSpotFor`); others pinned |
+| `e459fed` | Device test 2: Start/Stop artwork only (no glow, halo, breathing ring) |
+| `412c76b` | Device test 2: Settings' Edit layout / Saved layouts act on the chosen mode (`ControlModeSettingsResult`) |
+| `a2d6d12` | Handoff notes |
+| `bb27d8f` | LineSonic plan (section 11) |
+| `d64a243` | LineSonic: shared header `LineSonicScaffold` on PID Tuning + Read Sensor |
+| `17c5542` | LineSonic hub: shared badge, glass tiles (and the hub test in `widget_test.dart`) |
+| `388ea4a` | PID: step card band fixed |
+| `0a22c6d` | PID: glass step cards, mode colours, 48 px controls, ⋯ menu, "Junction hold" |
+| `10bf97f` | PID: fixed bottom action bar, "Add Step" row, no FAB |
+| `3727f6c` | PID: Undo for Delete step; confirm Load / Save over / Delete preset |
+| `4f83540` | PID: glass preset row, Lavender picker sheet and Save dialog |
+| `a11343e` | Read Sensor restyle; shared `linesonic_controls.dart` |
+| `492d29d` | PID: Save preset dialog owns its text controller (was disposed during the closing animation) |
+| `a7e25fa` | `test/linesonic_ui_test.dart` (15 tests) |
+| `5a11f6a` | Handoff notes |
+| `8b3de84` | Spacing plan (section 12) |
+| `4b8276d` | Controls 4 dp apart on visible faces, slide to contact, 12 dp grid, editor drawn like drive mode, split touch areas (+ tests) |
+| `895c080`, `2430723`, `ee621eb` | Handoff notes / section 13 plan |
+| `b26a669` | Editor toolbar groups (`GamepadCenteredToolbar.groupStarts`) |
+| `76a5e28` | Reset asks first |
+| `1f921ca` | Done as a filled violet pill (`GamepadToolIconPill.primary`) |
+| `753f922` | 12 dp top edge for 4 / 8 BTN |
+| `07f870b` | 4 BTN defaults: 20 % / 80 % clusters, equal 24 dp face gaps |
+| `0bb5a73`, `6f41e97` | Handoff notes / section 14 backend review + plan |
+| `1f54651` | 8 BTN releases control ownership when Start finishes after leaving / switching |
+| `8e455c0` | Joystick idle keepalive: zero frame every 150 ms while started |
 
-Constraint from owner: **keep `assets/BG_Portrait.png` as is** (pastel lavender, cat theme). Everything else must match the BG and feel premium.
+### Suggested next steps
+1. **Owner re-test on the phone** of section 9 and the BLE status sheet (section 7), Android and iOS (the iOS sheet path uses `showCupertinoModalPopup`). The owner has a device checklist artifact (65 checks, copyable report).
+2. Owner re-test of section 10 on the phone (Buttons sheet on all modes, selecting/moving Joystick buttons, Settings → other mode → Edit layout).
+3. Owner re-test of section 13 on the phone (toolbar groups, Reset dialog, Done, top edge, 4 BTN defaults). Left for later: 8 BTN editor vs drive size at 640×360 (section 13, finding 4).
+4. Owner re-test of section 14 (Joystick: Start, wait 2 s, then move; 8 BTN: Start then Back quickly, then Start on another page / LineSonic). Then pick the next backend group from section 14's medium / low findings.
+4. Real-device check (see "Not yet verified" in each section), especially blur/animation smoothness on low-end Android, iPhone landscape safe areas, the floating speed panels and dragging/snapping in the editor.
+5. Sections 11 (LineSonic) and 12 (spacing) passed on the owner's Android phone; iOS still untested.
+6. Keep PR #2 moving: answer reviews, keep it mergeable. Do not merge without the owner.
 
-Verdict: not premium yet. Findings, by impact:
+### How the owner likes to work
+Review first (render real sizes, measure, list findings with numbers) → written plan with recommended defaults and the decisions they need to make → implement only after "ตามที่แนะนำ" or explicit choices → one commit per fix, tests, before/after screenshots. Answers in Thai; code, commits and PR text in English.
 
-1. **Bug — clipped square shadows** under BLE card, Controller and LineSonic cards. `boxShadow` lives on `Ink` inside `Card` (`home_page.dart` ~L501, ~L1010); shadow is clipped by the Material bounds → hard rectangular edges. Fix: move shadow to an outer `DecoratedBox`/`Container` around the card.
-2. **Palette scattered** — 4 accent families (blue `#6F8FFF`, mint `#45D6A1`, orange `#FFB56B`, purple→cyan gradient). Mint and orange clash with lavender BG.
-3. **Controller / LineSonic cards are empty** — 112 tall, tiny icon + title only, flat saturated fill hides the BG.
-4. **Mixed icon styles** — `assets/icons/HomeUnified/*` 3D PNGs mixed with Material icons (facebook, download, open_in_new, bluetooth); Facebook icon is orange.
-5. **No brand presence / generic typography** — Roboto everywhere, plain 18pt AppBar title. `Kanit` is already in `assets/fonts/` but not registered in `pubspec.yaml`.
-6. **"No recent device yet" card** is a low-value empty state taking a full row.
-7. **Version footer logo** — `logo_corner.png` (dark neon) at 0.42 opacity becomes a grey blob on lavender.
-8. Dead code: all `isDark` branches — `main.dart` has no `darkTheme`, app is always light.
-9. Minor: `isThai ? 'X' : 'X'` strings are identical in both branches.
+---
 
-Keep: information hierarchy (BLE status → main nav → secondary links), purple→cyan Scan button, content not covering the cat art at the bottom.
+## 1. How we worked (tooling notes)
 
-### Proposed direction — "Lavender Glass"
-
-- Cards: frosted glass (`BackdropFilter` blur + white ~55% + thin white border), BG visible through.
-- Palette: primary violet `#7256B6`, single accent cyan `#37D8FF`, text deep plum `#261B39`. Drop mint/orange.
-- Controller / LineSonic: add subtitles ("Gamepad · Joystick", "PID · Sensor"), icon 40–48.
-- Header: Kanit, small logo mark beside title, secondary greeting line.
-- Secondary links: merge Contact + Arduino into one grouped list card with dividers, single icon style.
-- Merge recent device into the BLE card (Reconnect when a last device exists, hide otherwise).
-- Fix the shadow bug; delete dark-mode branches.
-
-### Open decisions (ask owner)
-
-- Approve "Lavender Glass" direction before implementing?
-- Splash is dark neon `#050910` while Home is pastel lavender → visible theme jump on launch. Keep neon splash, or switch splash background to lavender?
-
-### How the screenshot was taken
-
+### Flutter in the cloud container
+```bash
+mkdir -p /opt/flutter-sdk && cd /opt/flutter-sdk
+curl -sSfL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.9-stable.tar.xz -o flutter.tar.xz
+tar -xf flutter.tar.xz && rm flutter.tar.xz
+git config --global --add safe.directory /opt/flutter-sdk/flutter
+export PATH=/opt/flutter-sdk/flutter/bin:$PATH
 ```
-flutter build apk --debug
-adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
-adb -s emulator-5554 shell monkey -p com.pbcontroller.app -c android.intent.category.LAUNCHER 1
-adb -s emulator-5554 exec-out screencap -p > home.png
+- `flutter pub get` / `flutter analyze` rewrite `analysis_options.yaml` and bump SDK-pinned entries in `pubspec.lock`. **Revert both before committing**: `git checkout -- analysis_options.yaml pubspec.lock`.
+- `flutter pub get` also leaves generated `linux/`, `macos/`, `windows/` folders behind (this release deleted those platforms in `13077ee`). Delete them; never commit them.
+
+### Git / pushing
+- The session can only push to its designated branch. Rewriting it (force push) is blocked by the permission system unless the owner explicitly types or approves the exact command.
+- If your local branch has another name, push with `git push origin <local-branch>:claude/admiring-tesla-o410lj`, and make sure the local branch does **not** track `claude/home-lavender-glass` (a bare `git push` would land there).
+
+### Line endings (important)
+Many Dart files are **CRLF** (e.g. `home_page.dart`, `bluetooth_ble_page.dart`, the three control pages, `gamepad_app_bar.dart`); some are LF; `connection_status_badge.dart` and `ble_pairing_prompt_wiring_test.dart` are **mixed** (the badge's LF-only lines are in its pairing code). The BLE status sheet now lives in its own LF file, `ble_connection_sheet.dart`. For a pure-CRLF file, `sed -i 's/\r$//' f`, edit, then `sed -i 's/$/\r/' f` and check `git diff --stat` stays small. Preserve each file's endings or the diff explodes. Edit by normalising to LF, changing, then restoring CRLF; for mixed files patch at byte level. Only run `dart format` on files you touched (formatting a whole folder reformats unrelated files).
+
+### Rendering screenshots without a device
+Write a temporary widget test (e.g. `test/zz_preview_test.dart`, **never commit it**) that:
+- loads real fonts with `FontLoader` (`assets/fonts/Roboto/static/*.ttf`, `assets/fonts/Kanit/*`, and Material icons from `/opt/flutter-sdk/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf`),
+- sets `tester.view.physicalSize` / `devicePixelRatio` (phone portrait 1080×2400 @ 2.625; landscape 914×411 logical; small 640×360),
+- pumps the page, `precacheImage`s every `Image` inside `tester.runAsync`, then captures a `RepaintBoundary` with `toImage` and writes a PNG.
+- Use fixed `pump(Duration)` calls, not `pumpAndSettle`, when a spinner/pulse is running. Animated cross-fades need ~1 s of pumps after a state change or you capture the old frame.
+- `AmbientMotion.enabledByDefault = true` in the harness to see pulses/motion (it is off under `flutter test`).
+
+### Testing gotchas found
+- The default test font is much wider than real fonts. Layout-fit tests (toolbar rows) must load Roboto (see `test/control_start_stop_test.dart`).
+- A `Completer` created in `setUp` completes outside the fake-async zone; create it inside the test body.
+- **Precache images before measuring or tapping controls.** Pad buttons size themselves from their images; until decoded under `flutter_test` they are 0×0, so they are not hit-testable and rects are wrong. (This was the cause of the old "8 BTN edit-mode items are not hit-testable" note; it is not an app bug.) `test/gamepad_edit_layout_test.dart` shows the `runAsync(() => precacheImage(...))` pattern.
+- Taps that call `gamepadBuzz()` need a mock for the `vibration` method channel, or the test fails with `MissingPluginException`.
+- Opening the layout editor in a test: tap the `Settings` tooltip, then the `Edit layout` text.
+- The BLE status sheet can be rendered with a fake `BleConnectionCoordinator` (`enableBlePlatformBindings: false`, `debugEmitForTesting(state)`) and an injected badge `presentationState`, see `test/ble_sheet_ui_test.dart`. It has busy spinners while scanning/connecting, so step with `pump(Duration)` instead of `pumpAndSettle`. With `securityState: pairingRequired` and connected, the sheet closes itself for the automatic pairing prompt unless `coordinator.markPairingPromptPresented()` was called first.
+- `ButtonStyle.textStyle` replaces the theme's text style (font family included); give label `Text`s their own size/weight instead, or they fall back to the platform font (boxes under `flutter_test`).
+- A `ListTile` with `tileColor` paints on the nearest `Material`; inside a scroll view, give the scrolled content its own `Material(type: transparency)` or the colours paint outside the viewport.
+
+---
+
+## 2. Design system — "Lavender Glass"
+
+- `lib/core/ui/lavender_glass.dart`
+  - `LavenderPalette`: background `#F3EEFF`, ink `#261B39` (+ soft/muted alphas), violet `#7256B6`, violetBright `#8B6CF2`, cyan `#37D8FF`, success `#1FBF95`, warning `#F2A33A`, coral `#F05264`; `brandGradient` violet→cyan; display font `Kanit` (Regular/Bold registered in `pubspec.yaml`, titles only).
+  - `GlassPanel` (backdrop blur, white glass, light rim; shadow drawn only outside the rounded shape), `GradientActionButton` / `GlassActionButton` (with `busy` spinner, `accent`), `LavenderChip`, `showLavenderConfirmDialog`, `FrostedBarBackground` (frosted app-bar strip shown when content scrolls under it).
+- `lib/core/ui/ambient_motion.dart` — `AmbientMotion.enabledFor(context)`: decorative loops are off under `flutter test` and when the OS "remove animations" setting is on.
+- `lib/features/bluetooth/widgets/`: `ble_device_row.dart` (`BleDeviceRow`, `BleRoundIcon`, `bleScanResultName`, `sortBleScanResults`) and `ble_connection_status.dart` (`BleSecurityLine`, `resolveBleConnectedDeviceName`), shared by the BLE page and the status sheet. `bluetooth_ble_page.dart` re-exports the helpers its tests import.
+- `lib/core/widgets/`: `ble_connection_sheet.dart` (`BleConnectionSheet`), `ble_status_orb.dart`, `signal_bars.dart`, `cat_back_button.dart` (40 px `Back.png` in a 48 px target; `leadingWidthFor(padding)` aligns it with content), `control_background.dart`, `control_start_stop.dart`, `gamepad_edit_hint.dart`.
+
+---
+
+## 3. Splash — DONE
+
+- `flutter_native_splash` background `#EDE3F6` (sampled from `BG_Portrait.png`) for Android, Android 12 and iOS; no `*_dark` keys; `web: false`.
+- `assets/Logo/splash_logo.png`: "PB CONTROLLER" wordmark recoloured to deep violet `#4A308C` without the cyan glow (unreadable on lavender). D-pad unchanged. `splash_android12.png` (D-pad only) unchanged.
+- Regenerate: `dart run flutter_native_splash:create`, then `git checkout -- ios/Runner/Info.plist` (plugin only rewrites indentation/line endings).
+- Older gotchas: `remove` leaves `drawable-night*/launch_background.xml` without a logo — delete `drawable-night/` and `drawable-night-v21/` after `create`. Don't quantise PNGs with PIL (bands the glow); use `pngquant`.
+
+Not yet verified on a real device: Android ≤11, Android 12+, iOS.
+
+---
+
+## 4. Home (`lib/features/home/home_page.dart`) — DONE
+
+- `widgets/home_backdrop.dart` — `HomeBackdrop`: untouched `BG_Portrait.png` + optional ambient motion (drifting aurora light, twinkles on the painted sparkles, breathing glow on collar / paw sign / cat-house door, floating motes). ~30 fps timer; pauses when Home is covered, when the app is backgrounded, and with reduce-motion. `HomePage(animateBackground: false)` disables it.
+- Header: logo badge + Kanit title + "Robot remote by PrinceBot"; frosted strip when scrolled.
+- BLE hero card: status orb, hint text, **Reconnect** + **Scan devices** when a last device exists, device name + signal + Manage when connected. The old "No recent device yet" card is merged into it.
+- Controller / LineSonic glass tiles with subtitles; Contact + Arduino Library grouped into a "Resources" list; version line `PB Controller · vX`; content max width 560; pull-to-refresh (which opened the BLE page) removed; dead `isDark`/`isThai` code removed.
+- Tests: `test/home_backdrop_test.dart` (motion pauses when covered / backgrounded / reduce-motion).
+
+---
+
+## 5. BLE Connection (`lib/features/bluetooth/bluetooth_ble_page.dart`) — DONE
+
+- Fixed: status text centred away from its icon; empty device panel stretching to the bottom; "Last device" Connect active while already connected; "Tap scan to begin" shown while scanning.
+- Status card with the shared orb; full-width **Scan devices**; countdown + **Stop** while scanning; when connected: security state in words, **Pair code** or a "Paired" chip, **Disconnect**.
+- Coral only for real problems. Robots sorted by signal level then name, signal bars, "Last used" chip, spinner on the row being connected. "Forget device" in a ⋯ menu with a glass confirmation. Glass "Bluetooth is off" dialog. Coordinator logic unchanged.
+- Tests: `test/ble_page_ui_test.dart`; `ble_pairing_prompt_wiring_test.dart` paired case checks "Paired" is a label.
+
+---
+
+## 6. Controller pages (4 BTN / 8 BTN / Joystick) — DONE
+
+Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dart` (8 BTN), `lib/features/joystick/joystick/presentation/joystick.dart`, `control_mode_settings_page.dart`, shared widgets in `lib/core/widgets/`.
+
+### Toolbar
 ```
+[Back] [Start/Stop]   Speed · CMD/telemetry · BLE   [Settings]
+```
+- `GamepadControlLayout.measure(context, labels, leadingCount: 2)` + `GamepadControlRows`: Back and Start/Stop are pinned left (16 px safety gaps), Settings pinned right, the rest centred. Rows still wrap at large text.
+- Start/Stop (`ControlStartStopButton`) is 48 px like Back/Settings. Next to Back on purpose: Back also stops control before leaving; Settings does not. Stop has a red halo; Start has a breathing green ring while control is off.
+- "Tap Start to drive" (`ControlStartHint`) sits just under the toolbar pointing at Start — only when the toolbar is a single row and (on 4/8 BTN) the speed panel is closed.
+- **Start/Stop placement editing was removed** (owner request): no `EditableStartStopSurface` / `StartStopPlacement` / `StartStopObstacle` any more. Old saved `*_start_stop` prefs and the `startStop` key in presets are ignored; reset still removes the old pref.
+- Compact Bluetooth wording: only when the toolbar would otherwise wrap, the BLE badge uses `BlePresentationState.shortLabel` ("Checking…", "Unavailable", "Needs permission", "Turning on…", "Turning off…"); screen readers keep the full label. Result: Joystick stays on one row at 640×360. 8 BTN still wraps at 640 (its CMD text is long — pre-existing).
+
+### Pad
+- `ControlInputGate`: locked controls (before Start / while suspended) are desaturated at 0.72 opacity; tapping them shows the "Tap Start to drive" notice; control state is kept across lock/unlock.
+- `ControlBackground`: same `BG.png`; on screens shorter than 400 px a soft lavender veil fades the bottom-corner cats (full at 340 px). Control positions untouched.
+
+### Chrome
+- 8 BTN speed panel: light glass; DRV / TRN labels kept, small "Drive" / "Turn" captions added. 4 BTN Lo/Med/Hi menu unchanged.
+- Both speed panels float over the pad (`GamepadToolbarDropdown`, left edge under the Speed slot via `GamepadControlLayout.slotLeft`, kept on screen), so opening them never moves or resizes the drive buttons. Trade-off: while open, the 8 BTN panel covers the top of ↑ / △ (fully at 640×360, where the toolbar wraps).
+- Settings page: violet selection instead of pink.
+- Layout editor: `GamepadEditHint` under the edit toolbar ("Tap a control to select it · Long-press a tool to see its name" → "Drag to move · − / + to resize · Done when finished"). Edit toolbar icons/tooltips unchanged.
+- Layout editor spacing: each edit tool takes taps over its whole 48 px slot; the grid is a square `GamepadEditMetrics.gridStep` (24 dp) drawn by `GamepadEditGrid` over exactly the box controls snap in (`snapToGrid`, from the pad's top-left); `GamepadEditMetrics.crowdsNeighbour` keeps `minControlGap` (6 dp) between touch areas but always lets already-closer controls move apart (the Joystick's default face buttons are ~1 dp apart). Tests: `test/gamepad_edit_layout_test.dart`.
+
+### Layout editor — not done (owner has not picked these yet)
+- Group the edit toolbar: [Done] | [Lock − +] | [Grid] | [Undo Redo] | [Reset Delete], 8 px inside a group, 16 px between groups (needs a group-gap option in `GamepadCenteredToolbar` / `GamepadToolbarLayout.calculate`). Reset sits next to Redo today and wipes the layout without asking (Undo can bring it back). Optional "Done" text label.
+- Top edge: `GamepadEditMetrics.safeTopEdgePad` is 4 px vs 12 px on the other edges, so controls can sit right under the toolbar/hint (and, while driving, under the floating speed panel). Proposed: 12 px, clamp saved layouts on load for 4/8 BTN.
+- 4 BTN default spacing is uneven (914×411: ↑↓ 15 px apart vs ←→ 30 px; 640×360: 22.5 vs 13.6).
+- Unused file noticed: `lib/features/gamepad/controllers/gamepad_edit_controller.dart` (no imports).
+
+### Tests
+`test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), `test/control_speed_panel_test.dart` (floating speed panels, `slotLeft`), `test/gamepad_edit_layout_test.dart` (editor tool taps, grid/snap, 6 dp gap), plus the existing toolbar/joystick/review tests.
+
+### Not changed on purpose (Arduino library)
+Joystick axes and Y-/Y+ labels, △○✕□ face buttons, packets, button IDs, CMD/DRV/TRN/X/Y telemetry text.
+
+### Not yet verified on a real device
+Start/Stop from the toolbar while driving (thumb reach in landscape), pulse smoothness on low-end Android, iPhone landscape safe areas, layouts users saved in older versions.
+
+---
+
+## 7. BLE status sheet (`lib/core/widgets/ble_connection_sheet.dart`) — DONE
+
+The sheet that opens from the Bluetooth badge (controller pages and LineSonic). Owner answered "ตามที่แนะนำ": all plan items, diagnostics option A. Rendered at 914×411 and 411×914 before and after.
+
+### Findings (before) → what changed
+1. "No devices found" while still scanning → "Looking for robots…" while scanning, "No robots found yet" after, with the BLE page's hints.
+2. Header "Not connected" while the badge said "Scanning…" → the badge passes its `presentationState`; `resolveBleSheetPresentation` uses it, and the sheet's own scan/connect state only fills in while the badge is idle. Same status orb, title + hint; when connected: robot name + `BleSecurityLine`.
+3. Disabled "Scanning..." pill, no way to stop → "Scanning Ns" (busy) + **Stop** (`coordinator.stopScan()`).
+4. Cancel/diagnostics below the fold → "Close"; header and footer fixed, only the middle scrolls; max height 85% in landscape, 60% in portrait, capped to the safe area.
+5. MAC as the name, raw RSSI, unsorted, no "Last used", spinner on every row → shared `BleDeviceRow` / `sortBleScanResults` / `bleScanResultName`; spinner only on the tapped row (`_connectingDeviceId`), the others locked.
+6. "Connect last" → "Connect <name>" (scan list name, else the remembered name, else "Connect last robot"). On narrow sheets it takes the spare width and Scan shortens to "Scan".
+7. Diagnostics row for everyone with a hidden copy button → option A: "Diagnostics" text button at the left of the footer; opens the panel at the top of the list (scrolled into view) with **Copy** inside, which says "Copied" for 2 s (a snack bar would sit behind the sheet's barrier). Same fields.
+8. Forget next to Cancel with no confirmation → "Forget device" in a ⋯ menu next to Close, `showLavenderConfirmDialog` like the BLE page.
+9. 30 px buttons → every control is ≥ 48 px (Lavender 48 px buttons, 48 px text-button minimum, Material 48 px icon targets, rows ≥ 64 px). This landed with the restyled buttons in `b281f23`/`798250e`; `test/ble_sheet_ui_test.dart` measures it in both orientations.
+
+### Layout
+```
+[orb] Title / hint                 [actions]     ← wide (landscape)
+───────────────────────────────────────────────
+(diagnostics panel when open)
+robot rows / empty state           ← only this scrolls
+───────────────────────────────────────────────
+[Diagnostics]                [⋯] [Close]
+```
+On narrow sheets (portrait, large text) the actions move under the title.
+
+### Notes
+- Pair code stays a 48 px icon button with tooltip "Pair code"/"Paired" (existing pairing tests rely on it).
+- The status orb only spins when `AmbientMotion.enabledFor(context)` (off under `flutter test`, and with reduce-motion).
+- The sheet's barrier is still `Colors.black87` and the iOS path still uses `showCupertinoModalPopup`; unchanged.
+- No coordinator/connection logic changed (Arduino rule safe).
+
+### Not yet verified on a real device
+Opening the sheet from all three controller pages and LineSonic; Stop during a real scan; the iOS sheet (safe areas, height); "Copied" + clipboard on device; the Forget dialog over the sheet.
+
+## 8. Open questions for the owner
+- △○✕□ face buttons resemble PlayStation symbols — possible trademark question for a store release; left unchanged because the Arduino library uses them.
+- Joystick Y- is "up" (matches the packets); clearer forward/back labelling would need coordination with the library examples.
+- 8 BTN toolbar wraps to two rows on 640 px screens because of its long CMD text; shortening it would change telemetry text (library rule), so it was left.
+
+---
+
+## 9. Device-test fixes (owner's phone, after PR #2) — DONE
+
+The owner ran PR #2 on an Android phone (about 800×360 logical in landscape) and reported four things. All four were reviewed, planned and approved ("ตามคำแนะนำ"), one commit each.
+
+1. **Start/Stop stayed on screen while switching modes** (`6d0444a`). `GamepadStartStopControlButton` wrapped itself in a `Hero` with the same tag on 4 BTN, 8 BTN and Joystick, so `pushReplacement` between modes flew it above the transition. The Hero and the `heroTag` parameter are gone; `test/control_start_stop_test.dart` checks there is no Hero around it on all three pages.
+2. **Highlight ring off-centre** (`69d98aa`). The round face of `control_start.png` / `control_stop.png` is centred at 54.1% / 55.1% of the image height (cat ears on top), diameter 87% / 90%. `GamepadStartStopControlButton.faceOffset` / `faceDiameter` hold that; halo, glow and spinner are translated onto the face, and the Start ring is a painter from the face rim outwards (x1.0 → x1.32) that never changes the button's 48 px size (the old `Stack` ring could grow it to ~58 px).
+3. **Pair Code dialog with the keyboard up** (`c1333af`). App layout, not a phone setting: the `AlertDialog` pinned Cancel/Pair, so a landscape keyboard left only those (800×360 with a 240 px keyboard also overflowed 4 px). Below 300 px of usable height (`LayoutBuilder` box minus reported keyboard/safe-area insets) it is one row `[field | Cancel | Pair]`; the field's label is the title, helper and 0/16 counter are hidden, errors still show. The `TextField` keeps its state across layouts (`GlobalKey` + owned `FocusNode`) so focus and the keyboard survive the switch. Tests in `test/pairing_code_dialog_test.dart`.
+4. **Joystick page has CMD but no buttons** (`6ffc92d`). Not disabled: Joystick starts with two joysticks and △ ✕ □ ○ are added from the "Buttons" menu. The 2.1.0 single-row edit toolbar (`13077ee`) had dropped the menu's entry, so it could not be opened (already broken in released 2.1.x). A "Buttons" tool (gamepad icon) is back right after Done; 10 tools still fit one row at 640×360. Owner chose to **keep the default** (left + right joystick). Tests in `test/gamepad_edit_layout_test.dart` and `test/gamepad_toolbar_responsive_test.dart`.
+
+### Follow-ups from this section
+Both done in section 10 (shared sheet with a pinned Done; free-spot placement).
+
+### Not yet verified on a real device
+All four fixes above (the owner is re-testing).
+
+---
+
+## 10. Device-test fixes, round 2 — DONE
+
+The owner confirmed section 9's items 1–3 and reported six more points; all reviewed, planned and approved ("ตามที่แนะนำ"), one commit each.
+
+1. **Joystick face buttons could not be selected** (`4c26dd4`). `GamepadEditableButtonFrame` (used only by the Joystick page) hit-tested with the default deferToChild, and the page wraps the button in `IgnorePointer`, so nothing in the frame took taps; taps went to the right joystick underneath. Broken since 2.1.0 (`13077ee` replaced the frame's bordered box with `GamepadEditSelectionVisual`). Fix: `HitTestBehavior.opaque`.
+2. **Shared Lavender "Buttons" sheet** (`f9f6d80`): `features/gamepad/widgets/gamepad_controls_sheet.dart` (`showGamepadControlsSheet`, groups of `GamepadControlChoice` with artwork or icon). Pinned header + 48 px Done, tap outside closes, ticks apply at once (Undo reverts), tiles ≥ 56 px, two columns when ≥ 440 px wide. Replaced the old green (Joystick) and pink (8 BTN) sheets.
+3. **Buttons tool on 8 BTN and 4 BTN** (`1e2239e`). 8 BTN lost its entry in 2.1.0 like Joystick; 4 BTN's menu (2.0.8) was gone entirely. Groups: 8 BTN "Left pad"/"Right pad", 4 BTN "Arrows". Edit toolbars now count 10 tools (one row at 640×360, text scale 2).
+4. **Free-spot placement** (`850c7e3`). `GamepadEditMetrics.freeSpotFor` (default spot if it keeps 6 dp, else nearest 24 dp grid point in the safe area). Before adding, controls already on the pad are pinned in `_layout` / `_layoutAll` (defaults depend on the active set). 4 BTN's duplicated specs became `_fourButtonSpecs()`. Note: with several buttons added to the two-joystick pad, the nearest free spots can be scattered (e.g. ○ near the right edge); the owner can arrange them.
+5. **Start/Stop artwork only** (`e459fed`): no glow, red halo or breathing ring (cut off by ears/paw/tail). Spinner still centred on the face (`faceOffset`). "Tap Start to drive" still shows.
+6. **Settings mode switching** (`412c76b`). Edit layout used to edit the mode Settings came from. Now `controlModeSettingsRoute` returns `ControlModeSettingsResult(mode, open:)`; pages switch (same BLE hand-off) with `ControlPageArguments(open:)`, `AppRoutes` passes `openOnArrival`, and the new page opens its editor / saved layouts after its layout loads. Same-mode Saved layouts still opens over Settings. Section title "Layout · <mode>".
+
+Tests: `test/gamepad_controls_sheet_test.dart`, `test/control_mode_switch_test.dart` (through `AppRoutes`), and additions in `test/gamepad_edit_layout_test.dart`, `test/control_start_stop_test.dart`, `test/widget_test.dart`, `test/gamepad_toolbar_responsive_test.dart`. The selection, placement and mode-switch tests fail on the previous code.
+
+### Not yet verified on a real device
+Everything in this section.
+
+---
+
+## 11. LineSonic pages — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Files: `lib/features/linesonic/linesonic_page.dart` (hub, LF), `linesonic_pid_page.dart` (CRLF), `linesonic_sensor_page.dart` (CRLF). The app is portrait-only, so these were rendered at 411×914 and 360×640, text scale 1.0 and 1.3, before any change.
+
+### Findings (before)
+Hub
+1. Own "BLE Off" pill (32 px tall) that opens the full BLE page, while PID / Sensor use the shared badge that opens the BLE status sheet; the two disagree ("BLE Off" vs "Checking Bluetooth…").
+2. Cards use a private palette instead of `GlassPanel` like Home.
+
+PID Tuning
+3. Bug: each step card's `Material(color: toneBg)` wraps the card's margin, so a pale band runs edge to edge behind every card (16 px wider than the card on both sides).
+4. Bug: transparent header; scrolled content runs under the "PID Tuning" title.
+5. Bug: the "Add Step" FAB covers fields (Straight at 360×640, SUM threshold with the keyboard up).
+6. Title cut to "PID …" at 360 px / text 1.3 (wide badge).
+7. Targets under 48 px: step header icons and Save/Load preset 40×40, speed chips 37×28, segmented buttons 32 tall, switches scaled to 0.65 (≈39×26), number fields 36 tall, SW1 / Reset 40 tall.
+8. Text 10–11 px (chips, segments, field labels, step pill).
+9. Off-palette colours: Send All #2563EB, PD+Speed green, SW1 teal, Time step blue, CheckSum step orange.
+10. No confirmation or undo for Delete step, Load preset (replaces all steps), Save over a preset, Delete preset.
+11. Off / All Black / All White has no label.
+12. Preset picker sheet and Save dialog are stock Material.
+
+Read Sensor
+13. Stock Material buttons and dropdown.
+14. Same header issues as 4 and 6.
+15. Plain chevron Back on PID and Sensor; hub and BLE page use the cat Back.
+
+### Decisions (owner)
+1. Hub badge: the shared `ConnectionStatusBadge` (opens the BLE status sheet).
+2. Step colours: Time = violet, CheckSum = cyan, no mode = muted.
+3. Step header: ↑ / ↓ visible; Duplicate and Delete in a ⋯ menu.
+4. Actions: a fixed glass bar at the bottom (Send All, Send PD+Speed, SW1, Reset board); "Add step" becomes a row at the end of the list (no FAB).
+5. Delete step → snack bar with Undo; Load preset over steps, Save over a saved preset and Delete preset → `showLavenderConfirmDialog`.
+6. Off / All Black / All White is labelled "Junction hold".
+7. Sensor "Read (force)" moves into the Log section.
+
+### Phases (one commit per item)
+1. Shared header for the three pages: cat Back, Kanit title that scales down instead of truncating, frosted strip when scrolled, BLE badge in the controller-toolbar pill style with short labels.
+2. Hub: shared badge, `GlassPanel` cards.
+3. PID: band bug; glass step cards + colours; 48 px targets, ≥ 12 px text, full-size switches, ⋯ menu; bottom action bar + Add step row; Undo / confirmations; Lavender preset sheet and Save dialog; "Junction hold".
+4. Sensor: Lavender buttons and interval chips, value tiles, Log panel with Read (force) and Clear.
+5. Tests, before/after renders, notes.
+
+### Must not change (Arduino library)
+`SEQ=` (field order `mode,value,kp,kd,speed,afterMs,afterSpeed,stopMs,lineColor,holdMs,holdThreshold,holdMode`), `SEQPD=`, `SW1=1`, `RESET=1`, `SENS=1`, the `SENS=…,SUM=` parsing, KP / KD / Speed / S1… / SUM wording, the 3 s / 1 s / 200 ms send limits, and the saved keys `linesonic_steps_v2` / `linesonic_presets_v1`.
+
+### Result — DONE (all phases)
+- `widgets/linesonic_scaffold.dart` (LF): `LineSonicScaffold` (cat Back, Kanit title in a `FittedBox` so it scales instead of being cut, `FrostedBarBackground` when scrolled, optional `bottomBar` hidden while the keyboard is up, `contentTop(context)` for list padding) and `LineSonicBleBadge` (the shared `ConnectionStatusBadge` inside a one-item `GamepadControlScope` with `compactBle: true`, so it draws the controller toolbar pill with short labels and opens the BLE status sheet).
+- `widgets/linesonic_controls.dart` (LF): `LineSonicSegments<T>` (glass segmented control, 42 px segments in a 48 px rim) and `LineSonicCaption`.
+- Hub (`linesonic_page.dart`, LF): `blePageBuilder` and the private pill are gone; two `GlassPanel` tiles (cyan PID, mint Sensor).
+- PID (`linesonic_pid_page.dart`, CRLF): `_buildStepCard` + `_StepTone` (Time violet, CheckSum cyan, none muted), `_StepIconButton` (48 px), ⋯ `PopupMenuButton` (Duplicate / Delete), `_PresetChips` (48 px targets around 34 px pills), `_SwitchRow` (full switch, 48 px row), `_DisabledWhen`, `_NumberField` (48 px, glass fill). Tapping the selected mode still shows / hides its options; the chevron next to "Mode" does the same. `_buildActionBar` (Send PD+Speed, Send All gradient, SW1 cyan, Reset Board coral). Deleted steps wait in `_pendingDeleted` until the Undo snack bar closes. `_PresetNameDialog` owns its controller. Drag-to-reorder never had drag handles (only ↑ / ↓ work); unchanged.
+- Sensor (`linesonic_sensor_page.dart`, CRLF): glass controls panel, interval as segments, value tiles (columns = width / 84, 3–8), SUM row, log panel with Read (force) + Clear and selectable text. `debugReceivedLines` (visibleForTesting) feeds lines through `_handleData`.
+- Checked: `_buildSeqPayload`, `_buildSeqPdPayload`, `_sendCommand`, `_sendSW1`, `_sendReset`, `_sendSequence(Pd)`, `_StepData.toJson`, `_parseLine`, `_sendRead`, `_forceReadTx`, `_setAuto`, `_handleData`, `_addLog` are byte-identical to `a2d6d12`; nothing under `lib/core` changed.
+- Thai strings in the rewritten parts were dropped (English-only rule; they were identical to the English ones anyway). Labels kept: "Send All", "Send PD+Speed", "SW1", "Reset Board", "Add Step", "Read Now", "Auto On/Off", "Read (force)".
+
+### Testing notes
+- `test/linesonic_ui_test.dart` (15). The hub test in `widget_test.dart` now checks the shared badge instead of opening the BLE page.
+- Rendering: one big `tester.drag` (e.g. −3000 px) on the PID list lands past the lazily estimated extent and shows an empty viewport; drag in ~400 px steps with pumps. `FrostedBarBackground` may not show in captures taken right after a large jump.
+- The log uses `fontFamily: 'monospace'`, which is not loaded under `flutter_test` (boxes in renders).
+
+### Not yet verified on a real device
+The three pages on Android and iOS: the badge pill and BLE sheet from LineSonic, the frosted header while scrolling, the bottom bar with the keyboard (it hides) and on iPhone home-indicator insets, blur cost of one `GlassPanel` per step on low-end Android with many steps, the ⋯ menu, Undo snack bar over the bottom bar, the Save preset dialog above the keyboard.
+
+---
+
+## 12. Closer control spacing — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+The owner confirmed section 11 on the phone and asked whether controls can be placed closer together.
+
+### Findings (before, 800×360, the owner's phone)
+- The 6 dp rule is measured between the controls' layout boxes (88 dp at this size), but the button PNGs (`assets/icons/Gamepad_Mode_Edit/*.png`, 1024 px) have about 10–15 % transparent margin per side, and the drive-mode buttons draw the image 2 px inside the box. The visible edges therefore stay **~36–37 dp apart** at the closest allowed position (measured: 4 BTN ← dragged into → stops at 94 dp between centres).
+- 8 BTN's default diamond (↑ ← → ↓, 88 dp boxes 95 dp apart) is already at the limit (6.8 dp box gap), so it cannot be tightened at all.
+- A fast drag stops up to ~6 dp before the limit: an update that would crowd a neighbour is dropped and the control stays at the last accepted point.
+- With Grid on, centres snap to 24 dp.
+- The 4 BTN / 8 BTN editors draw the button with an 8 % inset and BoxFit.cover in a ClipOval, smaller than the drive-mode button (2 px inset, contain), so the editor under-shows how close buttons really are.
+- Drive-mode buttons take touches over their whole square box and only then check a circle; where two boxes overlap, the top one swallows the touch even outside its circle.
+
+### Decisions (owner)
+1. Measure spacing between the **visible** artwork, minimum **4 dp**.
+2. Each button's touch area is a circle: its visible circle plus up to half the space to its nearest neighbour (never past the old box), so neighbours never share a touch point; touches outside it fall through to the control underneath.
+3. A blocked drag slides to the closest allowed point instead of stopping early.
+4. Grid snaps every **12 dp** (24 dp lines keep their old look; the new half lines are fainter).
+
+### Phases
+1. `GamepadEditMetrics`: visible radius of an image button, 4 dp gap, slide-to-contact helper, touch radius helper, 12 dp grid; `CircularHitArea` widget.
+2. 8 BTN, 4 BTN, Joystick: spacing checks (drag, resize, free spot) use visible radii (joysticks keep their full circle), drags slide to contact, editor draws buttons like drive mode, drive and editor touch areas use the touch radius.
+3. Tests, before/after renders and measurements, notes.
+
+### Must not change
+Button IDs, packets, joystick axes, △○✕□, saved layout format (positions saved by older versions load unchanged), default layouts.
+
+### Result — DONE (`4b8276d`)
+Done as one commit (the metric, the three pages and the tests depend on each other).
+- `GamepadEditMetrics` (`lib/core/ui/gamepad_edit_metrics.dart`): `minControlGap` 4 (visible edges), `buttonArtworkFraction` 0.766, `buttonImageInset` 2, `buttonVisibleRadius(boxSide)`, `touchRadius(...)`, `slideToward(...)`, `gridStep` 12. `GamepadEditGrid` draws 12 dp lines faint, 24 dp as the old minor lines, 96 dp strongest.
+- `lib/core/widgets/circular_hit_area.dart` (new): claims touches only inside a circle (and all touches inside it).
+- `GamepadImageHoldButton(touchRadius:)` (4 / 8 BTN drive mode) and the Joystick `_JoyImagePressHoldButton(touchRadius:)`; `GamepadEditableButtonFrame(touchRadius:)` (Joystick face buttons in the editor); the 4 / 8 BTN editable buttons wrap their gesture area in `CircularHitArea`.
+- Visible radius per control: image buttons `buttonVisibleRadius(diameter)`; joysticks their whole circle. Joystick face buttons still only check spacing against each other (as before), and their touch areas split only between face buttons.
+- Slide to contact applies to moves only (not pinch-resize) and not with Grid on (grid points kept).
+- Measured at 800×360: 4 BTN ← into → now stops at 68 px between centres (94 before), slow and fast alike; 8 BTN ← moves ~55 px further toward → before meeting ↑ / ↓.
+- Unchanged: IDs, packets, axes, default layouts, saved format. Old saved layouts load as they were (they are wider than the new limit).
+
+### Verified on the owner's phone (2026-11-03)
+The owner tested section 12 on the phone and confirmed it passes (dragging together, driving with close buttons, editor size, 12 dp grid). iOS not tested.
+
+---
+
+## 13. Layout editor leftovers — plan (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Section 6 "Layout editor — not done", reviewed again at 800×360 (owner's phone) and 640×360 after section 12.
+
+### Findings (before)
+1. The edit toolbar's 10 tools are evenly spaced (8 dp; slots 68 dp at 800, 52 dp at 640), so nothing reads as a group. Reset sits between Redo and Delete and wipes the layout at once (Undo can bring it back, nothing says so). Done is an icon like the others.
+2. 4 / 8 BTN allow a control 4 dp from the pad's top (12 dp on the other edges): its ears come within ~20 dp of the toolbar, it can sit under the editor hint (y 62–96 vs face top 76), and while driving the floating speed panel covers it. Joystick already uses 16 dp on every edge.
+3. 4 BTN default spacing is uneven (visible faces): 800×360 ↑↓ 37 dp vs ←→ 52 dp; 640×360 46 vs 37; at 640 the ↑↓ column hugs the left edge. 8 BTN places its clusters at 20 % / 80 % of the layout frame.
+4. (Found, left for later) 8 BTN at 640×360: the driving toolbar wraps to two rows, so the pad is shorter than in the editor and buttons draw at 71 dp instead of 88 dp; the layout scales down. At 800×360 the two match. Tied to the long CMD text (Arduino rule).
+
+### Decisions (owner)
+1. Toolbar groups: [Done] | [Buttons] | [Lock − + Delete] | [Grid] | [Undo Redo] | [Reset]; 6 dp inside a group, 16 dp between groups; one row at 640, 48 px targets.
+2. Reset asks first (`showLavenderConfirmDialog`); Undo still works.
+3. Done is a filled violet pill with "Done" next to the ✓ when the slot is wide enough.
+4. Top edge 12 dp like the others, for dragging and resizing; saved layouts are not moved.
+5. 4 BTN defaults: ↑↓ and ←→ with the same 24 dp between visible faces (scaled with the pad), ↑↓ column at 20 % and ←→ row at 80 % of the layout frame. Saved layouts unchanged.
+Item 4 of the findings is left for later.
+
+### Result — DONE (one commit per item)
+1. `b26a669`: `GamepadCenteredToolbar(groupStarts:)`, `itemGap` 6, `groupGap` 16 (falls back to even spacing if the groups do not fit at 48 px). All three pages: Done, Buttons, Lock, −, +, Delete, Grid, Undo, Redo, Reset with groups at {1, 2, 6, 7, 9}. Slots 67 px at 800×360, 51 px at 640×360; one row at text scale 2.
+2. `76a5e28`: `_resetLayouts` / `_resetLayout` ask "Reset layout?" (destructive Lavender dialog), then `_applyReset` (unchanged reset). Undo restores.
+3. `1f921ca`: `GamepadToolIconPill(primary: true)`: violet gradient pill, white ✓, "Done" when the slot is ≥ 64 px and text scale ≤ 1.3 (800: yes, 640: no). Tests that close the Buttons sheet tap the sheet's own Done (`_sheetDone`).
+4. `753f922`: `GamepadEditMetrics.safeTopEdgePad` 12. A control dragged up stops 12 dp under the pad's top (at 800×360 its ears can still touch the left end of the editor hint pill by a few dp). Saved positions are not moved.
+5. `07f870b`: 4 BTN `_defaultLayoutForIds`: ↑↓ column at 20 % and ←→ row at 80 % of `defaultLayoutFrame`, layout size 0.30, clear space between faces = 3/8 of a face diameter (`_defaultFaceGapRatio`, 24 dp at 800×360); positions no longer depend on which buttons are shown. Removed the 2.0 constants `_panelEdgeInset` / `_panelRowGap` / `_panelColGap` and `_defaultRenderedCfg`.
+
+Tests added in `test/gamepad_edit_layout_test.dart` (Reset dialog + Undo on all pages, Done pill at 800 / 640, 12 dp top edge on 4 / 8 BTN, even 4 BTN defaults at 800 / 640) and `test/gamepad_toolbar_responsive_test.dart` (new order and group gaps).
+
+### Not yet verified on a real device
+Everything in this section.
+
+---
+
+## 14. Backend review and the first fixes (owner approved "ตามที่แนะนำ", 2026-11-03)
+
+Read-only review of `lib/core/ble/*` (BleManager, coordinator, secure protocol, pairing store, permissions), the control loops of the three controller pages, the LineSonic text-command pages, persistence and platform config. The BLE layer itself is solid (traffic owners, priority stop queue, repeated stop frames on Stop / leave / background / disconnect, HMAC v2 protocol, pairing secret in flutter_secure_storage, 11 BLE test files, correct Android permissions). Most findings are in the pages that use it.
+
+### Findings
+High
+1. 8 BTN leaks control ownership: `_startControl` (`gamepad_mode_edit.dart:361-366`) returns without releasing when the page is gone after `acquireControlForStart` (up to 8 s). Back or a mode switch during Start leaves BleManager in controlBinary with no holder; every Start fails and LineSonic says "BLE is busy in control mode" until the link drops or the app backgrounds. 4 BTN and Joystick already guard this (`_leavingControlPage`, release with `stopAndReleaseControl`); the regression test covers only those two.
+2. Joystick sends nothing while idle (`joystick.dart:424-430`: centred sticks, no buttons → no frame), but `docs/PB_CONTROL_PROTOCOL_V2.md` (lines 13, 56) has the firmware stop and invalidate the session after 400 ms without a valid packet. 4 / 8 BTN send a zero frame every 150 ms while idle.
+
+Medium: PID saved-data decode unguarded (`linesonic_pid_page.dart:252, 302`, a bad load then autosaves over the program); transient handshake failures shown as "Secure firmware update required"; link-loss reconnect never gives up (8 s scans); wall-clock timing for throttles and heartbeat; Read Sensor rx buffer / Auto in-flight / SnackBar flood; control code duplicated across the three pages (8 BTN refreshes a held button every ~160 ms vs 50 ms); a Joystick button release can be dropped by the 20 ms limiter.
+Low: partial text line left on the board after a failed chunk; iOS skips the permission / adapter check; secure-storage PlatformException not caught; startup errors leave the splash; PID `_sendCommand` without try/finally; 4 BTN preset speed unchecked; unused code and packages (`AppConnection` classic, `_reconnectDeadline`, `/joystick-test`, dio, riverpod, freezed, json_*, build_runner). Security note (protocol, not app): 8-character pair codes can be brute-forced offline from a captured handshake; longer codes are safer.
+
+### Plan for the two high items (owner decisions: keepalive 150 ms)
+1. 8 BTN, like 4 BTN: `_leavingControlPage` (set on exit and dispose, part of `_canStartControl`); after `acquireControlForStart`, release with `stopAndReleaseControl` when unmounted, leaving or switching mode; `acquireControl` test hook. Tests: 8 BTN in "abandoned Start cleans only its owner", plus a mode switch during Start on all three pages.
+2. Joystick: while started, not editing and idle, send the existing zero joystick frame every 150 ms (as 4 / 8 BTN). Same bytes, only more often while idle; it also re-sends the real state within 150 ms if a release frame was dropped. Tests: idle frames with no gap over 400 ms after Start, none before Start or in the editor, 50 ms while held.
+
+No library change: both fixes use packets the Arduino library already receives (STOP on release; the zero joystick frame that 4 / 8 BTN already send while idle). The board can stay on its current library version.
+
+### Result — DONE (high items)
+1. `1f54651`: `GamepadModeEdit(acquireControl:)` seam; `_leavingControlPage` (Back, system back via `_exitControlPage`, dispose; part of `_canStartControl`); after `acquireControlForStart`, `stopAndReleaseControl` when unmounted / leaving / switching mode. Tests in `test/review_regressions_test.dart`: "abandoned Start" now includes 8 BTN; new "a mode switch during Start releases its owner" on all three pages (8 BTN fails on the previous code, and its leaked owner then breaks the next test in the same run, which is the bug itself).
+2. `8e455c0`: `kJoystickIdleKeepaliveMs` 150, `kJoystickTickMs` 25, `joystickIdleKeepaliveDue(ticks)`; the control timer counts ticks since the last frame and, when idle, re-sends `JoystickPacket(0, 0, 0, 0)` with no buttons. Held sticks / buttons keep the old 50 ms wall-clock keepalive (finding "wall-clock timing" still open). `JoystickPage(onControlFrameForTesting:)` seam. Tests in `test/joystick_keepalive_test.dart` (previous code: 1 frame in 1 s).
+
+Library: unchanged and not needed (STOP on release, zero joystick frame while idle — both already sent by the app today).
+
+### Not yet verified on a real device
+Both fixes. Joystick: Start, wait 2 s, then move a stick — the robot should respond. 8 BTN: tap Start and Back at once, then Start on another page or open LineSonic — no "BLE is busy".

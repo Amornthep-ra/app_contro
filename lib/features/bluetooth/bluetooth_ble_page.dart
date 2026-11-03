@@ -10,29 +10,18 @@ import '../../core/connection/app_connection.dart';
 import '../../core/ble/ble_adapter_observation.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
-import '../../core/ui/app_assets.dart';
+import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/language_controller.dart';
+import '../../core/ui/lavender_glass.dart';
+import '../../core/widgets/ble_status_orb.dart';
+import '../../core/widgets/cat_back_button.dart';
 import '../../core/widgets/portrait_background.dart';
+import 'widgets/ble_connection_status.dart';
+import 'widgets/ble_device_row.dart';
 import 'widgets/pairing_code_dialog.dart';
 
-@visibleForTesting
-String resolveBleConnectedDeviceName({
-  String? currentName,
-  String? currentId,
-  String? lastDeviceName,
-  String unknownName = 'Unknown',
-}) {
-  final name = currentName?.trim();
-  if (name != null && name.isNotEmpty) return name;
-
-  final id = currentId?.trim();
-  if (id != null && id.isNotEmpty) return id;
-
-  final lastName = lastDeviceName?.trim();
-  if (lastName != null && lastName.isNotEmpty) return lastName;
-
-  return unknownName;
-}
+export 'widgets/ble_connection_status.dart' show resolveBleConnectedDeviceName;
+export 'widgets/ble_device_row.dart' show bleScanResultName, sortBleScanResults;
 
 @visibleForTesting
 bool isCurrentBleDeviceId({
@@ -40,14 +29,9 @@ bool isCurrentBleDeviceId({
   String? currentDeviceId,
 }) => candidateDeviceId == currentDeviceId;
 
-class _BleCatPalette {
-  static const purple = Color(0xFF7256B6);
-  static const cyan = Color(0xFF37D8FF);
-  static const coral = Color(0xFFF05264);
-  static const deepPlum = Color(0xFF261B39);
-  static const glass = Color(0xEAFDF9FF);
-  static const glassBorder = Color(0xCCFFFFFF);
-}
+const double _kToolbarHeight = 56;
+const double _kPagePadding = 20;
+const double _kContentMaxWidth = 560;
 
 class BluetoothBlePage extends StatefulWidget {
   const BluetoothBlePage({
@@ -95,6 +79,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
 
   bool _scanning = false;
   bool _connecting = false;
+  bool _scrolled = false;
 
   StreamSubscription<BluetoothAdapterState>? _adapterStateSub;
   bool _scanRequestedWhileBluetoothOff = false;
@@ -112,6 +97,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
   String? _lastDeviceNamePersisted;
   bool _pendingConnectLast = false;
   bool _pairingDialogOpen = false;
+
+  /// Row the user tapped, so its spinner shows while connecting.
+  String? _connectingDeviceId;
   BleControlSecurityState _securityState = BleControlSecurityState.disconnected;
   BleConnectionCoordinator get _bleCoordinator =>
       widget.coordinator ?? BleConnectionCoordinator.instance;
@@ -119,72 +107,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       widget.isBleConnected?.call() ?? BleManager.instance.isConnected;
 
   StreamSubscription<BleConnectionCoordinatorState>? _bleCoordinatorSub;
-
-  Color _opacity(Color color, double opacity) =>
-      color.withAlpha((opacity * 255).round());
-  bool _isDark(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark;
-  ColorScheme _scheme(BuildContext context) => Theme.of(context).colorScheme;
-  Color _textPrimary(BuildContext context) =>
-      _isDark(context) ? _scheme(context).onSurface : _BleCatPalette.deepPlum;
-  Color _textSecondary(BuildContext context) =>
-      _scheme(context).onSurfaceVariant;
-  Color _textTertiary(BuildContext context) =>
-      _opacity(_scheme(context).onSurfaceVariant, 0.82);
-  Color _panelBg(BuildContext context) => _isDark(context)
-      ? _opacity(_scheme(context).surfaceContainerHighest, 0.55)
-      : _BleCatPalette.glass;
-  Color _panelBorder(BuildContext context) => _isDark(context)
-      ? _opacity(_scheme(context).outlineVariant, 0.78)
-      : _BleCatPalette.glassBorder;
-  Color _pillBg(BuildContext context) => _isDark(context)
-      ? _opacity(_scheme(context).primaryContainer, 0.56)
-      : _opacity(_BleCatPalette.glass, 0.94);
-
-  String _t(String th, String en) {
-    if (en == 'Pair QR') {
-      return LanguageController.isThai.value ? 'Pair code' : 'Pair code';
-    }
-    if (en == 'Pair QR before control') {
-      return LanguageController.isThai.value
-          ? 'Enter pairing code before control'
-          : 'Enter pairing code before control';
-    }
-    return LanguageController.isThai.value ? th : en;
-  }
-
-  Widget _homeIcon(String name, {double size = 24}) {
-    return Image.asset(
-      'assets/icons/HomeUnified/$name',
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-    );
-  }
-
-  Widget _buildPlainBackButton() {
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: IconButton(
-        tooltip: _t('Back', 'Back'),
-        icon: Image.asset(
-          AppAssets.controlBack,
-          width: 24,
-          height: 24,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) =>
-              const Icon(Icons.chevron_left_rounded, size: 24),
-        ),
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          Navigator.maybePop(context);
-        },
-        padding: EdgeInsets.zero,
-        splashRadius: 22,
-      ),
-    );
-  }
 
   @override
   void initState() {
@@ -218,6 +140,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     setState(() {
       _scanning = state.scanning;
       _connecting = state.connecting;
+      if (!state.connecting) _connectingDeviceId = null;
       _scanSecondsLeft = state.scanSecondsLeft;
       _securityState = state.securityState;
       _lastDeviceId = state.lastDeviceId?.isEmpty == true
@@ -253,7 +176,11 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       );
     } finally {
       _pendingConnectLast = false;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          if (_connectingDeviceId == _lastDeviceId) _connectingDeviceId = null;
+        });
+      }
     }
   }
 
@@ -265,6 +192,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
         AppConnection.instance.setBleConnected(false);
         setState(() {
           _connecting = false;
+          _connectingDeviceId = null;
         });
       }
     });
@@ -325,32 +253,18 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     if (!mounted || _bluetoothOffDialogOpen) return;
     _bluetoothOffDialogOpen = true;
     try {
-      await showDialog<void>(
+      final openSettings = await showLavenderConfirmDialog(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Bluetooth is off'),
-          content: const Text(
-            'Turn on Bluetooth to scan for and connect to devices.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                _scanRequestedWhileBluetoothOff = false;
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                await _openBluetoothSettings();
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Open settings'),
-            ),
-          ],
-        ),
+        icon: Icons.bluetooth_disabled_rounded,
+        title: 'Bluetooth is off',
+        message: 'Turn on Bluetooth to scan for and connect to your robot.',
+        confirmLabel: 'Open settings',
       );
+      if (openSettings) {
+        await _openBluetoothSettings();
+      } else {
+        _scanRequestedWhileBluetoothOff = false;
+      }
     } finally {
       _bluetoothOffDialogOpen = false;
     }
@@ -378,12 +292,44 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     await _bleCoordinator.disconnect();
   }
 
-  Future<void> _forgetLastDevice() async {
-    await _bleCoordinator.forgetLastDevice();
+  Future<void> _confirmForgetLastDevice(String name, bool connected) async {
+    final confirmed = await showLavenderConfirmDialog(
+      context: context,
+      icon: Icons.delete_outline_rounded,
+      title: 'Forget $name?',
+      message: connected
+          ? 'This disconnects the robot and removes it from quick reconnect. '
+                'You can pair it again any time.'
+          : 'It will be removed from quick reconnect. '
+                'You can pair it again any time.',
+      confirmLabel: 'Forget',
+      destructive: true,
+    );
+    if (confirmed) await _bleCoordinator.forgetLastDevice();
   }
 
-  Future<void> _connect(ScanResult result) =>
-      _bleCoordinator.connect(result, source: 'bluetooth_page');
+  void _connectLastDevice() {
+    if (_pendingConnectLast) return;
+    setState(() {
+      _pendingConnectLast = true;
+      _connectingDeviceId = _lastDeviceId;
+    });
+    unawaited(
+      _connectRememberedDevice('bluetooth_page_manual', userInitiated: true),
+    );
+  }
+
+  Future<void> _connect(ScanResult result) async {
+    final id = result.device.remoteId.str;
+    setState(() => _connectingDeviceId = id);
+    try {
+      await _bleCoordinator.connect(result, source: 'bluetooth_page');
+    } finally {
+      if (mounted && _connectingDeviceId == id) {
+        setState(() => _connectingDeviceId = null);
+      }
+    }
+  }
 
   Future<void> _enterPairingCode({bool automatic = false}) async {
     if (_pairingDialogOpen || !mounted) return;
@@ -396,13 +342,8 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     if (!_isBleConnected) {
       if (automatic) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _t(
-              'Connect to a board before entering a pairing code.',
-              'Connect to a board before entering a pairing code.',
-            ),
-          ),
+        const SnackBar(
+          content: Text('Connect to a board before entering a pairing code.'),
         ),
       );
       return;
@@ -442,744 +383,580 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     }
   }
 
-  String _signalLabel(int rssi) {
-    if (rssi >= -55) return _t('Very strong', 'Very strong');
-    if (rssi >= -65) return _t('Strong', 'Strong');
-    if (rssi >= -75) return _t('Medium', 'Medium');
-    if (rssi >= -85) return _t('Weak', 'Weak');
-    return _t('Very weak', 'Very weak');
-  }
-
-  IconData _signalIcon(int rssi) {
-    return Icons.bluetooth;
-  }
-
-  Color _signalColor(BuildContext context, int rssi) {
-    if (rssi >= -65) {
-      return const Color(0xFF22C55E);
-    } else if (rssi >= -80) {
-      return const Color(0xFFEAB308);
-    } else {
-      return const Color(0xFFEF4444);
-    }
-  }
-
-  Widget _buildBleStatusBar() {
-    return StreamBuilder<bool>(
-      stream: BleManager.instance.connectionStream,
-      initialData: BleManager.instance.isConnected,
-      builder: (context, snap) {
-        final connected = widget.isBleConnected != null
-            ? _isBleConnected
-            : snap.data ?? false;
-        final scheme = _scheme(context);
-
-        final name = connected
-            ? resolveBleConnectedDeviceName(
-                currentName: BleManager.instance.currentDeviceName,
-                currentId: BleManager.instance.currentDeviceId,
-                lastDeviceName: _lastDeviceNamePersisted,
-                unknownName: _t('Unknown', 'Unknown'),
-              )
-            : _t('Not connected', 'Not connected');
-
-        final titleColor = connected
-            ? _textPrimary(context)
-            : _BleCatPalette.coral;
-        final subtitleColor = _textSecondary(context);
-        final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: titleColor,
-        );
-
-        final grad = connected
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _opacity(scheme.primaryContainer, 0.9),
-                  _opacity(scheme.primaryContainer, 0.62),
-                ],
-              )
-            : const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [_BleCatPalette.glass, Color(0xDDF6F0FF)],
-              );
-
-        final border = connected
-            ? _opacity(scheme.primary, 0.55)
-            : _BleCatPalette.coral.withAlpha(170);
-
-        final actions = <Widget>[];
-        if (!connected) {
-          final icon = (_connecting || _scanning)
-              ? Icons.hourglass_top
-              : Icons.refresh;
-          final label = _connecting
-              ? _t('Connecting...', 'Connecting...')
-              : (_scanning
-                    ? (_scanSecondsLeft > 0
-                          ? _t(
-                              'Scanning (${_scanSecondsLeft}s)',
-                              'Scanning (${_scanSecondsLeft}s)',
-                            )
-                          : _t('Scanning...', 'Scanning...'))
-                    : _t('Scan', 'Scan'));
-
-          actions.add(
-            _smallAction(
-              icon: icon,
-              assetName: (!_connecting && !_scanning)
-                  ? 'Search-Scan.png'
-                  : null,
-              label: label,
-              onTap: (_scanning || _connecting) ? null : _startScan,
-              primary: !_scanning && !_connecting,
-            ),
-          );
-          if (_scanning) {
-            actions.add(
-              _smallAction(
-                icon: Icons.stop_circle,
-                label: _t('Stop', 'Stop'),
-                onTap: _stopScan,
-                danger: true,
-              ),
-            );
-          }
-        } else {
-          final pairingRequired = requiresBlePairingCode(_securityState);
-          actions.add(
-            _smallAction(
-              icon: Icons.password,
-              label: pairingRequired
-                  ? _t('Pair code', 'Pair code')
-                  : _t('Paired', 'Paired'),
-              onTap: pairingRequired ? () => _enterPairingCode() : null,
-            ),
-          );
-          actions.add(
-            _smallAction(
-              icon: Icons.link_off,
-              label: _t('Disconnect', 'Disconnect'),
-              onTap: _disconnect,
-              danger: true,
-            ),
-          );
-        }
-
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: grad,
-            border: Border.all(color: border, width: 1.1),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: connected
-                          ? _opacity(scheme.primary, 0.14)
-                          : _BleCatPalette.coral.withAlpha(44),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        _homeIcon(
-                          connected
-                              ? 'Bluetooth Connected.png'
-                              : 'Bluetooth Disabled.png',
-                          size: 24,
-                        ),
-                        if (!connected)
-                          Positioned(
-                            top: 3,
-                            right: 3,
-                            child: Container(
-                              width: 7,
-                              height: 7,
-                              decoration: const BoxDecoration(
-                                color: _BleCatPalette.coral,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      child: Column(
-                        key: ValueKey(
-                          connected ? "connected_$name" : "disconnected",
-                        ),
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            connected
-                                ? _t('Connected', 'Connected')
-                                : _t('Not connected', 'Not connected'),
-                            style: titleStyle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            connected
-                                ? name
-                                : _t('Tap scan to begin', 'Tap scan to begin'),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: subtitleColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (connected && !_bleCoordinator.state.controlReady)
-                            Text(
-                              _bleCoordinator.state.securityState ==
-                                      BleControlSecurityState.pairingRequired
-                                  ? _t(
-                                      'Pair QR before control',
-                                      'Pair QR before control',
-                                    )
-                                  : _t(
-                                      'Secure firmware update required',
-                                      'Secure firmware update required',
-                                    ),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: _BleCatPalette.coral,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (actions.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.end,
-                    children: actions,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _smallAction({
-    required IconData icon,
-    String? assetName,
-    required String label,
-    required VoidCallback? onTap,
-    bool danger = false,
-    bool primary = false,
-  }) {
-    final scheme = _scheme(context);
-    final base = danger ? scheme.error : scheme.primary;
-    final foreground = danger ? scheme.error : _textPrimary(context);
-
-    final action = TextButton.icon(
-      onPressed: onTap,
-      style: TextButton.styleFrom(
-        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        minimumSize: const Size(0, 32),
-        foregroundColor: primary ? Colors.white : foreground,
-        backgroundColor: primary ? Colors.transparent : _pillBg(context),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-          side: BorderSide(color: _opacity(base, 0.72), width: 1),
-        ),
-      ),
-      icon: assetName == null
-          ? Icon(icon, size: 14)
-          : _homeIcon(assetName, size: 16),
-      label: Text(
-        label,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-      ),
-    );
-    if (!primary) return action;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [_BleCatPalette.purple, _BleCatPalette.cyan],
-        ),
-        borderRadius: BorderRadius.circular(999),
-        boxShadow: [
-          BoxShadow(
-            color: _BleCatPalette.purple.withAlpha(88),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: action,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (ModalRoute.isCurrentOf(context) == true) _schedulePairingCheck();
-    final connectedDeviceId = BleManager.instance.currentDeviceId;
-    final results = _devices
-        .where(
-          (result) => !isCurrentBleDeviceId(
-            candidateDeviceId: result.device.remoteId.str,
-            currentDeviceId: connectedDeviceId,
-          ),
-        )
-        .toList();
-
-    final lastId = _lastDeviceId;
-    final lastName = _resolveLastDeviceName(lastId);
-
-    return ValueListenableBuilder<bool>(
-      valueListenable: LanguageController.isThai,
-      builder: (context, isThai, _) {
-        final theme = Theme.of(context);
-        final scheme = theme.colorScheme;
-        final isDark = theme.brightness == Brightness.dark;
-        const toolbarHeight = 44.0;
-        return Scaffold(
-          extendBodyBehindAppBar: true,
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            toolbarHeight: toolbarHeight,
-            leading: Navigator.of(context).canPop()
-                ? _buildPlainBackButton()
-                : null,
-            centerTitle: true,
-            title: Text(
-              _t('BLE Connection', 'BLE Connection'),
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0,
-                color: scheme.onSurface,
-              ),
-            ),
-            elevation: 0,
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            scrolledUnderElevation: 0,
-            systemOverlayStyle: isDark
-                ? SystemUiOverlayStyle.light
-                : SystemUiOverlayStyle.dark,
-          ),
-          body: PortraitBackground(
-            child: Padding(
-              padding: const EdgeInsets.only(top: toolbarHeight),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                  child: Column(
-                    children: [
-                      _buildBleStatusBar(),
-                      const SizedBox(height: 10),
-                      _lastDeviceCard(
-                        hasLastDevice: lastId != null,
-                        name:
-                            lastName ??
-                            _t('No recent device', 'No recent device'),
-                        id: lastId ?? '-',
-                        onConnect: (lastId == null || _connecting || _scanning)
-                            ? null
-                            : () {
-                                if (_pendingConnectLast) return;
-                                _pendingConnectLast = true;
-                                unawaited(
-                                  _connectRememberedDevice(
-                                    'bluetooth_page_manual',
-                                    userInitiated: true,
-                                  ),
-                                );
-                              },
-                        onForget: lastId == null ? null : _forgetLastDevice,
-                      ),
-                      const SizedBox(height: 8),
-                      Flexible(
-                        fit: results.isEmpty && !_scanning
-                            ? FlexFit.loose
-                            : FlexFit.tight,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                          decoration: BoxDecoration(
-                            color: _panelBg(context),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: _panelBorder(context)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: _BleCatPalette.purple.withAlpha(40),
-                                blurRadius: 16,
-                                offset: const Offset(0, 7),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: results.isEmpty && !_scanning
-                                ? MainAxisSize.min
-                                : MainAxisSize.max,
-                            children: [
-                              Row(
-                                children: [
-                                  _homeIcon('Search-Scan.png', size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _t(
-                                      'Discovered devices',
-                                      'Discovered devices',
-                                    ),
-                                    style: TextStyle(
-                                      color: _textPrimary(context),
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Flexible(
-                                fit: results.isEmpty && !_scanning
-                                    ? FlexFit.loose
-                                    : FlexFit.tight,
-                                child: results.isEmpty
-                                    ? Center(
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                          ),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              _homeIcon(
-                                                _scanning
-                                                    ? 'Search-Scan.png'
-                                                    : 'Bluetooth Disabled.png',
-                                                size: 42,
-                                              ),
-                                              const SizedBox(height: 10),
-                                              Text(
-                                                _scanning
-                                                    ? _t(
-                                                        'Scanning for devices...',
-                                                        'Scanning for devices...',
-                                                      )
-                                                    : _t(
-                                                        'No devices found.\nTap Scan to try again.',
-                                                        'No devices found.\nTap Scan to try again.',
-                                                      ),
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  color: _textSecondary(
-                                                    context,
-                                                  ),
-                                                  fontWeight: FontWeight.w600,
-                                                  height: 1.3,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      )
-                                    : ListView.separated(
-                                        padding: EdgeInsets.zero,
-                                        itemCount: results.length,
-                                        separatorBuilder: (_, __) =>
-                                            const SizedBox(height: 8),
-                                        itemBuilder: (context, index) {
-                                          final r = results[index];
-                                          final name =
-                                              r.device.platformName.isNotEmpty
-                                              ? r.device.platformName
-                                              : (r
-                                                        .advertisementData
-                                                        .advName
-                                                        .isNotEmpty
-                                                    ? r
-                                                          .advertisementData
-                                                          .advName
-                                                    : r.device.remoteId.str);
-
-                                          final rssi = r.rssi;
-                                          final signalText = _signalLabel(rssi);
-                                          final signalColor = _signalColor(
-                                            context,
-                                            rssi,
-                                          );
-                                          final signalIcon = _signalIcon(rssi);
-
-                                          return Material(
-                                            color: Colors.transparent,
-                                            child: InkWell(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              onTap: _connecting
-                                                  ? null
-                                                  : () => _connect(r),
-                                              child: Ink(
-                                                padding:
-                                                    const EdgeInsets.fromLTRB(
-                                                      12,
-                                                      10,
-                                                      8,
-                                                      10,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: _panelBg(context),
-                                                  borderRadius:
-                                                      BorderRadius.circular(16),
-                                                  border: Border.all(
-                                                    color: _panelBorder(
-                                                      context,
-                                                    ),
-                                                  ),
-                                                ),
-                                                child: Row(
-                                                  children: [
-                                                    Container(
-                                                      width: 36,
-                                                      height: 36,
-                                                      decoration: BoxDecoration(
-                                                        color: _opacity(
-                                                          signalColor,
-                                                          0.13,
-                                                        ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              10,
-                                                            ),
-                                                      ),
-                                                      child: Icon(
-                                                        signalIcon,
-                                                        color: signalColor,
-                                                        size: 18,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 10),
-                                                    Expanded(
-                                                      child: Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        children: [
-                                                          Text(
-                                                            name,
-                                                            maxLines: 1,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style:
-                                                                const TextStyle(
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w700,
-                                                                  fontSize: 15,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            height: 2,
-                                                          ),
-                                                          Text(
-                                                            'RSSI: $rssi dBm | $signalText',
-                                                            style: TextStyle(
-                                                              color:
-                                                                  _textSecondary(
-                                                                    context,
-                                                                  ),
-                                                              fontSize: 12.5,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    Icon(
-                                                      Icons.chevron_right,
-                                                      color: _opacity(
-                                                        _textSecondary(context),
-                                                        0.75,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+  bool _handleScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final scrolled = notification.metrics.pixels > 4;
+    if (scrolled != _scrolled) setState(() => _scrolled = scrolled);
+    return false;
   }
 
   String? _resolveLastDeviceName(String? deviceId) {
     if (deviceId == null) return _lastDeviceNamePersisted;
-    ScanResult? result;
     for (final candidate in _devices) {
       if (candidate.device.remoteId.str == deviceId) {
-        result = candidate;
-        break;
+        final name = bleScanResultName(candidate);
+        return name.isNotEmpty ? name : deviceId;
       }
-    }
-    if (result != null) {
-      final r = result;
-      final name = r.device.platformName.isNotEmpty
-          ? r.device.platformName
-          : (r.advertisementData.advName.isNotEmpty
-                ? r.advertisementData.advName
-                : r.device.remoteId.str);
-      return name.isNotEmpty ? name : deviceId;
     }
     return _lastDeviceNamePersisted ?? deviceId;
   }
 
-  Widget _lastDeviceCard({
-    required bool hasLastDevice,
-    required String name,
-    required String id,
-    required VoidCallback? onConnect,
-    required VoidCallback? onForget,
-  }) {
-    final scheme = _scheme(context);
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        12,
-        hasLastDevice ? 12 : 10,
-        12,
-        hasLastDevice ? 12 : 10,
+  String _connectedName() => resolveBleConnectedDeviceName(
+    currentName: BleManager.instance.currentDeviceName,
+    currentId: BleManager.instance.currentDeviceId,
+    lastDeviceName: _lastDeviceNamePersisted,
+    unknownName: 'Unknown device',
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    if (ModalRoute.isCurrentOf(context) == true) _schedulePairingCheck();
+    final media = MediaQuery.of(context);
+    final connectedDeviceId = BleManager.instance.currentDeviceId;
+    final results = sortBleScanResults(
+      _devices.where(
+        (result) => !isCurrentBleDeviceId(
+          candidateDeviceId: result.device.remoteId.str,
+          currentDeviceId: connectedDeviceId,
+        ),
       ),
-      decoration: BoxDecoration(
-        color: _panelBg(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _panelBorder(context)),
-        boxShadow: [
-          BoxShadow(
-            color: _BleCatPalette.purple.withAlpha(28),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
+    );
+
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      backgroundColor: LavenderPalette.background,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        toolbarHeight: _kToolbarHeight,
+        leadingWidth: CatBackButton.leadingWidthFor(_kPagePadding),
+        leading: Navigator.of(context).canPop()
+            ? CatBackButton.leading()
+            : null,
+        centerTitle: true,
+        title: const Text(
+          'BLE Connection',
+          style: TextStyle(
+            fontFamily: LavenderPalette.displayFont,
+            fontSize: 21,
+            fontWeight: FontWeight.w700,
+            color: LavenderPalette.ink,
           ),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        flexibleSpace: FrostedBarBackground(visible: _scrolled),
+        systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+      ),
+      body: PortraitBackground(
+        child: StreamBuilder<bool>(
+          stream: BleManager.instance.connectionStream,
+          initialData: BleManager.instance.isConnected,
+          builder: (context, snap) {
+            final connected = widget.isBleConnected != null
+                ? _isBleConnected
+                : snap.data ?? false;
+            return BackdropGroup(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _handleScroll,
+                child: ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    _kPagePadding,
+                    media.padding.top + _kToolbarHeight + 12,
+                    _kPagePadding,
+                    24 + media.padding.bottom,
+                  ),
+                  children: [
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: _kContentMaxWidth,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildStatusCard(connected),
+                            if (_lastDeviceId != null) ...[
+                              const SizedBox(height: 14),
+                              _buildLastDeviceCard(
+                                connected: connected,
+                                connectedDeviceId: connectedDeviceId,
+                              ),
+                            ],
+                            const SizedBox(height: 24),
+                            _buildDevicesHeader(results.length),
+                            const SizedBox(height: 10),
+                            _buildDevicesPanel(results),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Status card
+  // ---------------------------------------------------------------------------
+
+  BlePresentationState _presentation(bool connected) {
+    if (connected) {
+      return const BlePresentationState(BlePresentationKind.connected);
+    }
+    if (_connecting || _connectingDeviceId != null) {
+      return const BlePresentationState(BlePresentationKind.connecting);
+    }
+    if (_scanning) {
+      return const BlePresentationState(BlePresentationKind.scanning);
+    }
+    return const BlePresentationState(BlePresentationKind.notConnected);
+  }
+
+  String? get _connectingTargetName {
+    final id =
+        _connectingDeviceId ?? (_pendingConnectLast ? _lastDeviceId : null);
+    if (id == null) return null;
+    for (final result in _devices) {
+      if (result.device.remoteId.str == id) return bleScanResultName(result);
+    }
+    return _resolveLastDeviceName(id);
+  }
+
+  Widget _buildStatusCard(bool connected) {
+    final presentation = _presentation(connected);
+    final connecting = !connected && presentation.isBusy && !_scanning;
+    final title = connected
+        ? _connectedName()
+        : connecting
+        ? 'Connecting…'
+        : _scanning
+        ? 'Scanning…'
+        : 'Not connected';
+
+    final Widget detail;
+    if (connected) {
+      detail = BleSecurityLine(state: _securityState);
+    } else {
+      final target = _connectingTargetName;
+      final hint = connecting
+          ? (target != null ? 'Connecting to $target' : 'Connecting to robot')
+          : _scanning
+          ? 'Looking for nearby robots…'
+          : 'Power on your robot, then tap Scan.';
+      detail = Text(
+        hint,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: LavenderPalette.inkSoft,
+          fontSize: 13,
+          height: 1.3,
+        ),
+      );
+    }
+
+    return GlassPanel(
+      radius: 28,
+      padding: const EdgeInsets.all(18),
+      tint: LavenderPalette.violetBright,
+      tintStrength: 0.08,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            container: true,
+            liveRegion: true,
+            label: connected
+                ? 'Bluetooth connection: Connected, $title'
+                : 'Bluetooth connection: $title',
+            excludeSemantics: true,
+            child: Row(
+              children: [
+                BleStatusOrb(
+                  presentation: presentation,
+                  animate:
+                      !(MediaQuery.maybeDisableAnimationsOf(context) ?? false),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    // Keep text left-aligned next to the orb while it
+                    // cross-fades (the default centres the child).
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [...previous, ?current],
+                    ),
+                    child: Column(
+                      key: ValueKey('$title/$connected/$_securityState'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: LavenderPalette.displayFont,
+                            fontSize: 21,
+                            height: 1.25,
+                            fontWeight: FontWeight.w700,
+                            color: LavenderPalette.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        detail,
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _buildStatusActions(connected, connecting),
         ],
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: _opacity(scheme.tertiaryContainer, 0.72),
-              borderRadius: BorderRadius.circular(10),
+    );
+  }
+
+  Widget _buildStatusActions(bool connected, bool connecting) {
+    if (connected) {
+      final disconnect = GlassActionButton(
+        label: 'Disconnect',
+        icon: Icons.link_off_rounded,
+        accent: LavenderPalette.coral,
+        onPressed: _disconnect,
+      );
+      if (requiresBlePairingCode(_securityState)) {
+        return Row(
+          children: [
+            Expanded(
+              flex: 5,
+              child: GradientActionButton(
+                label: 'Pair code',
+                icon: Icons.password_rounded,
+                onPressed: () => _enterPairingCode(),
+              ),
             ),
-            child: Center(
-              child: _homeIcon('Recent Activity-History.png', size: 22),
+            const SizedBox(width: 10),
+            Expanded(flex: 4, child: disconnect),
+          ],
+        );
+      }
+      return Row(
+        children: [
+          if (_securityState == BleControlSecurityState.ready)
+            const LavenderChip(
+              label: 'Paired',
+              icon: Icons.verified_rounded,
+              color: LavenderPalette.success,
+            ),
+          const Spacer(),
+          SizedBox(width: 168, child: disconnect),
+        ],
+      );
+    }
+
+    if (_scanning) {
+      return Row(
+        children: [
+          Expanded(
+            flex: 5,
+            child: GlassActionButton(
+              label: _scanSecondsLeft > 0
+                  ? 'Scanning ${_scanSecondsLeft}s'
+                  : 'Scanning',
+              icon: Icons.search_rounded,
+              busy: true,
+              onPressed: null,
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (hasLastDevice) ...[
-                  Text(
-                    _t('Last device', 'Last device'),
-                    style: TextStyle(
-                      color: _textSecondary(context),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                ],
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _textPrimary(context),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (hasLastDevice)
-                  Text(
-                    id,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _textTertiary(context),
-                      fontSize: 11,
-                    ),
-                  ),
-              ],
+            flex: 3,
+            child: GlassActionButton(
+              label: 'Stop',
+              icon: Icons.stop_rounded,
+              accent: LavenderPalette.coral,
+              onPressed: _stopScan,
             ),
           ),
-          if (hasLastDevice) ...[
-            const SizedBox(width: 8),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FilledButton.tonal(
-                  onPressed: onConnect,
-                  child: Text(_t('Connect', 'Connect')),
+        ],
+      );
+    }
+
+    return GradientActionButton(
+      label: connecting ? 'Connecting' : 'Scan devices',
+      icon: Icons.search_rounded,
+      busy: connecting,
+      onPressed: connecting ? null : _startScan,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Last device
+  // ---------------------------------------------------------------------------
+
+  Widget _buildLastDeviceCard({
+    required bool connected,
+    required String? connectedDeviceId,
+  }) {
+    final lastId = _lastDeviceId!;
+    final name = _resolveLastDeviceName(lastId) ?? lastId;
+    final isCurrent =
+        connected && (connectedDeviceId == null || connectedDeviceId == lastId);
+    final busy = _pendingConnectLast || _connectingDeviceId == lastId;
+
+    Widget trailing({required bool stacked}) {
+      if (isCurrent) {
+        return const LavenderChip(
+          label: 'Connected',
+          icon: Icons.check_rounded,
+          color: LavenderPalette.success,
+        );
+      }
+      return SizedBox(
+        width: stacked ? 200 : 124,
+        child: GlassActionButton(
+          label: busy ? 'Connecting' : 'Connect',
+          icon: Icons.link_rounded,
+          height: 44,
+          busy: busy,
+          onPressed:
+              (busy || _connecting || _scanning || _connectingDeviceId != null)
+              ? null
+              : _connectLastDevice,
+        ),
+      );
+    }
+
+    final menu = PopupMenuButton<String>(
+      tooltip: 'More options',
+      icon: const Icon(Icons.more_vert_rounded, color: LavenderPalette.inkSoft),
+      color: const Color(0xFFFBF8FF),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      onSelected: (value) {
+        if (value == 'forget') {
+          unawaited(_confirmForgetLastDevice(name, isCurrent));
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'forget',
+          child: Row(
+            children: [
+              Icon(
+                Icons.delete_outline_rounded,
+                size: 20,
+                color: LavenderPalette.coral,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Forget device',
+                style: TextStyle(
+                  color: LavenderPalette.coral,
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(height: 2),
-                TextButton(
-                  onPressed: onForget,
-                  style: TextButton.styleFrom(
-                    foregroundColor: _BleCatPalette.coral,
-                    minimumSize: const Size(0, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(_t('Forget', 'Forget')),
-                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'Last device',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: LavenderPalette.inkSoft,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: LavenderPalette.ink,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Text(
+          lastId,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: LavenderPalette.inkMuted,
+            fontSize: 11.5,
+          ),
+        ),
+      ],
+    );
+
+    return GlassPanel(
+      radius: 24,
+      padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+      shadowStrength: 0.8,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Put the action under the name when a single row would squeeze
+          // the device name (small phones or large text).
+          final stacked =
+              constraints.maxWidth <
+              340 * MediaQuery.textScalerOf(context).scale(1);
+          final header = Row(
+            children: [
+              const BleRoundIcon(icon: Icons.history_rounded),
+              const SizedBox(width: 12),
+              Expanded(child: info),
+              if (!stacked) ...[
+                const SizedBox(width: 8),
+                trailing(stacked: false),
               ],
+              menu,
+            ],
+          );
+          if (!stacked) return header;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              header,
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: trailing(stacked: true),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Discovered devices
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDevicesHeader(int count) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Row(
+        children: [
+          const Flexible(
+            child: Text(
+              'Discovered devices',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: LavenderPalette.inkSoft,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
             ),
+          ),
+          if (count > 0) ...[
+            const SizedBox(width: 8),
+            LavenderChip(label: '$count'),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildDevicesPanel(List<ScanResult> results) {
+    if (results.isEmpty) {
+      return GlassPanel(
+        radius: 24,
+        shadowStrength: 0.75,
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 26),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BleRoundIcon(
+              icon: _scanning
+                  ? Icons.bluetooth_searching_rounded
+                  : Icons.smart_toy_outlined,
+              size: 52,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _scanning ? 'Looking for robots…' : 'No robots found yet',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: LavenderPalette.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _scanning
+                  ? 'Keep your robot powered on and close to this phone.'
+                  : 'Make sure your robot is on and nearby, then tap Scan.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: LavenderPalette.inkSoft,
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final rows = <Widget>[];
+    for (var i = 0; i < results.length; i++) {
+      if (i > 0) {
+        rows.add(
+          Divider(
+            height: 1,
+            thickness: 1,
+            indent: 70,
+            endIndent: 16,
+            color: LavenderPalette.ink.withValues(alpha: 0.07),
+          ),
+        );
+      }
+      final result = results[i];
+      final id = result.device.remoteId.str;
+      rows.add(
+        BleDeviceRow(
+          name: bleScanResultName(result),
+          rssi: result.rssi,
+          lastUsed: id == _lastDeviceId,
+          connecting: _connectingDeviceId == id,
+          enabled: !_connecting && _connectingDeviceId == null,
+          onTap: () => _connect(result),
+        ),
+      );
+    }
+    return GlassPanel(
+      radius: 24,
+      shadowStrength: 0.75,
+      child: Column(mainAxisSize: MainAxisSize.min, children: rows),
     );
   }
 }
