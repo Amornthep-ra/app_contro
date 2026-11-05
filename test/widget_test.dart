@@ -390,6 +390,19 @@ void main() {
         expect(semantics.label, contains('Contact'));
         expect(semantics.label, contains('Follow us on Facebook'));
         expect(semantics.flagsCollection.isButton, isTrue);
+
+        // The YouTube tutorial link sits first in Resources.
+        final tutorial = find.byKey(const ValueKey('home-tutorial-action'));
+        expect(tutorial, findsOneWidget);
+        expect(
+          tester.getTopLeft(tutorial).dy,
+          lessThan(tester.getTopLeft(contact).dy),
+        );
+        final tutorialSemantics = tester.getSemantics(tutorial);
+        expect(tutorialSemantics.label, contains('How to use'));
+        expect(tutorialSemantics.label, contains('YouTube'));
+        expect(tutorialSemantics.flagsCollection.isButton, isTrue);
+        expect(tester.getSize(tutorial).height, lessThan(104));
       }
     },
   );
