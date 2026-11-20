@@ -68,33 +68,21 @@ void main() {
       }
     });
 
-    test('finishes a failed connection as disconnected or reconnecting', () {
+    test('finishes a failed connection as disconnected', () {
       for (final status in const [
         BleConnectionStatus.connecting,
         BleConnectionStatus.discovering,
         BleConnectionStatus.subscribing,
       ]) {
         expect(
-          statusAfterBleConnectionAttemptFailed(
-            currentStatus: status,
-            reconnectActive: false,
-          ),
+          statusAfterBleConnectionAttemptFailed(currentStatus: status),
           BleConnectionStatus.disconnected,
-          reason: status.name,
-        );
-        expect(
-          statusAfterBleConnectionAttemptFailed(
-            currentStatus: status,
-            reconnectActive: true,
-          ),
-          BleConnectionStatus.reconnecting,
           reason: status.name,
         );
       }
       expect(
         statusAfterBleConnectionAttemptFailed(
           currentStatus: BleConnectionStatus.connected,
-          reconnectActive: false,
         ),
         isNull,
       );

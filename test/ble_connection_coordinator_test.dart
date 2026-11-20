@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:pb_controller/core/ble/ble_connection_coordinator.dart';
@@ -773,6 +774,170 @@ void main() {
         await platform.dispose();
       },
     );
+  });
+
+  group('link-loss reconnect', () {
+    const deviceId = '01:02:03:04:05:06';
+    late _FakeBleConnectionPlatform platform;
+    late StreamController<bool> connectionEvents;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({
+        'ble_last_device_id': deviceId,
+        'ble_last_device_name': 'PrinceBot',
+      });
+      BleManager.instance.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+      );
+      platform = _FakeBleConnectionPlatform();
+      connectionEvents = StreamController<bool>.broadcast();
+    });
+
+    tearDown(() async {
+      await connectionEvents.close();
+      await platform.dispose();
+    });
+
+    BleConnectionCoordinator createCoordinator({
+      BleScanPermissionCheck? permissionCheck,
+      Duration delay = const Duration(milliseconds: 1),
+    }) => BleConnectionCoordinator(
+      platform: platform,
+      managerConnectionStream: connectionEvents.stream,
+      listenToManagerAutoConnectRequests: false,
+      canManageConnection: ({int? owner}) => true,
+      ensureScanPermissions:
+          permissionCheck ?? () async => BleScanPermissionResult.granted,
+      linkLossScanTimeout: const Duration(milliseconds: 10),
+      linkLossReconnectDelay: (_) => delay,
+    );
+
+    Future<void> waitFor(bool Function() condition) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (!condition()) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('condition not reached');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    test('gives up as reconnectFailed after the attempt limit', () async {
+      final coordinator = createCoordinator();
+      await coordinator.initialize();
+
+      connectionEvents.add(false);
+      await waitFor(
+        () =>
+            BleManager.instance.connectionStatus ==
+            BleConnectionStatus.reconnectFailed,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        platform.startCalls,
+        BleConnectionCoordinator.maxLinkLossReconnectAttempts,
+      );
+      expect(coordinator.state.failureReason, 'link_loss_reconnect_exhausted');
+      await coordinator.dispose();
+    });
+
+    test('stops immediately when scanning is unavailable', () async {
+      var permissionChecks = 0;
+      final coordinator = createCoordinator(
+        permissionCheck: () async {
+          permissionChecks++;
+          return BleScanPermissionResult.bluetoothOff;
+        },
+      );
+      await coordinator.initialize();
+
+      connectionEvents.add(false);
+      await waitFor(
+        () =>
+            BleManager.instance.connectionStatus ==
+            BleConnectionStatus.reconnectFailed,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(permissionChecks, 1);
+      expect(platform.startCalls, 0);
+      expect(
+        coordinator.state.failureReason,
+        'scan_unavailable:bluetoothOff',
+      );
+      await coordinator.dispose();
+    });
+
+    test('pauses in the background and resumes in the foreground', () async {
+      var permissionChecks = 0;
+      final coordinator = createCoordinator(
+        permissionCheck: () async {
+          permissionChecks++;
+          return BleScanPermissionResult.granted;
+        },
+      );
+      await coordinator.initialize();
+      coordinator.handleAppLifecycleState(AppLifecycleState.paused);
+
+      connectionEvents.add(false);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(permissionChecks, 0);
+      expect(platform.startCalls, 0);
+      expect(
+        BleManager.instance.connectionStatus,
+        isNot(BleConnectionStatus.reconnecting),
+      );
+
+      coordinator.handleAppLifecycleState(AppLifecycleState.resumed);
+      await waitFor(() => platform.startCalls > 0);
+      await coordinator.dispose();
+    });
+
+    test('manual disconnect cancels a scheduled retry', () async {
+      final coordinator = createCoordinator(
+        delay: const Duration(milliseconds: 100),
+      );
+      await coordinator.initialize();
+
+      connectionEvents.add(false);
+      await waitFor(
+        () =>
+            BleManager.instance.connectionStatus ==
+            BleConnectionStatus.reconnecting,
+      );
+      await coordinator.disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(platform.startCalls, 0);
+      expect(
+        BleManager.instance.connectionStatus,
+        BleConnectionStatus.disconnected,
+      );
+      await coordinator.dispose();
+    });
+
+    test('a failed Start settles on disconnected, not reconnecting', () async {
+      platform.connectError = StateError('out of range');
+      final coordinator = createCoordinator();
+      await coordinator.initialize();
+
+      final start = coordinator.acquireControlForStart(
+        ownerName: 'test',
+        timeout: const Duration(seconds: 1),
+      );
+      await waitFor(() => platform.startCalls > 0);
+      platform.emitScanResults([_scanResult(id: deviceId, nordicUart: true)]);
+
+      expect(await start, isNull);
+      expect(platform.connectCalls, 1);
+      expect(
+        BleManager.instance.connectionStatus,
+        BleConnectionStatus.disconnected,
+      );
+      expect(BleManager.instance.isControlSessionActive, isFalse);
+      await coordinator.dispose();
+    });
   });
 
   group('BleManager auto-connect request seam', () {

@@ -78,18 +78,18 @@ BleConnectionStatus? statusAfterBleScanStopped(
       : null;
 }
 
+/// A failed attempt always settles on [BleConnectionStatus.disconnected].
+/// Only the connection coordinator's link-loss loop may present
+/// [BleConnectionStatus.reconnecting], because it is the only retry loop.
 @visibleForTesting
 BleConnectionStatus? statusAfterBleConnectionAttemptFailed({
   required BleConnectionStatus currentStatus,
-  required bool reconnectActive,
 }) {
   switch (currentStatus) {
     case BleConnectionStatus.connecting:
     case BleConnectionStatus.discovering:
     case BleConnectionStatus.subscribing:
-      return reconnectActive
-          ? BleConnectionStatus.reconnecting
-          : BleConnectionStatus.disconnected;
+      return BleConnectionStatus.disconnected;
     case BleConnectionStatus.disconnected:
     case BleConnectionStatus.scanning:
     case BleConnectionStatus.connected:
@@ -411,14 +411,12 @@ bool shouldMonitorHeartbeatRx(
   return !isSecureControlReady && mode == BleTrafficMode.textCommand;
 }
 
-@visibleForTesting
 bool shouldStopControlReconnectForScanPermission(
   BleScanPermissionResult? result,
 ) {
   return result != null && result != BleScanPermissionResult.granted;
 }
 
-@visibleForTesting
 BleDisconnectReason? disconnectReasonForScanPermission(
   BleScanPermissionResult? result,
 ) {
@@ -733,7 +731,6 @@ class BleManager {
   DateTime? _lastTxTime;
   StreamSubscription<List<int>>? _txSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
-  Timer? _reconnectTimer;
   final _autoConnectRequestController =
       StreamController<BleAutoConnectRequest>.broadcast();
   bool _manualDisconnectInProgress = false;
@@ -748,7 +745,6 @@ class BleManager {
   BleReconnectMode _reconnectMode = BleReconnectMode.disabled;
   int? _reconnectOwner;
   int _reconnectAttempt = 0;
-  DateTime? _reconnectDeadline;
   BleConnectionStatus _connectionStatus = BleConnectionStatus.disconnected;
   int? _mtu;
   BleCharacteristicSpec? _writeCharacteristicSpec;
@@ -1022,6 +1018,9 @@ class BleManager {
     }
   }
 
+  /// Opens the window in which [owner] may ask the coordinator to auto-connect
+  /// the remembered device (see [canAutoConnectForOwner]). This does not start
+  /// a retry loop; link-loss retries live in `BleConnectionCoordinator`.
   void enableControlReconnect({
     required int owner,
     String ownerName = 'control',
@@ -1037,8 +1036,6 @@ class BleManager {
 
     _reconnectMode = BleReconnectMode.controlActive;
     _reconnectOwner = owner;
-    _reconnectAttempt = 0;
-    _reconnectDeadline = null;
     _log('reconnect_enabled', _ownerDetail(owner, 'ownerName=$ownerName'));
   }
 
@@ -1199,15 +1196,51 @@ class BleManager {
   }
 
   void markConnectionAttemptFailed({String source = 'connect'}) {
-    final owner = _reconnectOwner;
-    final reconnectActive = owner != null && _canControlReconnect(owner);
     final nextStatus = statusAfterBleConnectionAttemptFailed(
       currentStatus: _connectionStatus,
-      reconnectActive: reconnectActive,
     );
     if (nextStatus == null) return;
     _log('status_connect_failed', 'source=$source next=${nextStatus.name}');
     _setConnectionStatus(nextStatus);
+  }
+
+  /// Presents an automatic link-loss retry that is waiting or scanning.
+  /// Active connect phases keep their more specific status.
+  void markReconnecting({String source = 'link_loss'}) {
+    if (_connectionStatus != BleConnectionStatus.disconnected &&
+        _connectionStatus != BleConnectionStatus.scanning &&
+        _connectionStatus != BleConnectionStatus.reconnectFailed) {
+      return;
+    }
+    _log('status_reconnecting', 'source=$source');
+    _setConnectionStatus(BleConnectionStatus.reconnecting);
+  }
+
+  /// Ends automatic retries with a visible failure the user must act on.
+  void markReconnectFailed(
+    String reason, {
+    BleDisconnectReason? disconnectReason,
+  }) {
+    if (isConnected) return;
+    _recordFailure(reason, disconnectReason: disconnectReason);
+    _log('status_reconnect_failed', 'reason=$reason');
+    _setConnectionStatus(BleConnectionStatus.reconnectFailed);
+  }
+
+  /// Clears a retry presentation when the retry loop is cancelled.
+  void markReconnectCancelled({String source = 'link_loss'}) {
+    if (_connectionStatus != BleConnectionStatus.reconnecting &&
+        _connectionStatus != BleConnectionStatus.reconnectFailed) {
+      return;
+    }
+    _log('status_reconnect_cancelled', 'source=$source');
+    _setConnectionStatus(BleConnectionStatus.disconnected);
+  }
+
+  void recordReconnectAttempt(int attempt) {
+    if (_reconnectAttempt == attempt) return;
+    _reconnectAttempt = attempt;
+    _emitDiagnostics();
   }
 
   void markConnecting({String source = 'connect'}) {
@@ -1443,105 +1476,16 @@ class BleManager {
     _log('control_session_ended_for_link_loss', 'owner=$owner source=$source');
   }
 
-  Duration _nextReconnectDelay() {
-    switch (_reconnectAttempt) {
-      case 0:
-        return const Duration(milliseconds: 800);
-      case 1:
-        return const Duration(seconds: 2);
-      case 2:
-        return const Duration(seconds: 4);
-      default:
-        return const Duration(seconds: 5);
-    }
-  }
-
   void _cancelControlReconnect({
     required String reason,
     bool disableMode = false,
   }) {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    _reconnectAttempt = 0;
-    _reconnectDeadline = null;
     if (disableMode) {
       _reconnectMode = BleReconnectMode.disabled;
       _reconnectOwner = null;
     }
     _log('reconnect_cancelled', 'reason=$reason');
     _emitDiagnostics();
-  }
-
-  void _scheduleControlReconnect(int owner) {
-    if (!_canControlReconnect(owner)) {
-      _cancelControlReconnect(reason: 'inactive_owner');
-      return;
-    }
-
-    final deadline = _reconnectDeadline;
-    if (deadline != null && DateTime.now().isAfter(deadline)) {
-      _recordFailure('reconnect_timeout');
-      _setConnectionStatus(BleConnectionStatus.reconnectFailed);
-      _log('reconnect_timeout', _ownerDetail(owner));
-      _cancelControlReconnect(reason: 'timeout');
-      return;
-    }
-
-    final delay = _nextReconnectDelay();
-    _log(
-      'reconnect_scheduled',
-      _ownerDetail(owner, 'delayMs=${delay.inMilliseconds}'),
-    );
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      unawaited(_runControlReconnect(owner));
-    });
-  }
-
-  Future<void> _runControlReconnect(int owner) async {
-    if (!_canControlReconnect(owner)) {
-      _cancelControlReconnect(reason: 'inactive_owner');
-      return;
-    }
-    if (isConnected) {
-      _setConnectionStatus(BleConnectionStatus.connected);
-      _cancelControlReconnect(reason: 'already_connected');
-      return;
-    }
-
-    final attempt = ++_reconnectAttempt;
-    _emitDiagnostics();
-    _setConnectionStatus(BleConnectionStatus.reconnecting);
-    _log('reconnect_scan_started', _ownerDetail(owner, 'attempt=$attempt'));
-
-    final connected = await _requestAutoConnect(
-      timeout: const Duration(seconds: 8),
-      source: 'reconnect',
-      owner: owner,
-    );
-    if (connected) {
-      _setConnectionStatus(BleConnectionStatus.connected);
-      _cancelControlReconnect(reason: 'connected');
-      return;
-    }
-
-    final scanPermission = _lastScanPermissionResult;
-    if (shouldStopControlReconnectForScanPermission(scanPermission)) {
-      final reason = 'scan_unavailable:${scanPermission!.name}';
-      _recordFailure(
-        reason,
-        disconnectReason: disconnectReasonForScanPermission(scanPermission),
-      );
-      _setConnectionStatus(BleConnectionStatus.reconnectFailed);
-      _cancelControlReconnect(reason: reason);
-      return;
-    }
-
-    if (!_canControlReconnect(owner)) {
-      _cancelControlReconnect(reason: 'inactive_after_scan');
-      return;
-    }
-    _scheduleControlReconnect(owner);
   }
 
   Future<BleWriteResult> _enqueueTextWrite(
@@ -2209,7 +2153,11 @@ class BleManager {
       _connSub = null;
 
       _connectionController.add(false);
-      if (!suppressReconnect) {
+      // A `*_replace` disconnect is followed immediately by a new connect, so
+      // it keeps the connecting presentation. Every other source settles here
+      // instead of relying on an OS event that may arrive after `_connSub`
+      // has been cancelled.
+      if (!source.endsWith('_replace')) {
         _setConnectionStatus(BleConnectionStatus.disconnected);
       }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -239,6 +240,8 @@ class BleConnectionCoordinator {
     Stream<bool>? managerConnectionStream,
     Duration deviceTtl = const Duration(seconds: 20),
     Duration secureHandshakeTimeout = const Duration(seconds: 3),
+    Duration linkLossScanTimeout = const Duration(seconds: 8),
+    Duration Function(int completedAttempts)? linkLossReconnectDelay,
     DateTime Function()? now,
   }) : _platform = platform ?? const FlutterBluePlusConnectionPlatform(),
        _ensureScanPermissions =
@@ -252,6 +255,9 @@ class BleConnectionCoordinator {
        _enforceSecureProtocol = enforceSecureProtocol ?? platform == null,
        _deviceTtl = deviceTtl,
        _secureHandshakeTimeout = secureHandshakeTimeout,
+       _linkLossScanTimeout = linkLossScanTimeout,
+       _linkLossReconnectDelay =
+           linkLossReconnectDelay ?? defaultLinkLossReconnectDelay,
        _now = now ?? DateTime.now {
     final listenToManager =
         listenToManagerAutoConnectRequests ?? platform == null;
@@ -299,11 +305,18 @@ class BleConnectionCoordinator {
   int _authenticationGeneration = 0;
   int _consecutiveTransientHandshakeFailures = 0;
   int _consecutiveCapabilityMismatches = 0;
+  /// About one minute with the default backoff and 8 s scans.
+  static const maxLinkLossReconnectAttempts = 6;
+  final Duration _linkLossScanTimeout;
+  final Duration Function(int completedAttempts) _linkLossReconnectDelay;
   static const _handshakeResetThreshold = 2;
   static const _capabilityMismatchThreshold = 2;
   int _consumerCount = 0;
   int _linkLossReconnectAttempt = 0;
   bool _linkLossReconnectInFlight = false;
+  bool _linkLossReconnectPending = false;
+  bool _appInBackground = false;
+  BleScanPermissionResult? _lastScanPermission;
   bool _manualDisconnectInProgress = false;
   bool _automaticReconnectSuppressed = false;
   bool _pairingPromptPresentedForConnection = false;
@@ -340,9 +353,10 @@ class BleConnectionCoordinator {
 
   void _handleManagerConnectionChanged(bool connected) {
     if (connected) {
+      // The link is up but authentication may still fail. Keep the pending
+      // flag and attempt count so the loop decides, and stays bounded.
       _linkLossReconnectTimer?.cancel();
       _linkLossReconnectTimer = null;
-      _linkLossReconnectAttempt = 0;
       return;
     }
     _pairingPromptPresentedForConnection = false;
@@ -368,6 +382,15 @@ class BleConnectionCoordinator {
       ),
     );
     _debug('link_lost', 'lastDevice=${_state.lastDeviceId ?? '-'}');
+    final lastDeviceId = _state.lastDeviceId;
+    if (lastDeviceId == null || lastDeviceId.isEmpty) return;
+    // A drop during an unfinished retry sequence continues its count, so a
+    // board that connects and then fails cannot retry forever.
+    if (!_linkLossReconnectPending) {
+      _linkLossReconnectPending = true;
+      _linkLossReconnectAttempt = 0;
+      BleManager.instance.recordReconnectAttempt(0);
+    }
     _scheduleLinkLossReconnect();
   }
 
@@ -403,8 +426,9 @@ class BleConnectionCoordinator {
     }
   }
 
-  Duration _linkLossReconnectDelay() {
-    switch (_linkLossReconnectAttempt) {
+  /// Backoff before link-loss attempt `completedAttempts + 1`.
+  static Duration defaultLinkLossReconnectDelay(int completedAttempts) {
+    switch (completedAttempts) {
       case 0:
         return const Duration(milliseconds: 800);
       case 1:
@@ -416,60 +440,153 @@ class BleConnectionCoordinator {
     }
   }
 
+  bool get _linkLossReconnectAllowed =>
+      !_disposed &&
+      !_manualDisconnectInProgress &&
+      !_automaticReconnectSuppressed &&
+      _linkLossReconnectPending &&
+      _state.lastDeviceId != null &&
+      _state.lastDeviceId!.isNotEmpty;
+
   void _scheduleLinkLossReconnect() {
-    if (_disposed ||
-        _manualDisconnectInProgress ||
-        _automaticReconnectSuppressed ||
-        _state.lastDeviceId == null ||
-        _state.lastDeviceId!.isEmpty ||
-        _linkLossReconnectTimer != null) {
+    if (!_linkLossReconnectAllowed ||
+        _linkLossReconnectTimer != null ||
+        _linkLossReconnectInFlight) {
       return;
     }
-    final delay = _linkLossReconnectDelay();
+    if (_appInBackground) {
+      // Resumed later by [handleAppLifecycleState]; do not show a retry that
+      // is not running.
+      BleManager.instance.markReconnectCancelled(source: 'app_background');
+      return;
+    }
+    final delay = _linkLossReconnectDelay(_linkLossReconnectAttempt);
     _debug(
       'link_loss_reconnect_scheduled',
       'attempt=${_linkLossReconnectAttempt + 1} delayMs=${delay.inMilliseconds}',
     );
+    BleManager.instance.markReconnecting(source: 'link_loss_scheduled');
     _linkLossReconnectTimer = Timer(delay, () {
       _linkLossReconnectTimer = null;
       unawaited(_runLinkLossReconnect());
     });
   }
 
+  /// Stops the link-loss loop. [resetStatus] clears a visible "Reconnecting"
+  /// or "Reconnect failed" status when no other operation will replace it.
+  void _cancelLinkLossReconnect({
+    required String reason,
+    bool resetStatus = true,
+  }) {
+    final wasActive =
+        _linkLossReconnectPending || _linkLossReconnectTimer != null;
+    _linkLossReconnectTimer?.cancel();
+    _linkLossReconnectTimer = null;
+    _linkLossReconnectPending = false;
+    _linkLossReconnectAttempt = 0;
+    BleManager.instance.recordReconnectAttempt(0);
+    if (resetStatus) {
+      BleManager.instance.markReconnectCancelled(source: reason);
+    }
+    if (wasActive) _debug('link_loss_reconnect_cancelled', 'reason=$reason');
+  }
+
+  /// Ends the loop with a failure the user resolves from the BLE sheet.
+  void _giveUpLinkLossReconnect(
+    String reason, {
+    BleDisconnectReason? disconnectReason,
+  }) {
+    _linkLossReconnectTimer?.cancel();
+    _linkLossReconnectTimer = null;
+    _linkLossReconnectPending = false;
+    _emit(_state.copyWith(failureReason: reason));
+    BleManager.instance.markReconnectFailed(
+      reason,
+      disconnectReason: disconnectReason,
+    );
+    _debug(
+      'link_loss_reconnect_gave_up',
+      'reason=$reason attempts=$_linkLossReconnectAttempt',
+    );
+  }
+
   Future<void> _runLinkLossReconnect() async {
-    if (_disposed ||
-        _manualDisconnectInProgress ||
-        _automaticReconnectSuppressed ||
+    if (!_linkLossReconnectAllowed ||
+        _appInBackground ||
         _linkLossReconnectInFlight) {
       return;
     }
     _linkLossReconnectInFlight = true;
     try {
       final attempt = ++_linkLossReconnectAttempt;
+      BleManager.instance.recordReconnectAttempt(attempt);
+      BleManager.instance.markReconnecting(source: 'link_loss_attempt');
+      _lastScanPermission = null;
       _debug('link_loss_reconnect_started', 'attempt=$attempt');
       final connected = await autoConnectLastDevice(
-        timeout: const Duration(seconds: 8),
+        timeout: _linkLossScanTimeout,
         source: 'link_loss_reconnect',
       );
       if (connected) {
+        _linkLossReconnectPending = false;
         _debug(
           'link_loss_reconnect_connected',
           'security=${_state.securityState.name} board=${_state.boardCapabilities?.boardId ?? '-'}',
         );
         return;
       }
+      // A user action (connect, disconnect, forget) took over meanwhile.
+      if (!_linkLossReconnectAllowed) return;
+
       if (_state.recoveryOutcome != BleRecoveryOutcome.transientTransport &&
           _state.recoveryOutcome != BleRecoveryOutcome.none) {
+        _linkLossReconnectPending = false;
         _debug(
           'link_loss_reconnect_stopped',
           'outcome=${_state.recoveryOutcome.name}',
         );
         return;
       }
+
+      final scanPermission = _lastScanPermission;
+      if (shouldStopControlReconnectForScanPermission(scanPermission)) {
+        _giveUpLinkLossReconnect(
+          'scan_unavailable:${scanPermission!.name}',
+          disconnectReason: disconnectReasonForScanPermission(scanPermission),
+        );
+        return;
+      }
+
+      if (attempt >= maxLinkLossReconnectAttempts) {
+        _giveUpLinkLossReconnect('link_loss_reconnect_exhausted');
+        return;
+      }
       _debug('link_loss_reconnect_failed', 'attempt=$attempt');
-      _scheduleLinkLossReconnect();
     } finally {
       _linkLossReconnectInFlight = false;
+    }
+    // Scheduled after the in-flight flag clears so the guard admits it.
+    _scheduleLinkLossReconnect();
+  }
+
+  /// Pauses automatic link-loss retries while the app is not in the
+  /// foreground, so a background timer never scans or prompts for permission.
+  void handleAppLifecycleState(AppLifecycleState state) {
+    final background = state != AppLifecycleState.resumed;
+    if (background == _appInBackground) return;
+    _appInBackground = background;
+    if (background) {
+      if (_linkLossReconnectTimer != null) {
+        _linkLossReconnectTimer!.cancel();
+        _linkLossReconnectTimer = null;
+        BleManager.instance.markReconnectCancelled(source: 'app_background');
+        _debug('link_loss_reconnect_paused', 'state=${state.name}');
+      }
+      return;
+    }
+    if (_linkLossReconnectAllowed) {
+      _debug('link_loss_reconnect_resumed');
+      _scheduleLinkLossReconnect();
     }
   }
 
@@ -936,11 +1053,14 @@ class BleConnectionCoordinator {
 
     request.connecting = true;
     await stopScan(cancelAutoConnect: false, releaseManagementLease: false);
+    // autoConnectLastDevice already applied any user intent; an automatic
+    // retry must not lift a manual-disconnect suppression or end its own loop.
     await connect(
       result,
       source: request.source,
       preserveAutoConnect: true,
       owner: request.owner,
+      userInitiated: false,
     );
     _completeAutoConnect(
       request,
@@ -985,6 +1105,7 @@ class BleConnectionCoordinator {
     if (_state.scanning || _state.connecting) return;
     if (!await _ensureManagementLease(owner: owner)) return;
     final permission = await _ensureScanPermissions();
+    _lastScanPermission = permission;
     BleManager.instance.recordScanPermissionResult(permission);
     if (permission != BleScanPermissionResult.granted) {
       _emit(
@@ -1058,8 +1179,7 @@ class BleConnectionCoordinator {
     await initialize();
     if (userInitiated) {
       _automaticReconnectSuppressed = false;
-      _linkLossReconnectTimer?.cancel();
-      _linkLossReconnectTimer = null;
+      _cancelLinkLossReconnect(reason: 'user_connect');
     }
     _pairingPromptPresentedForConnection = false;
     _automaticPairingPromptClaimPending = false;
@@ -1170,8 +1290,7 @@ class BleConnectionCoordinator {
     await initialize();
     if (userInitiated) {
       _automaticReconnectSuppressed = false;
-      _linkLossReconnectTimer?.cancel();
-      _linkLossReconnectTimer = null;
+      _cancelLinkLossReconnect(reason: 'user_auto_connect');
     } else if (_automaticReconnectSuppressed) {
       _emit(_state.copyWith(failureReason: 'manual_disconnect'));
       return false;
@@ -1279,9 +1398,7 @@ class BleConnectionCoordinator {
     _pairingPromptPresentedForConnection = false;
     _automaticPairingPromptClaimPending = false;
     _manualDisconnectInProgress = true;
-    _linkLossReconnectTimer?.cancel();
-    _linkLossReconnectTimer = null;
-    _linkLossReconnectAttempt = 0;
+    _cancelLinkLossReconnect(reason: 'manual_disconnect');
     try {
       await stopScan(releaseManagementLease: false);
       if (!_ensureCanManageConnection(owner: owner)) return;
@@ -1334,12 +1451,10 @@ class BleConnectionCoordinator {
   }
 
   Future<void> forgetLastDevice() async {
-    _linkLossReconnectTimer?.cancel();
-    _linkLossReconnectTimer = null;
+    _cancelLinkLossReconnect(reason: 'device_forgotten');
     _automaticReconnectSuppressed = true;
     _pairingPromptPresentedForConnection = false;
     _automaticPairingPromptClaimPending = false;
-    _linkLossReconnectAttempt = 0;
     _authenticationGeneration++;
     _consecutiveCapabilityMismatches = 0;
     _manualDisconnectInProgress = true;
@@ -1394,7 +1509,7 @@ class BleConnectionCoordinator {
     _disposed = true;
     _authenticationGeneration++;
     BleManager.instance.setSecurePairingPending(false);
-    _linkLossReconnectTimer?.cancel();
+    _cancelLinkLossReconnect(reason: 'disposed');
     await stopScan();
     await _managerAutoConnectSub?.cancel();
     await _managerConnectionSub?.cancel();

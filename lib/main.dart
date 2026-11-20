@@ -68,6 +68,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     unawaited(BleManager.instance.handleAppLifecycleState(state));
+    BleConnectionCoordinator.instance.handleAppLifecycleState(state);
   }
 
   @override
