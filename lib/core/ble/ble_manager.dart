@@ -270,6 +270,15 @@ bool shouldSendControlStopOnDisconnect({
   return connected && mode == BleTrafficMode.controlBinary;
 }
 
+/// Status after the OS reports the device disconnected, or `null` to keep the
+/// current one. While the old board is torn down to connect another, the
+/// coordinator already shows "Connecting…"; showing "Not connected" for that
+/// moment would only make the status flicker.
+@visibleForTesting
+BleConnectionStatus? statusAfterOsDisconnect({required bool replacingDevice}) {
+  return replacingDevice ? null : BleConnectionStatus.disconnected;
+}
+
 @visibleForTesting
 bool shouldSuppressReconnectDuringDisconnect(String source) {
   return source == 'manual_disconnect' || source.endsWith('_replace');
@@ -772,6 +781,7 @@ class BleManager {
   final _autoConnectRequestController =
       StreamController<BleAutoConnectRequest>.broadcast();
   bool _manualDisconnectInProgress = false;
+  bool _replaceDisconnectInProgress = false;
   int _nextManagementLeaseId = 0;
   int? _managementLeaseId;
   Completer<void>? _managementLeaseReleased;
@@ -1836,7 +1846,10 @@ class BleManager {
           );
         }
         _connectionController.add(false);
-        _setConnectionStatus(BleConnectionStatus.disconnected);
+        final nextStatus = statusAfterOsDisconnect(
+          replacingDevice: _replaceDisconnectInProgress,
+        );
+        if (nextStatus != null) _setConnectionStatus(nextStatus);
       }
     });
   }
@@ -2291,6 +2304,8 @@ class BleManager {
       _manualDisconnectInProgress = true;
       _log('disconnect_suppress_reconnect', 'source=$source');
     }
+    final replacing = source.endsWith('_replace');
+    if (replacing) _replaceDisconnectInProgress = true;
 
     try {
       final connected = isConnected;
@@ -2354,9 +2369,12 @@ class BleManager {
       // it keeps the connecting presentation. Every other source settles here
       // instead of relying on an OS event that may arrive after `_connSub`
       // has been cancelled.
-      if (!source.endsWith('_replace')) {
+      if (!replacing) {
         _setConnectionStatus(BleConnectionStatus.disconnected);
       }
+      // `_connSub` is cancelled above, so no OS event for the old device can
+      // arrive after this point.
+      if (replacing) _replaceDisconnectInProgress = false;
 
       _log('disconnected');
       if (suppressReconnect) {

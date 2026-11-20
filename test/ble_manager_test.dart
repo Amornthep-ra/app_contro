@@ -70,6 +70,14 @@ void main() {
       }
     });
 
+    test('an OS disconnect during a device switch keeps Connecting', () {
+      expect(statusAfterOsDisconnect(replacingDevice: true), isNull);
+      expect(
+        statusAfterOsDisconnect(replacingDevice: false),
+        BleConnectionStatus.disconnected,
+      );
+    });
+
     test('finishes a failed connection as disconnected', () {
       for (final status in const [
         BleConnectionStatus.connecting,
