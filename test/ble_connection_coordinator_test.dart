@@ -902,10 +902,7 @@ void main() {
 
       expect(permissionChecks, 1);
       expect(platform.startCalls, 0);
-      expect(
-        coordinator.state.failureReason,
-        'scan_unavailable:bluetoothOff',
-      );
+      expect(coordinator.state.failureReason, 'scan_unavailable:bluetoothOff');
       await coordinator.dispose();
     });
 
@@ -934,36 +931,39 @@ void main() {
       await coordinator.dispose();
     });
 
-    test('leaving the app stops a retry scan without using an attempt', () async {
-      final coordinator = BleConnectionCoordinator(
-        platform: platform,
-        managerConnectionStream: connectionEvents.stream,
-        listenToManagerAutoConnectRequests: false,
-        canManageConnection: ({int? owner}) => true,
-        ensureScanPermissions: () async => BleScanPermissionResult.granted,
-        // A long scan, so the retry is still scanning when the app pauses.
-        linkLossScanTimeout: const Duration(seconds: 5),
-        linkLossReconnectDelay: (_) => const Duration(milliseconds: 1),
-      );
-      await coordinator.initialize();
+    test(
+      'leaving the app stops a retry scan without using an attempt',
+      () async {
+        final coordinator = BleConnectionCoordinator(
+          platform: platform,
+          managerConnectionStream: connectionEvents.stream,
+          listenToManagerAutoConnectRequests: false,
+          canManageConnection: ({int? owner}) => true,
+          ensureScanPermissions: () async => BleScanPermissionResult.granted,
+          // A long scan, so the retry is still scanning when the app pauses.
+          linkLossScanTimeout: const Duration(seconds: 5),
+          linkLossReconnectDelay: (_) => const Duration(milliseconds: 1),
+        );
+        await coordinator.initialize();
 
-      connectionEvents.add(false);
-      await waitFor(() => coordinator.state.scanning);
-      final stopsBefore = platform.stopCalls;
-      coordinator.handleAppLifecycleState(AppLifecycleState.paused);
-      await waitFor(() => !coordinator.state.scanning);
+        connectionEvents.add(false);
+        await waitFor(() => coordinator.state.scanning);
+        final stopsBefore = platform.stopCalls;
+        coordinator.handleAppLifecycleState(AppLifecycleState.paused);
+        await waitFor(() => !coordinator.state.scanning);
 
-      expect(platform.stopCalls, greaterThan(stopsBefore));
-      expect(BleManager.instance.diagnostics.reconnectAttempt, 0);
-      expect(
-        BleManager.instance.connectionStatus,
-        isNot(BleConnectionStatus.reconnecting),
-      );
+        expect(platform.stopCalls, greaterThan(stopsBefore));
+        expect(BleManager.instance.diagnostics.reconnectAttempt, 0);
+        expect(
+          BleManager.instance.connectionStatus,
+          isNot(BleConnectionStatus.reconnecting),
+        );
 
-      coordinator.handleAppLifecycleState(AppLifecycleState.resumed);
-      await waitFor(() => platform.startCalls >= 2);
-      await coordinator.dispose();
-    });
+        coordinator.handleAppLifecycleState(AppLifecycleState.resumed);
+        await waitFor(() => platform.startCalls >= 2);
+        await coordinator.dispose();
+      },
+    );
 
     test('manual disconnect cancels a scheduled retry', () async {
       final coordinator = createCoordinator(
@@ -1075,9 +1075,32 @@ void main() {
         coordinator.state.failureReason,
         'scan_unavailable:permissionDenied',
       );
+      expect(
+        controlStartFailureMessage(coordinator.state),
+        contains('permission'),
+      );
       expect(BleManager.instance.isControlSessionActive, isFalse);
       await coordinator.dispose();
       await platform.dispose();
+    });
+
+    test('names the reason a scan was unavailable', () {
+      String message(String reason) => controlStartFailureMessage(
+        BleConnectionCoordinatorState(failureReason: reason),
+      );
+
+      expect(
+        message('scan_unavailable:bluetoothOff'),
+        contains('Bluetooth is off'),
+      );
+      expect(
+        message('scan_unavailable:locationServiceOff'),
+        contains('Location'),
+      );
+      expect(
+        message('last_device_not_found'),
+        'Connect to a BLE device, then tap Start again.',
+      );
     });
   });
 

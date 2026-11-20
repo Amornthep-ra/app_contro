@@ -404,10 +404,6 @@ List<int> buildZeroControlPacket() {
   ).toBinaryPacket(const <int>{});
 }
 
-/// A congested link can time out a few 200 ms writes in a row and recover.
-/// Tearing down then costs a full reconnect and re-authentication, while the
-/// robot's 400 ms watchdog already stops it during the gap. Only a failure
-/// streak that is both long enough and old enough counts as a dead link.
 /// Failures further apart than this are unrelated, not one failing link.
 /// Control mode writes at least every 150 ms, so a real streak never has a
 /// gap this long; sparse text-mode writes no longer add up across minutes.
@@ -417,6 +413,10 @@ const Duration kWriteFailureStreakGap = Duration(seconds: 2);
 bool shouldStartNewWriteFailureStreak({required Duration sinceLastFailure}) =>
     sinceLastFailure > kWriteFailureStreakGap;
 
+/// A congested link can time out a few 200 ms writes in a row and recover.
+/// Tearing down then costs a full reconnect and re-authentication, while the
+/// robot's 400 ms watchdog already stops it during the gap. Only a failure
+/// streak that is both long enough and old enough counts as a dead link.
 @visibleForTesting
 bool shouldTriggerWriteTransportFailure({
   required int consecutiveFailures,

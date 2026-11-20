@@ -181,9 +181,18 @@ const controlStartMtuTooSmall = 'mtu_too_small';
 /// Message for a Start that returned no owner and needs no pairing prompt.
 /// Shared by every control page so the wording cannot drift between them.
 String controlStartFailureMessage(BleConnectionCoordinatorState state) {
-  if (state.failureReason == controlStartMtuTooSmall) {
-    return 'This board cannot receive control data (BLE MTU too small). '
-        'Update the board firmware, then reconnect.';
+  switch (state.failureReason) {
+    case controlStartMtuTooSmall:
+      return 'This board cannot receive control data (BLE MTU too small). '
+          'Update the board firmware, then reconnect.';
+    case 'scan_unavailable:bluetoothOff':
+      return 'Bluetooth is off. Turn it on, then tap Start again.';
+    case 'scan_unavailable:permissionDenied':
+      return 'Bluetooth permission is needed. Allow it in Settings, '
+          'then tap Start again.';
+    case 'scan_unavailable:locationServiceOff':
+      return 'Location is off. Turn it on to find the board, '
+          'then tap Start again.';
   }
   switch (state.recoveryOutcome) {
     case BleRecoveryOutcome.credentialMismatchSuspected:
@@ -593,6 +602,8 @@ class BleConnectionCoordinator {
       );
       if (connected) {
         _linkLossReconnectPending = false;
+        // The app may have paused this attempt just as it connected.
+        _linkLossAttemptPausedInBackground = false;
         _linkLossReconnectAttempt = 0;
         BleManager.instance.recordReconnectAttempt(0);
         _debug(
