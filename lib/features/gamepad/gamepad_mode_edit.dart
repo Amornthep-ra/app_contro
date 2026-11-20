@@ -1104,15 +1104,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final w = panelSize.width;
     final h = panelSize.height;
     final s = GamepadEditMetrics.panelUnit(panelSize);
-    final unclamped = current.size + delta;
-    final nextSize = unclamped.clamp(_minBtnSize, _maxBtnSize);
-    if (nextSize == current.size) {
-      final atMax = unclamped >= _maxBtnSize;
-      _showSizeLimit(atMax);
+    final minSize = GamepadEditMetrics.minSizeFactor(_minBtnSize, s);
+    final nextSize = (current.size + delta).clamp(minSize, _maxBtnSize);
+    if (delta < 0 ? nextSize >= current.size : nextSize <= current.size) {
+      _showSizeLimit(delta > 0);
       _flashEditWarning(id);
       return;
     }
-    final sizePx = nextSize * s;
+    double px(double size) => GamepadEditMetrics.sizePx(panelSize, size);
+    final sizePx = px(nextSize);
     final half = sizePx / 2;
     const safeEdgePad = GamepadEditMetrics.safeEdgePad;
     const safeTopPad = GamepadEditMetrics.safeTopEdgePad;
@@ -1138,10 +1138,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherSizePx = other.size * s;
+      final otherSizePx = px(other.size);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(cx, cy),
-        fromRadius: current.size * s / 2,
+        fromRadius: px(current.size) / 2,
         toCentre: Offset(cx, cy),
         toRadius: sizePx / 2,
         otherCentre: Offset(ox, oy),
@@ -1301,8 +1301,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (def == null) return;
     final w = panel.width;
     final h = panel.height;
-    final unit = GamepadEditMetrics.panelUnit(panel);
-    final r = def.size * unit / 2;
+    double radius(double size) => GamepadEditMetrics.sizePx(panel, size) / 2;
+    final r = radius(def.size);
     final spot = GamepadEditMetrics.freeSpotFor(
       preferred: Offset(def.cx * w, def.cy * h),
       radius: r,
@@ -1317,7 +1317,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           if (other != id && _layoutAll[other] != null)
             (
               Offset(_layoutAll[other]!.cx * w, _layoutAll[other]!.cy * h),
-              _layoutAll[other]!.size * unit / 2,
+              radius(_layoutAll[other]!.size),
             ),
       ],
     );
@@ -2574,20 +2574,27 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   @override
   Widget build(BuildContext context) {
-    final controlLayout = _editMode
-        ? null
-        : GamepadControlLayout.measure(context, [
-            '',
-            '',
-            '@speed:Speed',
-            'CMD = 255 | DRV = 100% | TRN = 100%',
-            '@ble',
-            '',
-          ], leadingCount: 2);
+    final playLayout = GamepadControlLayout.measure(context, [
+      '',
+      '',
+      '@speed:Speed',
+      'CMD = 255 | DRV = 100% | TRN = 100%',
+      '@ble',
+      '',
+    ], leadingCount: 2);
+    final controlLayout = _editMode ? null : playLayout;
     final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
     final textScaleFactor = media.textScaler.scale(1);
+    // The editor's pad matches the driving pad's size exactly.
+    final editorTopInset = _editMode
+        ? gamepadEditorTopInset(
+            playLayout: playLayout,
+            viewportWidth: media.size.width - media.padding.horizontal,
+            textScaleFactor: textScaleFactor,
+          )
+        : 0.0;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -2664,7 +2671,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                       LayoutBuilder(
                         builder: (context, cons) {
                           return Padding(
-                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                            padding: EdgeInsets.fromLTRB(
+                              8,
+                              4 + editorTopInset,
+                              8,
+                              8,
+                            ),
                             child: Column(
                               children: [
                                 Expanded(
@@ -2892,7 +2904,6 @@ Map<String, _ButtonLayout> _fitLayoutToPanel(
 ) {
   final w = panel.width;
   final h = panel.height;
-  final unit = GamepadEditMetrics.panelUnit(panel);
   final placed = [
     for (final id in ids)
       if (layout[id] != null) (id, layout[id]!),
@@ -2906,7 +2917,11 @@ Map<String, _ButtonLayout> _fitLayoutToPanel(
       GamepadEditMetrics.safeEdgePad,
     ),
     controls: [
-      for (final (_, l) in placed) (Offset(l.cx * w, l.cy * h), l.size * unit / 2),
+      for (final (_, l) in placed)
+        (
+          Offset(l.cx * w, l.cy * h),
+          GamepadEditMetrics.sizePx(panel, l.size) / 2,
+        ),
     ],
   );
   Map<String, _ButtonLayout>? out;
@@ -3186,7 +3201,6 @@ class _LayoutPadPanel extends StatelessWidget {
         );
         final w = size.width;
         final h = size.height;
-        final s = GamepadEditMetrics.panelUnit(size);
         return Stack(
           children: ids.map((id) {
             final spec = specs[id];
@@ -3194,7 +3208,7 @@ class _LayoutPadPanel extends StatelessWidget {
             if (spec == null || l == null) {
               return const SizedBox.shrink();
             }
-            final d = l.size * s;
+            final d = GamepadEditMetrics.sizePx(size, l.size);
             final cx = l.cx * w;
             final cy = l.cy * h;
             return Positioned(
@@ -3295,14 +3309,22 @@ class _EditableButtonState extends State<_EditableButton> {
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
     final s = GamepadEditMetrics.panelUnit(widget.panelSize);
+    double px(double size) => GamepadEditMetrics.sizePx(widget.panelSize, size);
     final dx = d.focalPoint.dx - _startFocal.dx;
     final dy = d.focalPoint.dy - _startFocal.dy;
     final moved = dx.abs() > 1 || dy.abs() > 1;
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-    double size = (_startLayout.size * d.scale).clamp(_minBtnSize, _maxBtnSize);
-    final sizePx = GamepadEditMetrics.sizePx(widget.panelSize, size);
+    // A plain drag (scale 1) keeps the size; pinching stays within the
+    // editor's range, never below a pressable button.
+    double size = d.scale == 1.0
+        ? _startLayout.size
+        : (_startLayout.size * d.scale).clamp(
+            GamepadEditMetrics.minSizeFactor(_minBtnSize, s),
+            _maxBtnSize,
+          );
+    final sizePx = px(size);
     final half = sizePx / 2;
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
@@ -3352,10 +3374,10 @@ class _EditableButtonState extends State<_EditableButton> {
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherSizePx = s * other.size;
+      final otherSizePx = px(other.size);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.layout.size * s / 2,
+        fromRadius: px(widget.layout.size) / 2,
         toCentre: Offset(cx, cy),
         toRadius: sizePx / 2,
         otherCentre: Offset(ox, oy),
@@ -3383,26 +3405,28 @@ class _EditableButtonState extends State<_EditableButton> {
   Widget build(BuildContext context) {
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
-    final s = GamepadEditMetrics.panelUnit(widget.panelSize);
-    final size = widget.layout.size * s;
+    final size = GamepadEditMetrics.sizePx(
+      widget.panelSize,
+      widget.layout.size,
+    );
     final cx = widget.layout.cx * w;
     final cy = widget.layout.cy * h;
     final showWarning =
         _colliding || _nearEdgeWarning || widget.externalWarning;
+    // Drawn exactly as in play (same inset and fit, ears and tail
+    // included), so spacing in the editor is what the driver gets.
     Widget buildButtonVisual() => Padding(
-      padding: EdgeInsets.all(size * 0.08),
-      child: ClipOval(
-        child: Image.asset(
-          widget.asset,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: _opacity(Colors.red, 0.18),
-            alignment: Alignment.center,
-            child: Text(
-              widget.asset.split('/').last.split('.').first,
-              style: Theme.of(context).textTheme.labelSmall,
-              textAlign: TextAlign.center,
-            ),
+      padding: const EdgeInsets.all(2),
+      child: Image.asset(
+        widget.asset,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: _opacity(Colors.red, 0.18),
+          alignment: Alignment.center,
+          child: Text(
+            widget.asset.split('/').last.split('.').first,
+            style: Theme.of(context).textTheme.labelSmall,
+            textAlign: TextAlign.center,
           ),
         ),
       ),
@@ -3410,12 +3434,18 @@ class _EditableButtonState extends State<_EditableButton> {
     final buttonContent = SizedBox(
       width: size,
       height: size,
-      child: GamepadEditSelectionVisual(
-        selected: widget.selected,
-        dimmed: widget.dimmed,
-        warning: showWarning,
-        selectionMask: buildButtonVisual(),
-        child: buildButtonVisual(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GamepadEditSelectionVisual(
+            selected: widget.selected,
+            dimmed: widget.dimmed,
+            warning: showWarning,
+            selectionMask: buildButtonVisual(),
+            child: buildButtonVisual(),
+          ),
+          if (widget.selected) const GamepadTouchAreaOutline(),
+        ],
       ),
     );
     return Positioned(

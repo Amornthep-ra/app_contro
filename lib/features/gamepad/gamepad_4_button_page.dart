@@ -700,11 +700,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     if (current == null) return;
     final base = _cfgForId(id);
     if (base == null) return;
-    final unclamped = current.size + delta;
-    final nextSize = unclamped.clamp(_minBtnSize, _maxBtnSize);
-    if (nextSize == current.size) {
-      final atMax = unclamped >= _maxBtnSize;
-      _showSizeLimit(atMax);
+    // Never below a pressable button on this screen.
+    final minSize = GamepadEditMetrics.minSizeFactor(
+      _minBtnSize,
+      GamepadEditMetrics.panelUnit(panelSize),
+    );
+    final nextSize = (current.size + delta).clamp(minSize, _maxBtnSize);
+    if (delta < 0 ? nextSize >= current.size : nextSize <= current.size) {
+      _showSizeLimit(delta > 0);
       _flashEditWarning(id);
       return;
     }
@@ -2067,20 +2070,27 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   @override
   Widget build(BuildContext context) {
-    final controlLayout = _editMode
-        ? null
-        : GamepadControlLayout.measure(context, [
-            '',
-            '',
-            '@speed:Speed',
-            'CMD = 255 | Med = 2',
-            '@ble',
-            '',
-          ], leadingCount: 2);
+    final playLayout = GamepadControlLayout.measure(context, [
+      '',
+      '',
+      '@speed:Speed',
+      'CMD = 255 | Med = 2',
+      '@ble',
+      '',
+    ], leadingCount: 2);
+    final controlLayout = _editMode ? null : playLayout;
     final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
     final textScaleFactor = media.textScaler.scale(1);
+    // The editor's pad matches the driving pad's size exactly.
+    final editorTopInset = _editMode
+        ? gamepadEditorTopInset(
+            playLayout: playLayout,
+            viewportWidth: media.size.width - media.padding.horizontal,
+            textScaleFactor: textScaleFactor,
+          )
+        : 0.0;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -2163,9 +2173,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                             LayoutBuilder(
                               builder: (context, cons) {
                                 return Padding(
-                                  padding: const EdgeInsets.fromLTRB(
+                                  padding: EdgeInsets.fromLTRB(
                                     8,
-                                    4,
+                                    4 + editorTopInset,
                                     8,
                                     8,
                                   ),
@@ -2629,12 +2639,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
         _layout.removeWhere((k, _) => !widget.ids.contains(k));
         // A layout from another screen size can sit past the edge or on
         // top of another arrow: show and save it moved into place.
-        final fitted = _fitLayoutToPanel(
-          size,
-          widget.specs,
-          fitOrder,
-          _layout,
-        );
+        final fitted = _fitLayoutToPanel(size, widget.specs, fitOrder, _layout);
         if (!identical(fitted, _layout)) {
           fitted.forEach((id, layout) => _layout[id] = layout);
           changed = true;
@@ -2979,20 +2984,20 @@ class _EditableButtonState extends State<_EditableButton> {
         _nearCollision ||
         _nearEdgeWarning ||
         widget.externalWarning;
+    // Drawn exactly as in play (same inset and fit, ears and tail
+    // included), so spacing in the editor is what the driver gets.
     Widget buildButtonVisual() => Padding(
-      padding: EdgeInsets.all(diameter * 0.08),
-      child: ClipOval(
-        child: Image.asset(
-          scaled.cfg.iconAsset ?? '',
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: _opacity(Colors.red, 0.18),
-            alignment: Alignment.center,
-            child: Text(
-              widget.id.split(':').last,
-              style: Theme.of(context).textTheme.labelSmall,
-              textAlign: TextAlign.center,
-            ),
+      padding: const EdgeInsets.all(2),
+      child: Image.asset(
+        scaled.cfg.iconAsset ?? '',
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: _opacity(Colors.red, 0.18),
+          alignment: Alignment.center,
+          child: Text(
+            widget.id.split(':').last,
+            style: Theme.of(context).textTheme.labelSmall,
+            textAlign: TextAlign.center,
           ),
         ),
       ),
@@ -3000,12 +3005,18 @@ class _EditableButtonState extends State<_EditableButton> {
     final buttonContent = SizedBox(
       width: diameter,
       height: diameter,
-      child: GamepadEditSelectionVisual(
-        selected: widget.selected,
-        dimmed: widget.dimmed,
-        warning: showWarning,
-        selectionMask: buildButtonVisual(),
-        child: buildButtonVisual(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GamepadEditSelectionVisual(
+            selected: widget.selected,
+            dimmed: widget.dimmed,
+            warning: showWarning,
+            selectionMask: buildButtonVisual(),
+            child: buildButtonVisual(),
+          ),
+          if (widget.selected) const GamepadTouchAreaOutline(),
+        ],
       ),
     );
     return Positioned(

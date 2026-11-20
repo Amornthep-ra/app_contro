@@ -12,6 +12,8 @@ import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/gamepad/widgets/gamepad_controls_sheet.dart';
+import 'package:pb_controller/features/gamepad/widgets/gamepad_edit_shared.dart';
+import 'package:pb_controller/features/joystick/joystick/joystick_view.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -248,7 +250,12 @@ void main() {
 
     test('savedFirst puts placed controls before default ones', () {
       expect(
-        GamepadEditMetrics.savedFirst(['a', 'b', 'c', 'd'], {'c', 'a'}.contains),
+        GamepadEditMetrics.savedFirst([
+          'a',
+          'b',
+          'c',
+          'd',
+        ], {'c', 'a'}.contains),
         ['a', 'c', 'b', 'd'],
       );
     });
@@ -838,7 +845,9 @@ void main() {
       ),
       'joystick': (
         // Nothing usable: the default two joysticks come back.
-        {'joy_dual_active': jsonEncode(['bogus'])},
+        {
+          'joy_dual_active': jsonEncode(['bogus']),
+        },
         2,
       ),
     };
@@ -944,6 +953,168 @@ void main() {
       });
       await openEditor(tester, const JoystickPage());
       expect(_byTypeName('_EditableJoystick'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
+    Future<void> openPlay(WidgetTester tester, Widget page, Size size) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(home: page));
+      await tester.pumpAndSettle();
+    }
+
+    Finder playButtons() => find.byWidgetPredicate(
+      (w) =>
+          w.runtimeType.toString() == 'GamepadImageHoldButton' ||
+          w.runtimeType.toString() == '_JoyImagePressHoldButton',
+    );
+
+    // Where the driving toolbar wraps to two rows (8 BTN on a small phone).
+    for (final entry in {
+      'four-button': ('_LayoutPadPanel', '_EditablePadPanel'),
+      'eight-button': ('_LayoutPadPanel', '_EditablePadPanel'),
+      // The editor draws the stick inside a 2 dp frame: compare the frame.
+      'joystick': ('JoystickView', '_EditableJoystick'),
+    }.entries) {
+      final page = _pages[entry.key]!;
+      testWidgets('${entry.key}: the editor\'s pad is the driving pad on a '
+          'small phone', (tester) async {
+        const size = Size(640, 360);
+        await openPlay(tester, page.build(), size);
+        final play = tester.getRect(_byTypeName(entry.value.$1).first);
+        await closePage(tester);
+
+        await openEditor(tester, page.build(), size: size);
+        final edit = tester.getRect(_byTypeName(entry.value.$2).first);
+        expect(edit.top, closeTo(play.top, 0.5));
+        expect(edit.size.width, closeTo(play.size.width, 0.5));
+        expect(edit.size.height, closeTo(play.size.height, 0.5));
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
+
+    for (final entry in {
+      'eight-button': {
+        'gp8_active_left': jsonEncode(['L:up']),
+        'gp8_active_right': jsonEncode(<String>[]),
+        'gp8_layout_all': jsonEncode({
+          'L:up': {'cx': 0.3, 'cy': 0.5, 'size': 0.18},
+        }),
+      },
+      'joystick': {
+        'joy_dual_active': jsonEncode(['joy_left', 'btn_triangle']),
+        'joy_dual_layout': jsonEncode({
+          'joy_left': {'cx': 0.25, 'cy': 0.5, 'size': 0.6},
+          'btn_triangle': {'cx': 0.75, 'cy': 0.5, 'size': 0.6},
+        }),
+      },
+    }.entries) {
+      testWidgets('${entry.key}: the smallest saved size is still a 48 dp '
+          'button on a small phone', (tester) async {
+        SharedPreferences.setMockInitialValues(entry.value);
+        await openPlay(
+          tester,
+          _pages[entry.key]!.build(),
+          const Size(640, 360),
+        );
+        final buttons = playButtons();
+        expect(buttons, findsOneWidget);
+        expect(
+          tester.getRect(buttons).shortestSide,
+          greaterThanOrEqualTo(GamepadEditMetrics.minTouchDiameter - 0.5),
+        );
+        if (entry.key == 'joystick') {
+          expect(
+            tester.getRect(find.byType(JoystickView)).shortestSide,
+            greaterThanOrEqualTo(kJoyStickMinDiameter - 0.5),
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
+
+    testWidgets('joystick: sticks stop growing on a large tablet, like the '
+        'gamepad buttons', (tester) async {
+      await openPlay(tester, const JoystickPage(), const Size(1366, 1024));
+      for (final e in find.byType(JoystickView).evaluate()) {
+        expect(
+          tester.getRect(find.byWidget(e.widget)).width,
+          lessThanOrEqualTo(GamepadEditMetrics.maxPanelUnit * 0.45 + 0.5),
+        );
+      }
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
+    for (final page in _pages.entries.where((e) => e.key != 'joystick')) {
+      testWidgets('${page.key}: the editor draws buttons as in play and '
+          'outlines the selected one\'s touch area', (tester) async {
+        await openEditor(tester, page.value.build());
+        final controls = _byTypeName(page.value.controlType);
+        expect(
+          find.descendant(of: controls.first, matching: find.byType(ClipOval)),
+          findsNothing,
+        );
+        expect(find.byKey(GamepadTouchAreaOutline.outlineKey), findsNothing);
+        await tester.tap(controls.first);
+        await tester.pumpAndSettle();
+        final outline = find.byKey(GamepadTouchAreaOutline.outlineKey);
+        expect(outline, findsOneWidget);
+        expect(tester.getRect(outline), tester.getRect(controls.first));
+        await closePage(tester);
+      });
+    }
+
+    testWidgets('joystick: a face button cannot be dragged onto a joystick', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'joy_dual_active': jsonEncode(['joy_left', 'btn_triangle']),
+        'joy_dual_layout': jsonEncode({
+          'joy_left': {'cx': 0.25, 'cy': 0.5, 'size': 1.0},
+          'btn_triangle': {'cx': 0.65, 'cy': 0.5, 'size': 1.0},
+        }),
+      });
+      await openEditor(tester, const JoystickPage());
+      final triangle = _byTypeName('_EditableButtonItem');
+      final stick = _byTypeName('_EditableJoystick');
+      await tester.tapAt(tester.getRect(triangle).center);
+      await tester.pumpAndSettle();
+      await tester.timedDrag(
+        triangle,
+        const Offset(-500, 0),
+        const Duration(milliseconds: 600),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        _gap(tester.getRect(triangle), tester.getRect(stick)),
+        greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
+      );
+      // What is saved keeps the gap too (drawing alone could hide an
+      // overlap by fitting it). Both sit on the pad's middle row and the
+      // pad spans the 914 dp screen width.
+      final saved =
+          jsonDecode(
+                (await SharedPreferences.getInstance()).getString(
+                  'joy_dual_layout',
+                )!,
+              )
+              as Map<String, dynamic>;
+      final cxGap =
+          ((saved['btn_triangle']['cx'] as num) -
+                  (saved['joy_left']['cx'] as num))
+              .abs() *
+          914;
+      expect(
+        cxGap -
+            tester.getRect(triangle).shortestSide / 2 -
+            tester.getRect(stick).shortestSide / 2,
+        greaterThanOrEqualTo(GamepadEditMetrics.minControlGap - 0.5),
+      );
       expect(tester.takeException(), isNull);
       await closePage(tester);
     });

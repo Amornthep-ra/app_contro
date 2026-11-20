@@ -240,6 +240,29 @@ class GamepadDashedCirclePainter extends CustomPainter {
   }
 }
 
+/// Faint dashed circle over a selected control in the layout editor,
+/// showing exactly where a press counts (the whole round box, which is a
+/// little larger than the button's drawn body).
+class GamepadTouchAreaOutline extends StatelessWidget {
+  static const outlineKey = ValueKey<String>('gamepad-edit-touch-area');
+
+  const GamepadTouchAreaOutline({super.key});
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: CustomPaint(
+      key: outlineKey,
+      painter: GamepadDashedCirclePainter(
+        color: GamepadEditSelectionVisual.selectionColor.withValues(alpha: 0.7),
+        strokeWidth: 1.5,
+        dashLength: 6,
+        gapLength: 5,
+      ),
+      child: const SizedBox.expand(),
+    ),
+  );
+}
+
 class GamepadEditAlignmentGuidesPainter extends CustomPainter {
   final Color color;
   final bool showVertical;

@@ -734,24 +734,21 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
       child: coreButton,
     );
     return widget.showLabel
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                holdArea,
-                const SizedBox(height: 4),
-                SizedBox(
-                  height: 18,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      widget.label,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              holdArea,
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 18,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(widget.label, style: theme.textTheme.bodyMedium),
                 ),
-              ],
-            )
-          : holdArea;
+              ),
+            ],
+          )
+        : holdArea;
   }
 }
 

@@ -64,6 +64,53 @@ const Map<String, String> kJoyAxisPartner = {
   kJoyXOnlyId: kJoyRightId,
 };
 
+/// Face buttons on the Joystick pad (everything else is a joystick).
+const Set<String> kJoyButtonIds = {
+  kBtnTriangleId,
+  kBtnCrossId,
+  kBtnSquareId,
+  kBtnCircleId,
+};
+
+/// Smallest joystick drawn: its knob still travels ~34 dp from the centre,
+/// enough to set a speed between stop and full.
+const double kJoyStickMinDiameter = 96.0;
+
+/// Diameter of a size-1 joystick (or face button) on [panel]. Uses the
+/// same capped pad unit as the gamepad buttons, so a tablet does not get
+/// a stick so large the thumb must travel across half the screen.
+double joyBasePx(Size panel, {required bool button}) =>
+    GamepadEditMetrics.panelUnit(panel) * 0.45 * (button ? 0.55 : 1.0);
+
+/// Drawn and touched diameter of control [id] at [size] on [panel], never
+/// below a pressable button or a usable stick.
+double joyControlDiameter(String id, double size, Size panel) {
+  final button = kJoyButtonIds.contains(id);
+  return GamepadEditMetrics.fitDiameter(
+    GamepadEditMetrics.diameterFor(
+      size,
+      joyBasePx(panel, button: button),
+      minDiameter: button
+          ? GamepadEditMetrics.minTouchDiameter
+          : kJoyStickMinDiameter,
+    ),
+    panel,
+    16.0, // the editor's edge margin on this pad
+  );
+}
+
+/// Smallest size factor the editor offers for control [id] on [panel].
+double joyMinSizeFactor(String id, Size panel) {
+  final button = kJoyButtonIds.contains(id);
+  return GamepadEditMetrics.minSizeFactor(
+    button ? kJoyBtnMinSize : kJoyMinSize,
+    joyBasePx(panel, button: button),
+    minDiameter: button
+        ? GamepadEditMetrics.minTouchDiameter
+        : kJoyStickMinDiameter,
+  );
+}
+
 /// Every control the Joystick pad can show.
 const Set<String> kJoyKnownIds = {
   kJoyLeftId,
@@ -113,7 +160,10 @@ class _JoystickPageState extends State<JoystickPage> {
   Timer? _timer;
   static const _prefsLayout = 'joy_dual_layout';
   static const _prefsActive = 'joy_dual_active';
-  static const double _baseJoyRatio = 0.45;
+
+  /// Space the editor leaves above the pad so it is as tall as when
+  /// driving (see [gamepadEditorTopInset]); 0 while driving.
+  double _editorTopInset = 0.0;
 
   /// Margin the editor keeps between a control and the pad's edge.
   static const double _editEdgePad = 16.0;
@@ -663,9 +713,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   String _cmdLabel() => _buttonsKey().toString();
-  double _baseJoySize(Size panel) =>
-      math.min(panel.width, panel.height) * _baseJoyRatio;
-  double _baseBtnSize(Size panel) => _baseJoySize(panel) * 0.55;
+  double _baseBtnSize(Size panel) => joyBasePx(panel, button: true);
   Map<String, _JoyLayout> _defaultLayout(Size panel, Set<String> active) {
     final out = <String, _JoyLayout>{};
     if (active.contains(kJoyLeftId)) {
@@ -834,9 +882,7 @@ class _JoystickPageState extends State<JoystickPage> {
         if (_activeIds.contains(id) && layout[id] != null) (id, layout[id]!),
     ];
     double radius(String id, _JoyLayout l) =>
-        (_isButtonId(id) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
-        l.size /
-        2;
+        joyControlDiameter(id, l.size, panel) / 2;
     final fitted = GamepadEditMetrics.fitLayout(
       panel: panel,
       pad: const EdgeInsets.all(_editEdgePad),
@@ -987,9 +1033,7 @@ class _JoystickPageState extends State<JoystickPage> {
   /// already on the pad. New buttons used to land on the right joystick.
   _JoyLayout _placeOnFreeSpot(String id, _JoyLayout def, Size panel) {
     double radius(String key, _JoyLayout layout) =>
-        (_isButtonId(key) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
-        layout.size /
-        2;
+        joyControlDiameter(key, layout.size, panel) / 2;
     // Same edge rule as dragging a control on this page.
     const edge = 16.0;
     final w = panel.width;
@@ -1512,18 +1556,17 @@ class _JoystickPageState extends State<JoystickPage> {
     if (current == null) return;
     final w = panel.width;
     final h = panel.height;
-    final isButton = _isButtonId(id);
-    final base = isButton ? _baseBtnSize(panel) : _baseJoySize(panel);
-    final unclamped = current.size + delta;
-    final minSize = _isButtonId(id) ? kJoyBtnMinSize : kJoyMinSize;
+    double px(String key, double size) => joyControlDiameter(key, size, panel);
+    // Never below a pressable button or a usable stick on this screen.
+    final minSize = joyMinSizeFactor(id, panel);
     final maxSize = _isButtonId(id) ? kJoyBtnMaxSize : kJoyMaxSize;
-    final nextSize = unclamped.clamp(minSize, maxSize);
-    if (nextSize == current.size) {
-      _showSizeLimit(unclamped >= maxSize);
+    final nextSize = (current.size + delta).clamp(minSize, maxSize);
+    if (delta < 0 ? nextSize >= current.size : nextSize <= current.size) {
+      _showSizeLimit(delta > 0);
       _flashEditWarning(id);
       return;
     }
-    final sizePx = base * nextSize;
+    final sizePx = px(id, nextSize);
     final half = sizePx / 2;
     final rawCx = current.cx * w;
     final rawCy = current.cy * h;
@@ -1551,13 +1594,10 @@ class _JoystickPageState extends State<JoystickPage> {
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key)
-          ? _baseBtnSize(panel)
-          : _baseJoySize(panel);
-      final otherSizePx = otherBase * other.size;
+      final otherSizePx = px(entry.key, other.size);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(current.cx * w, current.cy * h),
-        fromRadius: base * current.size / 2,
+        fromRadius: px(id, current.size) / 2,
         toCentre: Offset(cx, cy),
         toRadius: sizePx / 2,
         otherCentre: Offset(ox, oy),
@@ -1588,8 +1628,11 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Widget _buildGridOverlay() {
     if (!_editMode || !_showGrid) return const SizedBox.shrink();
-    // The joystick pad fills this Stack, so the grid lines up with snapping.
-    return const Positioned.fill(child: GamepadEditGrid());
+    // Over exactly the joystick pad, so the grid lines up with snapping.
+    return Positioned.fill(
+      top: _editorTopInset,
+      child: const GamepadEditGrid(),
+    );
   }
 
   bool _isButtonId(String id) {
@@ -1681,6 +1724,7 @@ class _JoystickPageState extends State<JoystickPage> {
         ? _opacity(const Color(0xFFFACC15), isDark ? 0.92 : 0.85)
         : _opacity(cs.primary, isDark ? 0.35 : 0.25);
     return Positioned.fill(
+      top: _editorTopInset,
       child: IgnorePointer(
         child: CustomPaint(
           painter: GamepadEditAlignmentGuidesPainter(
@@ -2198,20 +2242,27 @@ class _JoystickPageState extends State<JoystickPage> {
 
   @override
   Widget build(BuildContext context) {
-    final controlLayout = _editMode
-        ? null
-        : GamepadControlLayout.measure(context, [
-            '',
-            '',
-            'CMD 255',
-            'X:-1.00 Y:-1.00',
-            'X:-1.00 Y:-1.00',
-            '@ble',
-            '',
-          ], leadingCount: 2);
+    final playLayout = GamepadControlLayout.measure(context, [
+      '',
+      '',
+      'CMD 255',
+      'X:-1.00 Y:-1.00',
+      'X:-1.00 Y:-1.00',
+      '@ble',
+      '',
+    ], leadingCount: 2);
+    final controlLayout = _editMode ? null : playLayout;
     final width = MediaQuery.of(context).size.width;
     final appBarMetrics = GamepadAppBarMetrics.forWidth(width);
     final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
+    // The editor's pad matches the driving pad's size exactly.
+    _editorTopInset = _editMode
+        ? gamepadEditorTopInset(
+            playLayout: playLayout,
+            viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
+            textScaleFactor: textScaleFactor,
+          )
+        : 0.0;
     final cmdMetrics = appBarMetrics;
     final axisMetrics = appBarMetrics;
     final isThai = LanguageController.isThai.value;
@@ -2256,131 +2307,125 @@ class _JoystickPageState extends State<JoystickPage> {
                       if (_editMode)
                         GamepadEditHint(hasSelection: _selectedId != null),
                       _buildAlignmentGuides(),
-                      LayoutBuilder(
-                        builder: (context, c) {
-                          final size = Size(c.maxWidth, c.maxHeight);
-                          _panelSize = size;
-                          final defaults = _defaultLayout(size, _activeIds);
-                          final effective = _fitToPanel(size, {
-                            ...defaults,
-                            ..._layout,
-                          }, _layout);
-                          final base = _baseJoySize(size);
-                          final btnBase = _baseBtnSize(size);
-                          final widgets = <Widget>[];
-                          if (_activeIds.contains(kJoyLeftId)) {
-                            widgets.add(
-                              _buildJoystick(
-                                id: kJoyLeftId,
-                                size: size,
-                                baseSize: base,
-                                layout: effective[kJoyLeftId]!,
-                                allLayouts: effective,
-                                isLeft: true,
-                                axisLock: JoystickAxisLock.none,
-                              ),
+                      Padding(
+                        padding: EdgeInsets.only(top: _editorTopInset),
+                        child: LayoutBuilder(
+                          builder: (context, c) {
+                            final size = Size(c.maxWidth, c.maxHeight);
+                            _panelSize = size;
+                            final defaults = _defaultLayout(size, _activeIds);
+                            final effective = _fitToPanel(size, {
+                              ...defaults,
+                              ..._layout,
+                            }, _layout);
+                            final widgets = <Widget>[];
+                            if (_activeIds.contains(kJoyLeftId)) {
+                              widgets.add(
+                                _buildJoystick(
+                                  id: kJoyLeftId,
+                                  size: size,
+                                  layout: effective[kJoyLeftId]!,
+                                  allLayouts: effective,
+                                  isLeft: true,
+                                  axisLock: JoystickAxisLock.none,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kJoyYOnlyId)) {
+                              widgets.add(
+                                _buildJoystick(
+                                  id: kJoyYOnlyId,
+                                  size: size,
+                                  layout: effective[kJoyYOnlyId]!,
+                                  allLayouts: effective,
+                                  isLeft: true,
+                                  axisLock: JoystickAxisLock.yOnly,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kJoyRightId)) {
+                              widgets.add(
+                                _buildJoystick(
+                                  id: kJoyRightId,
+                                  size: size,
+                                  layout: effective[kJoyRightId]!,
+                                  allLayouts: effective,
+                                  isLeft: false,
+                                  axisLock: JoystickAxisLock.none,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kJoyXOnlyId)) {
+                              widgets.add(
+                                _buildJoystick(
+                                  id: kJoyXOnlyId,
+                                  size: size,
+                                  layout: effective[kJoyXOnlyId]!,
+                                  allLayouts: effective,
+                                  isLeft: false,
+                                  axisLock: JoystickAxisLock.xOnly,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kBtnTriangleId)) {
+                              widgets.add(
+                                _buildButton(
+                                  id: kBtnTriangleId,
+                                  label: 'Triangle',
+                                  asset: kGamepad8AssetTriangle,
+                                  size: size,
+                                  layout: effective[kBtnTriangleId]!,
+                                  allLayouts: effective,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kBtnCrossId)) {
+                              widgets.add(
+                                _buildButton(
+                                  id: kBtnCrossId,
+                                  label: 'Cross',
+                                  asset: kGamepad8AssetCross,
+                                  size: size,
+                                  layout: effective[kBtnCrossId]!,
+                                  allLayouts: effective,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kBtnSquareId)) {
+                              widgets.add(
+                                _buildButton(
+                                  id: kBtnSquareId,
+                                  label: 'Square',
+                                  asset: kGamepad8AssetSquare,
+                                  size: size,
+                                  layout: effective[kBtnSquareId]!,
+                                  allLayouts: effective,
+                                ),
+                              );
+                            }
+                            if (_activeIds.contains(kBtnCircleId)) {
+                              widgets.add(
+                                _buildButton(
+                                  id: kBtnCircleId,
+                                  label: 'Circle',
+                                  asset: kGamepad8AssetCircle,
+                                  size: size,
+                                  layout: effective[kBtnCircleId]!,
+                                  allLayouts: effective,
+                                ),
+                              );
+                            }
+                            return ControlInputGate(
+                              started: _controlStarted,
+                              editing: _editMode,
+                              suspended: BleManager
+                                  .instance
+                                  .controlSuspendedListenable,
+                              onLockedTap: _showStartFirstNotice,
+                              child: Stack(children: widgets),
                             );
-                          }
-                          if (_activeIds.contains(kJoyYOnlyId)) {
-                            widgets.add(
-                              _buildJoystick(
-                                id: kJoyYOnlyId,
-                                size: size,
-                                baseSize: base,
-                                layout: effective[kJoyYOnlyId]!,
-                                allLayouts: effective,
-                                isLeft: true,
-                                axisLock: JoystickAxisLock.yOnly,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kJoyRightId)) {
-                            widgets.add(
-                              _buildJoystick(
-                                id: kJoyRightId,
-                                size: size,
-                                baseSize: base,
-                                layout: effective[kJoyRightId]!,
-                                allLayouts: effective,
-                                isLeft: false,
-                                axisLock: JoystickAxisLock.none,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kJoyXOnlyId)) {
-                            widgets.add(
-                              _buildJoystick(
-                                id: kJoyXOnlyId,
-                                size: size,
-                                baseSize: base,
-                                layout: effective[kJoyXOnlyId]!,
-                                allLayouts: effective,
-                                isLeft: false,
-                                axisLock: JoystickAxisLock.xOnly,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kBtnTriangleId)) {
-                            widgets.add(
-                              _buildButton(
-                                id: kBtnTriangleId,
-                                label: 'Triangle',
-                                asset: kGamepad8AssetTriangle,
-                                size: size,
-                                baseSize: btnBase,
-                                layout: effective[kBtnTriangleId]!,
-                                allLayouts: effective,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kBtnCrossId)) {
-                            widgets.add(
-                              _buildButton(
-                                id: kBtnCrossId,
-                                label: 'Cross',
-                                asset: kGamepad8AssetCross,
-                                size: size,
-                                baseSize: btnBase,
-                                layout: effective[kBtnCrossId]!,
-                                allLayouts: effective,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kBtnSquareId)) {
-                            widgets.add(
-                              _buildButton(
-                                id: kBtnSquareId,
-                                label: 'Square',
-                                asset: kGamepad8AssetSquare,
-                                size: size,
-                                baseSize: btnBase,
-                                layout: effective[kBtnSquareId]!,
-                                allLayouts: effective,
-                              ),
-                            );
-                          }
-                          if (_activeIds.contains(kBtnCircleId)) {
-                            widgets.add(
-                              _buildButton(
-                                id: kBtnCircleId,
-                                label: 'Circle',
-                                asset: kGamepad8AssetCircle,
-                                size: size,
-                                baseSize: btnBase,
-                                layout: effective[kBtnCircleId]!,
-                                allLayouts: effective,
-                              ),
-                            );
-                          }
-                          return ControlInputGate(
-                            started: _controlStarted,
-                            editing: _editMode,
-                            suspended:
-                                BleManager.instance.controlSuspendedListenable,
-                            onLockedTap: _showStartFirstNotice,
-                            child: Stack(children: widgets),
-                          );
-                        },
+                          },
+                        ),
                       ),
                     ],
                   ),
@@ -2398,7 +2443,6 @@ class _JoystickPageState extends State<JoystickPage> {
   Widget _buildJoystick({
     required String id,
     required Size size,
-    required double baseSize,
     required _JoyLayout layout,
     required Map<String, _JoyLayout> allLayouts,
     required bool isLeft,
@@ -2406,7 +2450,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }) {
     final selected = _selectedId == id;
     final dimmed = _selectedId != null && _selectedId != id;
-    final joySize = baseSize * layout.size;
+    final joySize = joyControlDiameter(id, layout.size, size);
     final half = joySize / 2;
     final cx = (layout.cx * size.width).clamp(half, size.width - half);
     final cy = (layout.cy * size.height).clamp(half, size.height - half);
@@ -2455,7 +2499,6 @@ class _JoystickPageState extends State<JoystickPage> {
     return _EditableJoystick(
       id: id,
       panelSize: size,
-      baseSize: baseSize,
       layout: layout,
       allLayouts: allLayouts,
       snapToGrid: _showGrid,
@@ -2495,13 +2538,12 @@ class _JoystickPageState extends State<JoystickPage> {
     required String label,
     required String asset,
     required Size size,
-    required double baseSize,
     required _JoyLayout layout,
     required Map<String, _JoyLayout> allLayouts,
   }) {
     final selected = _selectedId == id;
     final dimmed = _selectedId != null && _selectedId != id;
-    final btnSize = baseSize * layout.size;
+    final btnSize = joyControlDiameter(id, layout.size, size);
     final half = btnSize / 2;
     final cx = (layout.cx * size.width).clamp(half, size.width - half);
     final cy = (layout.cy * size.height).clamp(half, size.height - half);
@@ -2521,7 +2563,6 @@ class _JoystickPageState extends State<JoystickPage> {
     return _EditableButtonItem(
       id: id,
       panelSize: size,
-      baseSize: baseSize,
       layout: layout,
       allLayouts: allLayouts,
       snapToGrid: _showGrid,
@@ -2754,7 +2795,6 @@ class _JoyLayout {
 class _EditableJoystick extends StatefulWidget {
   final String id;
   final Size panelSize;
-  final double baseSize;
   final _JoyLayout layout;
   final Map<String, _JoyLayout> allLayouts;
   final bool snapToGrid;
@@ -2773,7 +2813,6 @@ class _EditableJoystick extends StatefulWidget {
   const _EditableJoystick({
     required this.id,
     required this.panelSize,
-    required this.baseSize,
     required this.layout,
     required this.allLayouts,
     required this.snapToGrid,
@@ -2835,11 +2874,15 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-    final nextSize = (_startLayout.size * d.scale).clamp(
-      kJoyMinSize,
-      kJoyMaxSize,
-    );
-    final sizePx = widget.baseSize * nextSize;
+    // A plain drag (scale 1) keeps the size; pinching stays within the
+    // editor's range, never below a usable stick.
+    final nextSize = d.scale == 1.0
+        ? _startLayout.size
+        : (_startLayout.size * d.scale).clamp(
+            joyMinSizeFactor(widget.id, widget.panelSize),
+            kJoyMaxSize,
+          );
+    final sizePx = _px(widget.id, nextSize);
     final half = sizePx / 2;
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
@@ -2892,13 +2935,10 @@ class _EditableJoystickState extends State<_EditableJoystick> {
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherBase = _isButtonId(entry.key)
-          ? (_baseBtnSize(w, h))
-          : widget.baseSize;
-      final otherSizePx = otherBase * other.size;
+      final otherSizePx = _px(entry.key, other.size);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.baseSize * widget.layout.size / 2,
+        fromRadius: _px(widget.id, widget.layout.size) / 2,
         toCentre: Offset(cx, cy),
         toRadius: sizePx / 2,
         otherCentre: Offset(ox, oy),
@@ -2922,17 +2962,12 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
 
-  double _baseBtnSize(double w, double h) => math.min(w, h) * 0.45 * 0.55;
-  bool _isButtonId(String id) {
-    return id == kBtnTriangleId ||
-        id == kBtnCrossId ||
-        id == kBtnSquareId ||
-        id == kBtnCircleId;
-  }
+  double _px(String id, double size) =>
+      joyControlDiameter(id, size, widget.panelSize);
 
   @override
   Widget build(BuildContext context) {
-    final joySize = widget.baseSize * widget.layout.size;
+    final joySize = _px(widget.id, widget.layout.size);
     final half = joySize / 2;
     final cx = (widget.layout.cx * widget.panelSize.width).clamp(
       _safeEdgePad + half,
@@ -2993,7 +3028,6 @@ class _EditableJoystickState extends State<_EditableJoystick> {
 class _EditableButtonItem extends StatefulWidget {
   final String id;
   final Size panelSize;
-  final double baseSize;
   final _JoyLayout layout;
   final Map<String, _JoyLayout> allLayouts;
   final bool snapToGrid;
@@ -3013,7 +3047,6 @@ class _EditableButtonItem extends StatefulWidget {
   const _EditableButtonItem({
     required this.id,
     required this.panelSize,
-    required this.baseSize,
     required this.layout,
     required this.allLayouts,
     required this.snapToGrid,
@@ -3075,11 +3108,15 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     if (moved && !_dragging) {
       setState(() => _dragging = true);
     }
-    final nextSize = (_startLayout.size * d.scale).clamp(
-      kJoyBtnMinSize,
-      kJoyBtnMaxSize,
-    );
-    final sizePx = widget.baseSize * nextSize;
+    // A plain drag (scale 1) keeps the size; pinching stays within the
+    // editor's range, never below a pressable button.
+    final nextSize = d.scale == 1.0
+        ? _startLayout.size
+        : (_startLayout.size * d.scale).clamp(
+            joyMinSizeFactor(widget.id, widget.panelSize),
+            kJoyBtnMaxSize,
+          );
+    final sizePx = _px(widget.id, nextSize);
     final half = sizePx / 2;
     double cx = _startLayout.cx * w + dx;
     double cy = _startLayout.cy * h + dy;
@@ -3151,17 +3188,17 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         widget.onBoundaryWarning?.call();
       }
     }
+    // Keep clear of every control on the pad, joysticks included.
     var collides = false;
     for (final entry in widget.allLayouts.entries) {
       if (entry.key == widget.id) continue;
-      if (!_isButtonEditId(entry.key)) continue;
       final other = entry.value;
       final ox = other.cx * w;
       final oy = other.cy * h;
-      final otherSizePx = widget.baseSize * other.size;
+      final otherSizePx = _px(entry.key, other.size);
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: Offset(widget.layout.cx * w, widget.layout.cy * h),
-        fromRadius: widget.baseSize * widget.layout.size / 2,
+        fromRadius: _px(widget.id, widget.layout.size) / 2,
         toCentre: Offset(cx, cy),
         toRadius: sizePx / 2,
         otherCentre: Offset(ox, oy),
@@ -3185,9 +3222,12 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
   }
 
+  double _px(String id, double size) =>
+      joyControlDiameter(id, size, widget.panelSize);
+
   @override
   Widget build(BuildContext context) {
-    final btnSize = widget.baseSize * widget.layout.size;
+    final btnSize = _px(widget.id, widget.layout.size);
     final half = btnSize / 2;
     final cx = (widget.layout.cx * widget.panelSize.width).clamp(
       _safeEdgePad + half,

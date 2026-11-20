@@ -2,6 +2,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../core/ui/gamepad_components.dart';
 import 'joystick_controller.dart';
 import 'joystick_theme.dart';
 
@@ -194,164 +195,168 @@ class _JoystickViewState extends State<JoystickView>
         return SizedBox(
           width: size,
           height: size,
-          child: GestureDetector(
-            onPanDown: (details) => _onDrag(details.localPosition),
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            onPanCancel: _onRelease,
-            behavior: HitTestBehavior.opaque,
-            child: Stack(
-              clipBehavior: Clip.none,
-              fit: StackFit.expand,
-              children: [
-                if (widget.baseImage != null)
+          // Only the round base takes touches: a touch in a corner of the
+          // box would put the knob straight at the rim (full speed).
+          child: CircularHitArea(
+            child: GestureDetector(
+              onPanDown: (details) => _onDrag(details.localPosition),
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+              onPanCancel: _onRelease,
+              behavior: HitTestBehavior.opaque,
+              child: Stack(
+                clipBehavior: Clip.none,
+                fit: StackFit.expand,
+                children: [
+                  if (widget.baseImage != null)
+                    Positioned.fill(
+                      child: Padding(
+                        padding: EdgeInsets.all(size * 0.01),
+                        child: Image.asset(
+                          widget.baseImage!,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
                   Positioned.fill(
-                    child: Padding(
-                      padding: EdgeInsets.all(size * 0.01),
-                      child: Image.asset(
-                        widget.baseImage!,
-                        fit: BoxFit.contain,
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: _JoystickPainter(
+                          widget.controller,
+                          knob: Offset.zero,
+                          knobSize: knobSizePx,
+                          hideKnob: true,
+                          hideBackground: widget.baseImage != null,
+                          bgColor: bgColor,
+                          borderColor: knobAccent,
+                          borderWidth: joystickTheme.borderWidth,
+                          knobColor: knobFallbackColor,
+                          isDark: isDark,
+                          axisLock: widget.axisLock,
+                        ),
                       ),
                     ),
                   ),
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: CustomPaint(
-                      painter: _JoystickPainter(
-                        widget.controller,
-                        knob: Offset.zero,
-                        knobSize: knobSizePx,
-                        hideKnob: true,
-                        hideBackground: widget.baseImage != null,
-                        bgColor: bgColor,
-                        borderColor: knobAccent,
-                        borderWidth: joystickTheme.borderWidth,
-                        knobColor: knobFallbackColor,
+                  Positioned(
+                    top: -8,
+                    left: size / 2,
+                    child: FractionalTranslation(
+                      translation: const Offset(-0.5, -1),
+                      child: _axisBadge(
+                        label: 'Y-',
+                        accent: knobAccent,
                         isDark: isDark,
-                        axisLock: widget.axisLock,
                       ),
                     ),
                   ),
-                ),
-                Positioned(
-                  top: -8,
-                  left: size / 2,
-                  child: FractionalTranslation(
-                    translation: const Offset(-0.5, -1),
-                    child: _axisBadge(
-                      label: 'Y-',
-                      accent: knobAccent,
-                      isDark: isDark,
+                  Positioned(
+                    top: size + 8,
+                    left: size / 2,
+                    child: FractionalTranslation(
+                      translation: const Offset(-0.5, 0),
+                      child: _axisBadge(
+                        label: 'Y+',
+                        accent: knobAccent,
+                        isDark: isDark,
+                      ),
                     ),
                   ),
-                ),
-                Positioned(
-                  top: size + 8,
-                  left: size / 2,
-                  child: FractionalTranslation(
-                    translation: const Offset(-0.5, 0),
-                    child: _axisBadge(
-                      label: 'Y+',
-                      accent: knobAccent,
-                      isDark: isDark,
+                  Positioned(
+                    left: -8,
+                    top: size / 2,
+                    child: FractionalTranslation(
+                      translation: const Offset(-1, -0.5),
+                      child: _axisBadge(
+                        label: 'X-',
+                        accent: knobAccent,
+                        isDark: isDark,
+                      ),
                     ),
                   ),
-                ),
-                Positioned(
-                  left: -8,
-                  top: size / 2,
-                  child: FractionalTranslation(
-                    translation: const Offset(-1, -0.5),
-                    child: _axisBadge(
-                      label: 'X-',
-                      accent: knobAccent,
-                      isDark: isDark,
+                  Positioned(
+                    left: size + 8,
+                    top: size / 2,
+                    child: FractionalTranslation(
+                      translation: const Offset(0, -0.5),
+                      child: _axisBadge(
+                        label: 'X+',
+                        accent: knobAccent,
+                        isDark: isDark,
+                      ),
                     ),
                   ),
-                ),
-                Positioned(
-                  left: size + 8,
-                  top: size / 2,
-                  child: FractionalTranslation(
-                    translation: const Offset(0, -0.5),
-                    child: _axisBadge(
-                      label: 'X+',
-                      accent: knobAccent,
-                      isDark: isDark,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: radius + _knob.dx - knobRadius,
-                  top: radius + _knob.dy - knobRadius,
-                  child: SizedBox(
-                    width: knobSizePx,
-                    height: knobSizePx,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          center: const Alignment(-0.22, -0.26),
-                          radius: 1.0,
-                          colors: [
-                            const Color(0xFFFFFCFF),
-                            Color.lerp(Colors.white, knobAccent, 0.18)!,
-                            Color.lerp(Colors.white, knobAccent, 0.42)!,
+                  Positioned(
+                    left: radius + _knob.dx - knobRadius,
+                    top: radius + _knob.dy - knobRadius,
+                    child: SizedBox(
+                      width: knobSizePx,
+                      height: knobSizePx,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            center: const Alignment(-0.22, -0.26),
+                            radius: 1.0,
+                            colors: [
+                              const Color(0xFFFFFCFF),
+                              Color.lerp(Colors.white, knobAccent, 0.18)!,
+                              Color.lerp(Colors.white, knobAccent, 0.42)!,
+                            ],
+                            stops: const [0.0, 0.52, 1.0],
+                          ),
+                          border: Border.all(
+                            color: _opacity(Colors.white, isDark ? 0.42 : 0.72),
+                            width: joystickTheme.knobBorderWidth,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _opacity(knobAccent, isDark ? 0.30 : 0.20),
+                              blurRadius: joystickTheme.knobShadowBlur,
+                              spreadRadius: 1,
+                            ),
+                            BoxShadow(
+                              color: joystickTheme.knobShadowColor,
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
                           ],
-                          stops: const [0.0, 0.52, 1.0],
                         ),
-                        border: Border.all(
-                          color: _opacity(Colors.white, isDark ? 0.42 : 0.72),
-                          width: joystickTheme.knobBorderWidth,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _opacity(knobAccent, isDark ? 0.30 : 0.20),
-                            blurRadius: joystickTheme.knobShadowBlur,
-                            spreadRadius: 1,
-                          ),
-                          BoxShadow(
-                            color: joystickTheme.knobShadowColor,
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: widget.knobImage != null
-                          ? ClipOval(
-                              child: Image.asset(
-                                widget.knobImage!,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : Center(
-                              child: Container(
-                                width: knobSizePx * 0.28,
-                                height: knobSizePx * 0.28,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _opacity(
-                                    knobAccent,
-                                    isDark ? 0.92 : 0.78,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: _opacity(
-                                        knobAccent,
-                                        isDark ? 0.50 : 0.32,
-                                      ),
-                                      blurRadius: 10,
-                                      spreadRadius: 1,
+                        child: widget.knobImage != null
+                            ? ClipOval(
+                                child: Image.asset(
+                                  widget.knobImage!,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : Center(
+                                child: Container(
+                                  width: knobSizePx * 0.28,
+                                  height: knobSizePx * 0.28,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _opacity(
+                                      knobAccent,
+                                      isDark ? 0.92 : 0.78,
                                     ),
-                                  ],
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: _opacity(
+                                          knobAccent,
+                                          isDark ? 0.50 : 0.32,
+                                        ),
+                                        blurRadius: 10,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

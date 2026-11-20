@@ -71,6 +71,29 @@ class GamepadAppBarMetrics {
   double get titleSpacing => controlGap;
 }
 
+/// Space the layout editor leaves above its pad so the pad is exactly as
+/// tall as when driving.
+///
+/// The editor's toolbar is one row ([editItemCount] tools); the driving
+/// toolbar ([playLayout]) can wrap to two rows on a narrow screen or with
+/// large text. Without this the editor's pad is taller, and buttons placed
+/// there come out smaller and closer together in play.
+double gamepadEditorTopInset({
+  required GamepadControlLayout playLayout,
+  required double viewportWidth,
+  required double textScaleFactor,
+  int editItemCount = 10,
+}) {
+  final editHeight = GamepadToolbarLayout.calculate(
+    width: viewportWidth,
+    itemCount: editItemCount,
+    textScaleFactor: textScaleFactor,
+    singleRow: true,
+  ).toolbarHeight;
+  final extra = playLayout.height - editHeight;
+  return extra > 0 ? extra : 0.0;
+}
+
 @immutable
 class GamepadToolbarLayout {
   const GamepadToolbarLayout({

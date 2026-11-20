@@ -163,8 +163,39 @@ class GamepadEditMetrics {
     return math.min(panel.width, panel.height).clamp(0.0, maxPanelUnit);
   }
 
+  /// Smallest diameter a button is drawn and touched at, in logical pixels:
+  /// the common minimum touch target (Material 48 dp, Apple 44 pt).
+  static const double minTouchDiameter = 48.0;
+
+  /// Diameter of a control whose size is [sizeFactor] × [basePx], never
+  /// below [minDiameter], so a layout from a larger screen stays pressable.
+  static double diameterFor(
+    double sizeFactor,
+    double basePx, {
+    double minDiameter = minTouchDiameter,
+  }) => math.max(sizeFactor * basePx, minDiameter);
+
+  /// Smallest size factor the editor offers on this screen: [minFactor],
+  /// raised so the control is still at least [minDiameter] across.
+  static double minSizeFactor(
+    double minFactor,
+    double basePx, {
+    double minDiameter = minTouchDiameter,
+  }) => basePx <= 0 ? minFactor : math.max(minFactor, minDiameter / basePx);
+
+  /// [diameter], but no larger than fits inside [panel] with [margin] on
+  /// both sides (a very short pad, e.g. under a large-text toolbar, would
+  /// otherwise get a control taller than itself).
+  static double fitDiameter(double diameter, Size panel, double margin) =>
+      math.min(diameter, math.max(0.0, panel.shortestSide - 2 * margin));
+
+  /// Diameter of a gamepad button of [sizeFactor] on [panel].
   static double sizePx(Size panel, double sizeFactor) {
-    return sizeFactor * panelUnit(panel);
+    return fitDiameter(
+      diameterFor(sizeFactor, panelUnit(panel)),
+      panel,
+      (safeEdgePad + safeTopEdgePad) / 2,
+    );
   }
 
   static Rect defaultLayoutFrame(Size panel) {
