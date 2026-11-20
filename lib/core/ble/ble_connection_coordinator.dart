@@ -129,6 +129,47 @@ class BlePairingAttemptResult {
   final BlePairingFailure failure;
 }
 
+/// Waits for the first protocol line matching [test].
+///
+/// Subscribes immediately, so a reply that arrives right after the request is
+/// written is not missed, and unlike `Stream.firstWhere` it can be cancelled:
+/// a timeout or failed write must not leave a listener on the stream.
+@visibleForTesting
+class BleProtocolLineWaiter {
+  BleProtocolLineWaiter(Stream<String> lines, bool Function(String) test) {
+    // The handshake may never await this (e.g. its write failed first).
+    _completer.future.ignore();
+    _subscription = lines.listen(
+      (line) {
+        if (_completer.isCompleted || !test(line)) return;
+        _completer.complete(line);
+        cancel();
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!_completer.isCompleted) {
+          _completer.completeError(error, stackTrace);
+        }
+        cancel();
+      },
+      onDone: () {
+        if (!_completer.isCompleted) {
+          _completer.completeError(StateError('protocol_stream_closed'));
+        }
+      },
+    );
+  }
+
+  final Completer<String> _completer = Completer<String>();
+  StreamSubscription<String>? _subscription;
+
+  Future<String> wait(Duration timeout) => _completer.future.timeout(timeout);
+
+  void cancel() {
+    unawaited(_subscription?.cancel());
+    _subscription = null;
+  }
+}
+
 class _BleBoardProtocolError implements Exception {
   const _BleBoardProtocolError(this.code);
   final String code;
@@ -335,6 +376,8 @@ class BleConnectionCoordinator {
   int _linkLossReconnectAttempt = 0;
   bool _linkLossReconnectInFlight = false;
   bool _linkLossReconnectPending = false;
+  bool _linkLossAttemptPausedInBackground = false;
+  static const _linkLossReconnectSource = 'link_loss_reconnect';
   bool _appInBackground = false;
   BleScanPermissionResult? _lastScanPermission;
   bool _manualDisconnectInProgress = false;
@@ -503,6 +546,7 @@ class BleConnectionCoordinator {
     _linkLossReconnectTimer?.cancel();
     _linkLossReconnectTimer = null;
     _linkLossReconnectPending = false;
+    _linkLossAttemptPausedInBackground = false;
     _linkLossReconnectAttempt = 0;
     BleManager.instance.recordReconnectAttempt(0);
     if (resetStatus) {
@@ -545,10 +589,12 @@ class BleConnectionCoordinator {
       _debug('link_loss_reconnect_started', 'attempt=$attempt');
       final connected = await autoConnectLastDevice(
         timeout: _linkLossScanTimeout,
-        source: 'link_loss_reconnect',
+        source: _linkLossReconnectSource,
       );
       if (connected) {
         _linkLossReconnectPending = false;
+        _linkLossReconnectAttempt = 0;
+        BleManager.instance.recordReconnectAttempt(0);
         _debug(
           'link_loss_reconnect_connected',
           'security=${_state.securityState.name} board=${_state.boardCapabilities?.boardId ?? '-'}',
@@ -558,35 +604,52 @@ class BleConnectionCoordinator {
       // A user action (connect, disconnect, forget) took over meanwhile.
       if (!_linkLossReconnectAllowed) return;
 
-      if (_state.recoveryOutcome != BleRecoveryOutcome.transientTransport &&
-          _state.recoveryOutcome != BleRecoveryOutcome.none) {
-        _linkLossReconnectPending = false;
-        _debug(
-          'link_loss_reconnect_stopped',
-          'outcome=${_state.recoveryOutcome.name}',
-        );
+      if (_linkLossAttemptPausedInBackground) {
+        // The scan was stopped because the app left the foreground; that is
+        // not a failed attempt, so it does not use up the retry budget.
+        _linkLossAttemptPausedInBackground = false;
+        _linkLossReconnectAttempt = attempt - 1;
+        BleManager.instance.recordReconnectAttempt(_linkLossReconnectAttempt);
+        _debug('link_loss_reconnect_attempt_paused', 'attempt=$attempt');
+      } else if (_stopLinkLossAfterFailedAttempt(attempt)) {
         return;
+      } else {
+        _debug('link_loss_reconnect_failed', 'attempt=$attempt');
       }
-
-      final scanPermission = _lastScanPermission;
-      if (shouldStopControlReconnectForScanPermission(scanPermission)) {
-        _giveUpLinkLossReconnect(
-          'scan_unavailable:${scanPermission!.name}',
-          disconnectReason: disconnectReasonForScanPermission(scanPermission),
-        );
-        return;
-      }
-
-      if (attempt >= maxLinkLossReconnectAttempts) {
-        _giveUpLinkLossReconnect('link_loss_reconnect_exhausted');
-        return;
-      }
-      _debug('link_loss_reconnect_failed', 'attempt=$attempt');
     } finally {
       _linkLossReconnectInFlight = false;
     }
     // Scheduled after the in-flight flag clears so the guard admits it.
     _scheduleLinkLossReconnect();
+  }
+
+  /// Ends the loop when a failed attempt shows retrying cannot help.
+  /// Returns `true` when the loop has stopped.
+  bool _stopLinkLossAfterFailedAttempt(int attempt) {
+    if (_state.recoveryOutcome != BleRecoveryOutcome.transientTransport &&
+        _state.recoveryOutcome != BleRecoveryOutcome.none) {
+      _linkLossReconnectPending = false;
+      _debug(
+        'link_loss_reconnect_stopped',
+        'outcome=${_state.recoveryOutcome.name}',
+      );
+      return true;
+    }
+
+    final scanPermission = _lastScanPermission;
+    if (shouldStopControlReconnectForScanPermission(scanPermission)) {
+      _giveUpLinkLossReconnect(
+        'scan_unavailable:${scanPermission!.name}',
+        disconnectReason: disconnectReasonForScanPermission(scanPermission),
+      );
+      return true;
+    }
+
+    if (attempt >= maxLinkLossReconnectAttempts) {
+      _giveUpLinkLossReconnect('link_loss_reconnect_exhausted');
+      return true;
+    }
+    return false;
   }
 
   /// Pauses automatic link-loss retries while the app is not in the
@@ -601,6 +664,20 @@ class BleConnectionCoordinator {
         _linkLossReconnectTimer = null;
         BleManager.instance.markReconnectCancelled(source: 'app_background');
         _debug('link_loss_reconnect_paused', 'state=${state.name}');
+      }
+      // Stop a retry that is still scanning rather than let it run for the
+      // full scan timeout. A retry already connecting is left to finish:
+      // it is short and cutting it mid-way is riskier.
+      final request = _autoConnectRequest;
+      if (_linkLossReconnectInFlight &&
+          request != null &&
+          request.source == _linkLossReconnectSource &&
+          !request.connecting) {
+        _linkLossAttemptPausedInBackground = true;
+        _debug('link_loss_reconnect_scan_stopped', 'state=${state.name}');
+        unawaited(
+          _failAutoConnect(failureReason: 'link_loss_paused_in_background'),
+        );
       }
       return;
     }
@@ -757,18 +834,23 @@ class BleConnectionCoordinator {
     );
     final appNonce = BleSecureProtocol.createNonce();
     var usedStoredSecret = false;
+    // Every waiter is cancelled in `finally`, so a timeout or failed write
+    // never leaves a listener on the protocol stream.
+    final waiters = <BleProtocolLineWaiter>[];
     try {
-      final capabilitiesLine = transport.protocolLines.firstWhere(
+      final capabilitiesLine = BleProtocolLineWaiter(
+        transport.protocolLines,
         (line) =>
             BleSecureProtocol.parseCapabilities(line) != null ||
             BleSecureProtocol.parseError(line) != null,
       );
+      waiters.add(capabilitiesLine);
       final write = await transport.sendSystemText(
         BleSecureProtocol.hello(appNonce),
         source: 'secure_hello',
       );
       if (write != BleWriteResult.sent) throw StateError('secure_hello_failed');
-      final line = await capabilitiesLine.timeout(_secureHandshakeTimeout);
+      final line = await capabilitiesLine.wait(_secureHandshakeTimeout);
       if (generation != _authenticationGeneration) return;
       final boardError = BleSecureProtocol.parseError(line);
       if (boardError != null) throw _BleBoardProtocolError(boardError);
@@ -827,11 +909,13 @@ class BleConnectionCoordinator {
         return;
       }
 
-      final acknowledgementLine = transport.protocolLines.firstWhere(
+      final acknowledgementLine = BleProtocolLineWaiter(
+        transport.protocolLines,
         (line) =>
             BleSecureProtocol.parseAuthenticated(line) != null ||
             BleSecureProtocol.parseError(line) != null,
       );
+      waiters.add(acknowledgementLine);
       final authWrite = await transport.sendSystemText(
         BleSecureProtocol.auth(
           secret: secret,
@@ -843,7 +927,7 @@ class BleConnectionCoordinator {
       if (authWrite != BleWriteResult.sent) {
         throw StateError('secure_auth_failed');
       }
-      final acknowledgementText = await acknowledgementLine.timeout(
+      final acknowledgementText = await acknowledgementLine.wait(
         _secureHandshakeTimeout,
       );
       if (generation != _authenticationGeneration) return;
@@ -930,6 +1014,10 @@ class BleConnectionCoordinator {
         'credential=${usedStoredSecret ? 'stored' : 'entered'} '
             'retryable=true error=${error.runtimeType}',
       );
+    } finally {
+      for (final waiter in waiters) {
+        waiter.cancel();
+      }
     }
   }
 

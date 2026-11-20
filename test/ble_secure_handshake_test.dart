@@ -73,6 +73,47 @@ void main() {
     },
   );
 
+  test('a handshake timeout leaves no listener on the protocol stream', () async {
+    final transport = _HandshakeTransport(
+      secret: secret,
+      respondToHello: false,
+    );
+    final coordinator = coordinatorFor(transport);
+
+    await coordinator.authenticateConnectedBoard(pairingSecret: secret);
+
+    expect(coordinator.state.controlReady, isFalse);
+    expect(transport.hasLineListeners, isFalse);
+    await coordinator.dispose();
+    await transport.dispose();
+  });
+
+  test('a completed handshake leaves no listener either', () async {
+    final transport = _HandshakeTransport(secret: secret);
+    final coordinator = coordinatorFor(transport);
+
+    await coordinator.authenticateConnectedBoard(pairingSecret: secret);
+
+    expect(coordinator.state.controlReady, isTrue);
+    expect(transport.hasLineListeners, isFalse);
+    await coordinator.dispose();
+    await transport.dispose();
+  });
+
+  test('BleProtocolLineWaiter catches a reply sent right away', () async {
+    final lines = StreamController<String>.broadcast();
+    final waiter = BleProtocolLineWaiter(
+      lines.stream,
+      (line) => line.startsWith('PB2:OK'),
+    );
+    lines.add('noise');
+    lines.add('PB2:OK:s:t');
+
+    expect(await waiter.wait(const Duration(seconds: 1)), 'PB2:OK:s:t');
+    expect(lines.hasListener, isFalse);
+    await lines.close();
+  });
+
   test('entered code rejected by CAPS stays available for retry', () async {
     final transport = _HandshakeTransport(secret: secret, invalidCapsTag: true);
     final coordinator = coordinatorFor(transport);
@@ -334,6 +375,8 @@ class _HandshakeTransport implements BleSecureHandshakeTransport {
 
   @override
   Stream<String> get protocolLines => _lines.stream;
+
+  bool get hasLineListeners => _lines.hasListener;
 
   @override
   void clearSecureControlSession() {}

@@ -934,6 +934,37 @@ void main() {
       await coordinator.dispose();
     });
 
+    test('leaving the app stops a retry scan without using an attempt', () async {
+      final coordinator = BleConnectionCoordinator(
+        platform: platform,
+        managerConnectionStream: connectionEvents.stream,
+        listenToManagerAutoConnectRequests: false,
+        canManageConnection: ({int? owner}) => true,
+        ensureScanPermissions: () async => BleScanPermissionResult.granted,
+        // A long scan, so the retry is still scanning when the app pauses.
+        linkLossScanTimeout: const Duration(seconds: 5),
+        linkLossReconnectDelay: (_) => const Duration(milliseconds: 1),
+      );
+      await coordinator.initialize();
+
+      connectionEvents.add(false);
+      await waitFor(() => coordinator.state.scanning);
+      final stopsBefore = platform.stopCalls;
+      coordinator.handleAppLifecycleState(AppLifecycleState.paused);
+      await waitFor(() => !coordinator.state.scanning);
+
+      expect(platform.stopCalls, greaterThan(stopsBefore));
+      expect(BleManager.instance.diagnostics.reconnectAttempt, 0);
+      expect(
+        BleManager.instance.connectionStatus,
+        isNot(BleConnectionStatus.reconnecting),
+      );
+
+      coordinator.handleAppLifecycleState(AppLifecycleState.resumed);
+      await waitFor(() => platform.startCalls >= 2);
+      await coordinator.dispose();
+    });
+
     test('manual disconnect cancels a scheduled retry', () async {
       final coordinator = createCoordinator(
         delay: const Duration(milliseconds: 100),

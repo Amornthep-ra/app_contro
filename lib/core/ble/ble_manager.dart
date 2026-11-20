@@ -408,6 +408,15 @@ List<int> buildZeroControlPacket() {
 /// Tearing down then costs a full reconnect and re-authentication, while the
 /// robot's 400 ms watchdog already stops it during the gap. Only a failure
 /// streak that is both long enough and old enough counts as a dead link.
+/// Failures further apart than this are unrelated, not one failing link.
+/// Control mode writes at least every 150 ms, so a real streak never has a
+/// gap this long; sparse text-mode writes no longer add up across minutes.
+const Duration kWriteFailureStreakGap = Duration(seconds: 2);
+
+@visibleForTesting
+bool shouldStartNewWriteFailureStreak({required Duration sinceLastFailure}) =>
+    sinceLastFailure > kWriteFailureStreakGap;
+
 @visibleForTesting
 bool shouldTriggerWriteTransportFailure({
   required int consecutiveFailures,
@@ -849,6 +858,7 @@ class BleManager {
   DateTime _lastRateLimitLog = DateTime.fromMillisecondsSinceEpoch(0);
   int _writeFailureCount = 0;
   DateTime? _firstWriteFailureAt;
+  DateTime? _lastWriteFailureAt;
   bool _transportFailureHandling = false;
   bool _controlSuspendedForLifecycle = false;
   final ValueNotifier<bool> _controlSuspendedController = ValueNotifier(false);
@@ -1510,6 +1520,7 @@ class BleManager {
   void _resetTransportHealth() {
     _writeFailureCount = 0;
     _firstWriteFailureAt = null;
+    _lastWriteFailureAt = null;
     _emitDiagnostics();
   }
 
@@ -1517,6 +1528,7 @@ class BleManager {
     if (_writeFailureCount == 0) return;
     _writeFailureCount = 0;
     _firstWriteFailureAt = null;
+    _lastWriteFailureAt = null;
     _emitDiagnostics();
     _log('write_failure_count_reset');
   }
@@ -1527,6 +1539,15 @@ class BleManager {
     Object? error,
   }) async {
     final now = DateTime.now();
+    final lastFailureAt = _lastWriteFailureAt;
+    if (lastFailureAt != null &&
+        shouldStartNewWriteFailureStreak(
+          sinceLastFailure: now.difference(lastFailureAt),
+        )) {
+      _writeFailureCount = 0;
+      _firstWriteFailureAt = null;
+    }
+    _lastWriteFailureAt = now;
     _writeFailureCount++;
     final firstFailureAt = _firstWriteFailureAt ??= now;
     final streakAge = now.difference(firstFailureAt);

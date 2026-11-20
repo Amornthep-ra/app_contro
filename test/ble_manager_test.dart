@@ -784,6 +784,32 @@ void main() {
     });
   });
 
+  group('shouldStartNewWriteFailureStreak', () {
+    test('control-mode failures 150 ms apart stay one streak', () {
+      expect(
+        shouldStartNewWriteFailureStreak(
+          sinceLastFailure: const Duration(milliseconds: 150),
+        ),
+        isFalse,
+      );
+    });
+
+    test('sparse text-mode failures start a new streak', () {
+      expect(
+        shouldStartNewWriteFailureStreak(
+          sinceLastFailure: const Duration(seconds: 3),
+        ),
+        isTrue,
+      );
+      expect(
+        shouldStartNewWriteFailureStreak(
+          sinceLastFailure: const Duration(minutes: 2),
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('shouldTriggerWriteTransportFailure', () {
     const longStreak = Duration(seconds: 2);
 
