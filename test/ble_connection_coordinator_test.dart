@@ -980,6 +980,76 @@ void main() {
     });
   });
 
+  group('Start resolves scan permission before claiming control', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({
+        'ble_last_device_id': '01:02:03:04:05:06',
+      });
+      BleManager.instance.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+      );
+    });
+
+    test('a permission dialog does not suspend the Start', () async {
+      final platform = _FakeBleConnectionPlatform();
+      var granted = false;
+      var dialogs = 0;
+      final coordinator = BleConnectionCoordinator(
+        platform: platform,
+        listenToManagerAutoConnectRequests: false,
+        canManageConnection: ({int? owner}) => true,
+        ensureScanPermissions: () async {
+          if (!granted) {
+            // The system dialog makes the app inactive while it is shown.
+            dialogs++;
+            await BleManager.instance.handleAppLifecycleState(
+              AppLifecycleState.inactive,
+            );
+            granted = true;
+          }
+          return BleScanPermissionResult.granted;
+        },
+      );
+
+      final owner = await coordinator.acquireControlForStart(
+        ownerName: 'test',
+        timeout: const Duration(milliseconds: 20),
+      );
+
+      // No board answers in this test, so Start still fails, but on its
+      // own terms: the dialog did not suspend control mid-Start.
+      expect(owner, isNull);
+      expect(dialogs, 1);
+      expect(platform.startCalls, 1);
+      expect(BleManager.instance.controlSuspendedForLifecycle, isFalse);
+      await coordinator.dispose();
+      await platform.dispose();
+    });
+
+    test('a denied permission fails Start without claiming control', () async {
+      final platform = _FakeBleConnectionPlatform();
+      final coordinator = BleConnectionCoordinator(
+        platform: platform,
+        listenToManagerAutoConnectRequests: false,
+        canManageConnection: ({int? owner}) => true,
+        ensureScanPermissions: () async =>
+            BleScanPermissionResult.permissionDenied,
+      );
+
+      final owner = await coordinator.acquireControlForStart(ownerName: 'test');
+
+      expect(owner, isNull);
+      expect(platform.startCalls, 0);
+      expect(
+        coordinator.state.failureReason,
+        'scan_unavailable:permissionDenied',
+      );
+      expect(BleManager.instance.isControlSessionActive, isFalse);
+      await coordinator.dispose();
+      await platform.dispose();
+    });
+  });
+
   group('Start requires room for a PB2 control packet', () {
     tearDown(() {
       BleManager.instance.debugPresentConnectionForTesting(

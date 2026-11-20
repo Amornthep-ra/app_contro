@@ -1,5 +1,8 @@
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show BluetoothAdapterState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_permissions.dart';
+import 'package:pb_controller/core/ble/control_timing.dart';
 
 void main() {
   group('decideBleScanPermissionResult', () {
@@ -75,6 +78,50 @@ void main() {
           locationServiceEnabled: true,
         ),
         BleScanPermissionResult.bluetoothOff,
+      );
+    });
+  });
+
+  group('appleScanPermissionResult', () {
+    test('reports only states that certainly block a scan', () {
+      expect(
+        appleScanPermissionResult(BluetoothAdapterState.off),
+        BleScanPermissionResult.bluetoothOff,
+      );
+      expect(
+        appleScanPermissionResult(BluetoothAdapterState.unauthorized),
+        BleScanPermissionResult.permissionDenied,
+      );
+    });
+
+    test('lets the scan run for every other state', () {
+      for (final state in const [
+        BluetoothAdapterState.on,
+        BluetoothAdapterState.unknown,
+        BluetoothAdapterState.unavailable,
+        BluetoothAdapterState.turningOn,
+        BluetoothAdapterState.turningOff,
+      ]) {
+        expect(
+          appleScanPermissionResult(state),
+          BleScanPermissionResult.granted,
+          reason: state.name,
+        );
+      }
+    });
+  });
+
+  group('isWithinBinaryMinGap', () {
+    test('skips a tick right after a forced send', () {
+      // Release forced at t=1000, stick moves on the tick at t=1005.
+      expect(isWithinBinaryMinGap(nowMs: 1005, lastSendMs: 1000), isTrue);
+    });
+
+    test('never skips the regular 25 ms joystick tick', () {
+      expect(isWithinBinaryMinGap(nowMs: 1025, lastSendMs: 1000), isFalse);
+      expect(
+        isWithinBinaryMinGap(nowMs: 1000 + kBinaryMinGapMs, lastSendMs: 1000),
+        isFalse,
       );
     });
   });

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
@@ -29,7 +30,42 @@ BleScanPermissionResult decideBleScanPermissionResult({
   return BleScanPermissionResult.granted;
 }
 
+/// Scan result for a CoreBluetooth (iOS/macOS) adapter state. Only states
+/// that certainly block a scan are reported; anything else lets the scan run
+/// as before, so an unclear state never blocks the user.
+@visibleForTesting
+BleScanPermissionResult appleScanPermissionResult(BluetoothAdapterState state) {
+  switch (state) {
+    case BluetoothAdapterState.off:
+      return BleScanPermissionResult.bluetoothOff;
+    case BluetoothAdapterState.unauthorized:
+      return BleScanPermissionResult.permissionDenied;
+    case BluetoothAdapterState.unknown:
+    case BluetoothAdapterState.unavailable:
+    case BluetoothAdapterState.turningOn:
+    case BluetoothAdapterState.on:
+    case BluetoothAdapterState.turningOff:
+      return BleScanPermissionResult.granted;
+  }
+}
+
+Future<BleScanPermissionResult> _ensureAppleScanPermissions() async {
+  // CoreBluetooth reports `unknown` until it has initialized, which can take
+  // a moment on first use. Wait briefly for a real state.
+  BluetoothAdapterState state;
+  try {
+    state = await FlutterBluePlus.adapterState
+        .firstWhere((value) => value != BluetoothAdapterState.unknown)
+        .timeout(const Duration(seconds: 2));
+  } on TimeoutException {
+    return BleScanPermissionResult.granted;
+  }
+  BleAdapterObservationBoundary.instance.recordAlreadyObserved(state);
+  return appleScanPermissionResult(state);
+}
+
 Future<BleScanPermissionResult> ensureBleScanPermissions() async {
+  if (Platform.isIOS || Platform.isMacOS) return _ensureAppleScanPermissions();
   if (!Platform.isAndroid) return BleScanPermissionResult.granted;
 
   final androidInfo = await DeviceInfoPlugin().androidInfo;

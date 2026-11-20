@@ -23,3 +23,11 @@ const int kMinIdleMs = 150;
 /// Hard cap on send rate.
 const int kMaxSendHz = 40;
 const int kMaxSendMs = 1000 ~/ kMaxSendHz;
+
+/// BleManager drops a non-forced binary write sent within this gap of the
+/// previous one. Pages skip such a tick instead of recording the packet as
+/// sent, so the next tick delivers the latest value rather than losing it.
+const int kBinaryMinGapMs = 20;
+
+bool isWithinBinaryMinGap({required int nowMs, required int lastSendMs}) =>
+    nowMs - lastSendMs < kBinaryMinGapMs;

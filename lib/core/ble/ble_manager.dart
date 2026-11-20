@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_secure_protocol.dart';
 import 'ble_permissions.dart';
 import 'ble_protocol_line_assembler.dart';
+import 'control_timing.dart';
 import 'joystick_packet.dart';
 
 enum BleTrafficMode { textCommand, controlBinary }
@@ -2135,7 +2136,8 @@ class BleManager {
     }
     final now = DateTime.now();
     if (!force &&
-        now.difference(_lastJoySend) < const Duration(milliseconds: 20)) {
+        now.difference(_lastJoySend) <
+            const Duration(milliseconds: kBinaryMinGapMs)) {
       _logRateLimitDrop();
       return;
     }

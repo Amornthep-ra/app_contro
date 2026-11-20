@@ -1383,6 +1383,22 @@ class BleConnectionCoordinator {
     Duration timeout = const Duration(seconds: 8),
   }) async {
     final manager = BleManager.instance;
+    await initialize();
+    // Resolve scan permission before claiming control. A permission dialog
+    // makes the app `inactive`, and an inactive app suspends any active
+    // control session, so a prompt inside the claimed Start would cancel it.
+    if (!manager.isConnected && (_state.lastDeviceId?.isNotEmpty ?? false)) {
+      final permission = await _ensureScanPermissions();
+      _lastScanPermission = permission;
+      manager.recordScanPermissionResult(permission);
+      if (permission != BleScanPermissionResult.granted) {
+        _emit(
+          _state.copyWith(failureReason: 'scan_unavailable:${permission.name}'),
+        );
+        return null;
+      }
+    }
+
     if (manager.controlSuspendedForLifecycle) {
       return manager.resumeControl(ownerName: ownerName);
     }

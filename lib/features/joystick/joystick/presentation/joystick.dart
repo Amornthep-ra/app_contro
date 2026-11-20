@@ -408,6 +408,15 @@ class _JoystickPageState extends State<JoystickPage> {
         }
         return;
       }
+      // A send right after a forced one (e.g. one stick released) would be
+      // dropped by BleManager yet recorded here as sent. Skip the tick so the
+      // next one, 25 ms later, sends the latest value.
+      if (isWithinBinaryMinGap(
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+        lastSendMs: _lastControlSendMs,
+      )) {
+        return;
+      }
       final changed =
           (packet.lx - _lastLX).abs() > _delta ||
           (packet.ly - _lastLY).abs() > _delta ||
