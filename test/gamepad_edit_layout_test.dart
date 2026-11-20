@@ -691,6 +691,39 @@ void main() {
       await closePage(tester);
     });
 
+    testWidgets('four-button: on a tablet the touched box is the drawn '
+        'circle and can reach the top edge', (tester) async {
+      // The arrows' design box is taller than wide on 4:3-ish pads.
+      await openEditor(
+        tester,
+        const Gamepad4ButtonPage(),
+        size: const Size(1180, 820),
+      );
+      final panel = tester.getRect(_byTypeName('_EditablePadPanel'));
+      final controls = _byTypeName('_EditableButton');
+      for (final e in controls.evaluate()) {
+        final rect = tester.getRect(find.byWidget(e.widget));
+        expect(rect.width, closeTo(rect.height, 0.5), reason: '$rect');
+      }
+
+      // Drag the top-most arrow far up: it stops at the pad's top margin.
+      Rect topMost() => [
+        for (final e in controls.evaluate())
+          tester.getRect(find.byWidget(e.widget)),
+      ].reduce((a, b) => a.top < b.top ? a : b);
+      final start = topMost();
+      await tester.tapAt(start.center);
+      await tester.pumpAndSettle();
+      await tester.dragFrom(start.center, const Offset(0, -600));
+      await tester.pumpAndSettle();
+      expect(
+        topMost().top - panel.top,
+        closeTo(GamepadEditMetrics.safeTopEdgePad, 0.5),
+      );
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
     testWidgets('joystick: a saved layout with both left joysticks keeps '
         'only the full one', (tester) async {
       SharedPreferences.setMockInitialValues({

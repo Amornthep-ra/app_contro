@@ -1,5 +1,6 @@
 //lib/core/ui/gamepad_components.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 
@@ -728,31 +729,15 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
       ),
     );
 
-    return Listener(
-      onPointerDown: (e) {
-        final r = widget.diameter / 2;
-        final dx = e.localPosition.dx - r;
-        final dy = e.localPosition.dy - r;
-        if (dx * dx + dy * dy > r * r) return;
-        _onDown();
-      },
-      onPointerMove: (e) {
-        if (!_pressed) return;
-        final r = widget.diameter / 2;
-        final dx = e.localPosition.dx - r;
-        final dy = e.localPosition.dy - r;
-        final tolerance = r * 1.3;
-        if (dx * dx + dy * dy > tolerance * tolerance) {
-          _onUpOrCancel();
-        }
-      },
-      onPointerUp: (_) => _onUpOrCancel(),
-      onPointerCancel: (_) => _onUpOrCancel(),
-      child: widget.showLabel
+    final holdArea = CircularHoldDetector(
+      onHoldChanged: (held) => held ? _onDown() : _onUpOrCancel(),
+      child: coreButton,
+    );
+    return widget.showLabel
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                coreButton,
+                holdArea,
                 const SizedBox(height: 4),
                 SizedBox(
                   height: 18,
@@ -766,8 +751,86 @@ class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
                 ),
               ],
             )
-          : coreButton,
-    );
+          : holdArea;
+  }
+}
+
+/// Reports a round control as held while at least one finger that went down
+/// on it is still on it.
+///
+/// Only touches inside the circle (the largest one that fits [child]) hit
+/// it, so the square corners of one round button never take a touch meant
+/// for the neighbour under them. Each finger is tracked on its own: lifting
+/// a second finger keeps the button held while the first stays down, and a
+/// finger that slides more than [releaseTolerance] radii from the centre
+/// lets go.
+class CircularHoldDetector extends StatefulWidget {
+  const CircularHoldDetector({
+    super.key,
+    required this.onHoldChanged,
+    required this.child,
+    this.releaseTolerance = 1.3,
+  });
+
+  final ValueChanged<bool> onHoldChanged;
+  final Widget child;
+  final double releaseTolerance;
+
+  @override
+  State<CircularHoldDetector> createState() => _CircularHoldDetectorState();
+}
+
+class _CircularHoldDetectorState extends State<CircularHoldDetector> {
+  final Set<int> _pointers = <int>{};
+
+  void _down(PointerDownEvent event) {
+    final wasHeld = _pointers.isNotEmpty;
+    _pointers.add(event.pointer);
+    if (!wasHeld) widget.onHoldChanged(true);
+  }
+
+  void _release(int pointer) {
+    if (!_pointers.remove(pointer)) return;
+    if (_pointers.isEmpty) widget.onHoldChanged(false);
+  }
+
+  void _move(PointerMoveEvent event) {
+    if (!_pointers.contains(event.pointer)) return;
+    final size = context.size;
+    if (size == null) return;
+    final radius = size.shortestSide / 2;
+    final fromCentre = event.localPosition - size.center(Offset.zero);
+    if (fromCentre.distance > radius * widget.releaseTolerance) {
+      _release(event.pointer);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    onPointerDown: _down,
+    onPointerMove: _move,
+    onPointerUp: (event) => _release(event.pointer),
+    onPointerCancel: (event) => _release(event.pointer),
+    child: CircularHitArea(child: widget.child),
+  );
+}
+
+/// Hit-tests [child] only inside the largest circle that fits it. Painting
+/// is not clipped, so glows and shadows still show outside the circle.
+class CircularHitArea extends SingleChildRenderObjectWidget {
+  const CircularHitArea({super.key, super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderCircularHitArea();
+}
+
+class _RenderCircularHitArea extends RenderProxyBox {
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    final radius = size.shortestSide / 2;
+    if ((position - size.center(Offset.zero)).distance > radius) return false;
+    return super.hitTest(result, position: position);
   }
 }
 

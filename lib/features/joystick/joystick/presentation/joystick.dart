@@ -2535,10 +2535,8 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
       theme.colorScheme.primary,
       theme.brightness == Brightness.dark ? 0.65 : 0.45,
     );
-    return Listener(
-      onPointerDown: (_) => _onDown(),
-      onPointerUp: (_) => _onUpOrCancel(),
-      onPointerCancel: (_) => _onUpOrCancel(),
+    return CircularHoldDetector(
+      onHoldChanged: (held) => held ? _onDown() : _onUpOrCancel(),
       child: SizedBox(
         width: widget.diameter,
         height: widget.diameter,

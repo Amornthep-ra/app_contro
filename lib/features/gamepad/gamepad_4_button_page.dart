@@ -546,24 +546,23 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final w = panel.width;
     final h = panel.height;
     final scaled = _scaledHoldCfg(cfg, def, panel);
-    final halfW = scaled.cfg.width / 2;
-    final halfH = scaled.cfg.height / 2;
+    final r = scaled.radius;
     (Offset, double)? circleOf(String other) {
       final otherCfg = _cfgForId(other);
       final layout = _layoutAll[other];
       if (otherCfg == null || layout == null) return null;
       final o = _scaledHoldCfg(otherCfg, layout, panel);
-      return (o.center, math.min(o.cfg.width, o.cfg.height) / 2);
+      return (o.center, o.radius);
     }
 
     final spot = GamepadEditMetrics.freeSpotFor(
       preferred: scaled.center,
-      radius: math.min(halfW, halfH),
+      radius: r,
       centreArea: Rect.fromLTRB(
-        GamepadEditMetrics.safeEdgePad + halfW,
-        GamepadEditMetrics.safeTopEdgePad + halfH,
-        w - GamepadEditMetrics.safeEdgePad - halfW,
-        h - GamepadEditMetrics.safeEdgePad - halfH,
+        GamepadEditMetrics.safeEdgePad + r,
+        GamepadEditMetrics.safeTopEdgePad + r,
+        w - GamepadEditMetrics.safeEdgePad - r,
+        h - GamepadEditMetrics.safeEdgePad - r,
       ),
       others: [
         for (final other in _padIds)
@@ -702,20 +701,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     }
     final w = panelSize.width;
     final h = panelSize.height;
-    final baseScaled = _scaledBaseCfg(base, panelSize);
-    final baseDiameter = math.min(baseScaled.width, baseScaled.height);
-    if (baseDiameter <= 0) return;
-    final targetDiameter = GamepadEditMetrics.sizePx(panelSize, nextSize);
-    final visualScale = targetDiameter / baseDiameter;
-    final nextCfg = _scaleHoldCfg(baseScaled, visualScale);
-    final halfW = nextCfg.width / 2;
-    final halfH = nextCfg.height / 2;
+    final half = GamepadEditMetrics.sizePx(panelSize, nextSize) / 2;
     const safeEdgePad = GamepadEditMetrics.safeEdgePad;
     const safeTopPad = GamepadEditMetrics.safeTopEdgePad;
-    final minX = safeEdgePad + halfW;
-    final maxX = w - safeEdgePad - halfW;
-    final minY = safeTopPad + halfH;
-    final maxY = h - safeEdgePad - halfH;
+    final minX = safeEdgePad + half;
+    final maxX = w - safeEdgePad - half;
+    final minY = safeTopPad + half;
+    final maxY = h - safeEdgePad - half;
     final cx = current.cx * w;
     final cy = current.cy * h;
     // Shrinking is always allowed: it is how a control that an older layout
@@ -798,7 +790,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   ) {
     final movingBase = _cfgForId(movingId);
     if (movingBase == null) return false;
-    double radiusOf(_ScaledHoldCfg c) => math.min(c.cfg.width, c.cfg.height) / 2;
+    double radiusOf(_ScaledHoldCfg c) => c.radius;
     final before = _scaledHoldCfg(movingBase, from, panelSize);
     final after = _scaledHoldCfg(movingBase, to, panelSize);
     for (final entry in _layoutAll.entries) {
@@ -2245,9 +2237,17 @@ class _BtnSpec {
 }
 
 class _ScaledHoldCfg {
+  /// Scaled style. Its width and height keep the design's proportions and
+  /// only space out the default layout; the arrow itself is the circle of
+  /// [diameter].
   final BtnCfg cfg;
   final Offset center;
   const _ScaledHoldCfg(this.cfg, this.center);
+
+  /// Size of the drawn arrow and of the square box that is touched, kept
+  /// inside the pad and checked for gaps.
+  double get diameter => math.min(cfg.width, cfg.height);
+  double get radius => diameter / 2;
 }
 
 _S _scaleForPanel(Size panel) {
@@ -2301,10 +2301,9 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   final targetDiameter = GamepadEditMetrics.sizePx(panel, layout.size);
   final visualScale = baseDiameter > 0 ? (targetDiameter / baseDiameter) : 1.0;
   final cfg = _scaleHoldCfg(baseScaled, visualScale);
-  final halfW = cfg.width / 2;
-  final halfH = cfg.height / 2;
-  final cx = (layout.cx * w).clamp(halfW, w - halfW);
-  final cy = (layout.cy * h).clamp(halfH, h - halfH);
+  final half = math.min(cfg.width, cfg.height) / 2;
+  final double cx = (layout.cx * w).clamp(half, math.max(half, w - half));
+  final double cy = (layout.cy * h).clamp(half, math.max(half, h - half));
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
 
@@ -2674,21 +2673,15 @@ class _LayoutPadPanel extends StatelessWidget {
             final cx = scaled.center.dx;
             final cy = scaled.center.dy;
             return Positioned(
-              left: cx - scaled.cfg.width / 2,
-              top: cy - scaled.cfg.height / 2,
-              child: SizedBox(
-                width: scaled.cfg.width,
-                height: scaled.cfg.height,
-                child: Center(
-                  child: GamepadImageHoldButton(
-                    label: spec.label,
-                    sendValue: spec.sendValue,
-                    asset: scaled.cfg.iconAsset ?? '',
-                    diameter: math.min(scaled.cfg.width, scaled.cfg.height),
-                    showLabel: false,
-                    onPressChanged: (id, down) => onPressChanged(id, down),
-                  ),
-                ),
+              left: cx - scaled.radius,
+              top: cy - scaled.radius,
+              child: GamepadImageHoldButton(
+                label: spec.label,
+                sendValue: spec.sendValue,
+                asset: scaled.cfg.iconAsset ?? '',
+                diameter: scaled.diameter,
+                showLabel: false,
+                onPressChanged: (id, down) => onPressChanged(id, down),
               ),
             );
           }).toList(),
@@ -2781,16 +2774,14 @@ class _EditableButtonState extends State<_EditableButton> {
       movingLayout,
       widget.panelSize,
     );
-    final movingRadius =
-        math.min(movingScaled.cfg.width, movingScaled.cfg.height) / 2;
+    final movingRadius = movingScaled.radius;
     final movingCenter = movingScaled.center;
     final currentScaled = _scaledHoldCfg(
       widget.cfg,
       widget.layout,
       widget.panelSize,
     );
-    final currentRadius =
-        math.min(currentScaled.cfg.width, currentScaled.cfg.height) / 2;
+    final currentRadius = currentScaled.radius;
     var near = false;
     for (final entry in widget.allLayouts.entries) {
       final id = entry.key;
@@ -2802,8 +2793,7 @@ class _EditableButtonState extends State<_EditableButton> {
         entry.value,
         widget.panelSize,
       );
-      final otherRadius =
-          math.min(otherScaled.cfg.width, otherScaled.cfg.height) / 2;
+      final otherRadius = otherScaled.radius;
       if (GamepadEditMetrics.crowdsNeighbour(
         fromCentre: currentScaled.center,
         fromRadius: currentRadius,
@@ -2831,8 +2821,7 @@ class _EditableButtonState extends State<_EditableButton> {
     if (widget.locked || !widget.selected) return;
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
-    final halfW = startScaled.cfg.width / 2;
-    final halfH = startScaled.cfg.height / 2;
+    final half = startScaled.radius;
     final dx = d.focalPoint.dx - _startFocal.dx;
     final dy = d.focalPoint.dy - _startFocal.dy;
     double cx = _startLayout.cx * w + dx;
@@ -2856,10 +2845,10 @@ class _EditableButtonState extends State<_EditableButton> {
         snap: snapX || snapY,
       ),
     );
-    final minX = _safeEdgePad + halfW;
-    final maxX = w - _safeEdgePad - halfW;
-    final minY = _safeTopEdgePad + halfH;
-    final maxY = h - _safeEdgePad - halfH;
+    final minX = _safeEdgePad + half;
+    final maxX = w - _safeEdgePad - half;
+    final minY = _safeTopEdgePad + half;
+    final maxY = h - _safeEdgePad - half;
     final attemptedOutOfBounds =
         cx < minX || cx > maxX || cy < minY || cy > maxY;
     cx = cx.clamp(minX, maxX);
@@ -2902,7 +2891,7 @@ class _EditableButtonState extends State<_EditableButton> {
     final scaled = _scaledHoldCfg(widget.cfg, widget.layout, widget.panelSize);
     final cx = scaled.center.dx;
     final cy = scaled.center.dy;
-    final diameter = math.min(scaled.cfg.width, scaled.cfg.height);
+    final diameter = scaled.diameter;
     final showWarning =
         _colliding ||
         _nearCollision ||
@@ -2938,8 +2927,8 @@ class _EditableButtonState extends State<_EditableButton> {
       ),
     );
     return Positioned(
-      left: cx - scaled.cfg.width / 2,
-      top: cy - scaled.cfg.height / 2,
+      left: cx - diameter / 2,
+      top: cy - diameter / 2,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onScaleStart: widget.locked ? null : _onScaleStart,
@@ -2962,9 +2951,9 @@ class _EditableButtonState extends State<_EditableButton> {
               },
         onTap: widget.onTap,
         child: SizedBox(
-          width: scaled.cfg.width,
-          height: scaled.cfg.height,
-          child: Center(child: IgnorePointer(child: buttonContent)),
+          width: diameter,
+          height: diameter,
+          child: IgnorePointer(child: buttonContent),
         ),
       ),
     );
