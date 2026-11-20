@@ -718,14 +718,17 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final maxY = h - safeEdgePad - halfH;
     final cx = current.cx * w;
     final cy = current.cy * h;
-    if (cx < minX || cx > maxX || cy < minY || cy > maxY) {
+    // Shrinking is always allowed: it is how a control that an older layout
+    // or another screen size left crowded or past the edge gets fixed.
+    final growing = nextSize > current.size;
+    if (growing && (cx < minX || cx > maxX || cy < minY || cy > maxY)) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showBoundaryWarning();
       return;
     }
     final candidate = _ButtonLayout(cx / w, cy / h, nextSize);
-    if (_wouldOverlapAny(id, candidate, panelSize)) {
+    if (growing && _crowdsAnyNeighbour(id, current, candidate, panelSize)) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showOverlapWarning();
@@ -785,26 +788,34 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     return null;
   }
 
-  bool _wouldOverlapAny(String movingId, _ButtonLayout moving, Size panelSize) {
+  /// Whether changing [movingId] from [from] to [to] crowds another arrow,
+  /// by the same rule dragging uses ([GamepadEditMetrics.crowdsNeighbour]).
+  bool _crowdsAnyNeighbour(
+    String movingId,
+    _ButtonLayout from,
+    _ButtonLayout to,
+    Size panelSize,
+  ) {
     final movingBase = _cfgForId(movingId);
     if (movingBase == null) return false;
-    final movingScaled = _scaledHoldCfg(movingBase, moving, panelSize);
-    final movingRadius =
-        math.min(movingScaled.cfg.width, movingScaled.cfg.height) / 2;
-    final movingCenter = movingScaled.center;
+    double radiusOf(_ScaledHoldCfg c) => math.min(c.cfg.width, c.cfg.height) / 2;
+    final before = _scaledHoldCfg(movingBase, from, panelSize);
+    final after = _scaledHoldCfg(movingBase, to, panelSize);
     for (final entry in _layoutAll.entries) {
       final id = entry.key;
       if (id == movingId) continue;
       if (!_activeIds.contains(id)) continue;
       final base = _cfgForId(id);
       if (base == null) continue;
-      final otherScaled = _scaledHoldCfg(base, entry.value, panelSize);
-      final otherRadius =
-          math.min(otherScaled.cfg.width, otherScaled.cfg.height) / 2;
-      final dx = movingCenter.dx - otherScaled.center.dx;
-      final dy = movingCenter.dy - otherScaled.center.dy;
-      final dist = math.sqrt((dx * dx) + (dy * dy));
-      if (dist < (movingRadius + otherRadius)) {
+      final other = _scaledHoldCfg(base, entry.value, panelSize);
+      if (GamepadEditMetrics.crowdsNeighbour(
+        fromCentre: before.center,
+        fromRadius: radiusOf(before),
+        toCentre: after.center,
+        toRadius: radiusOf(after),
+        otherCentre: other.center,
+        otherRadius: radiusOf(other),
+      )) {
         return true;
       }
     }
@@ -2731,9 +2742,14 @@ class _EditableButton extends StatefulWidget {
 }
 
 class _EditableButtonState extends State<_EditableButton> {
-  late Offset _startFocal;
-  late _ButtonLayout _startLayout;
-  late _ScaledHoldCfg _startScaled;
+  Offset _startFocal = Offset.zero;
+  _ButtonLayout _startLayout = const _ButtonLayout(0, 0, 0);
+  _ScaledHoldCfg? _startScaled;
+
+  /// True only while a drag that began on the already-selected button is
+  /// running. A touch on an unselected button just selects it; the rest of
+  /// that gesture must not move it, even though it is selected by then.
+  bool _gestureActive = false;
   static const double _snapThresholdPx = 5.0;
   static const double _nearCollisionPx = 10.0;
   static const double _safeEdgePad = GamepadEditMetrics.safeEdgePad;
@@ -2744,11 +2760,13 @@ class _EditableButtonState extends State<_EditableButton> {
   bool _nearCollision = false;
   bool _nearEdgeWarning = false;
   void _onScaleStart(ScaleStartDetails d) {
+    _gestureActive = false;
     if (widget.locked) return;
     if (!widget.selected) {
       widget.onTap();
       return;
     }
+    _gestureActive = true;
     _startFocal = d.focalPoint;
     _startLayout = widget.layout;
     _startScaled = _scaledHoldCfg(widget.cfg, _startLayout, widget.panelSize);
@@ -2808,12 +2826,13 @@ class _EditableButtonState extends State<_EditableButton> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (widget.locked) return;
-    if (!widget.selected) return;
+    final startScaled = _startScaled;
+    if (!_gestureActive || startScaled == null) return;
+    if (widget.locked || !widget.selected) return;
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
-    final halfW = _startScaled.cfg.width / 2;
-    final halfH = _startScaled.cfg.height / 2;
+    final halfW = startScaled.cfg.width / 2;
+    final halfH = startScaled.cfg.height / 2;
     final dx = d.focalPoint.dx - _startFocal.dx;
     final dy = d.focalPoint.dy - _startFocal.dy;
     double cx = _startLayout.cx * w + dx;
@@ -2928,6 +2947,9 @@ class _EditableButtonState extends State<_EditableButton> {
         onScaleEnd: widget.locked
             ? null
             : (_) {
+                final began = _gestureActive;
+                _gestureActive = false;
+                if (!began) return;
                 widget.onGuideChanged?.call(const _GuideState.hidden());
                 if (_colliding || _nearCollision || _nearEdgeWarning) {
                   setState(() {

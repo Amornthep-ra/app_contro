@@ -570,5 +570,136 @@ void main() {
         await closePage(tester);
       });
     }
+
+    for (final page in _pages.entries) {
+      testWidgets('${page.key}: dragging an unselected control selects it '
+          'without moving it', (tester) async {
+        await openEditor(tester, page.value.build());
+        final controls = _byTypeName(page.value.controlType);
+        final (index, offset) = switch (page.key) {
+          'four-button' => (2, const Offset(-170, -40)),
+          'eight-button' => (4, const Offset(-200, 0)),
+          _ => (0, const Offset(30, -60)),
+        };
+        final control = controls.at(index);
+        final before = tester.getRect(control);
+
+        // No tap first: the touch both selects it and tries to move it.
+        // Frames run between moves, as on a device, so the control is
+        // already rebuilt as selected while the same finger keeps moving.
+        final gesture = await tester.startGesture(before.center);
+        for (var i = 0; i < 6; i++) {
+          await gesture.moveBy(offset / 6);
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(tester.getRect(control), before);
+
+        // Selected now, so the next drag moves it.
+        await tester.drag(control, offset);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(tester.getRect(control).center, isNot(before.center));
+
+        await closePage(tester);
+      });
+    }
+
+    // Each saved layout leaves the left-most control crowded or past the
+    // pad's edge, as one made on another screen size can.
+    final cramped = <String, Map<String, Object>>{
+      'four-button': {
+        'gp4_active_all': jsonEncode(['F:left', 'F:right']),
+        'gp4_layout_all': jsonEncode({
+          'F:left': {'cx': 0.50, 'cy': 0.5, 'size': 0.30},
+          'F:right': {'cx': 0.58, 'cy': 0.5, 'size': 0.30},
+        }),
+      },
+      'eight-button': {
+        'gp8_active_left': jsonEncode(['L:up']),
+        'gp8_active_right': jsonEncode(<String>[]),
+        'gp8_layout_all': jsonEncode({
+          'L:up': {'cx': 0.3, 'cy': 0.12, 'size': 0.30},
+        }),
+      },
+      'joystick': {
+        'joy_dual_active': jsonEncode(['joy_left', 'joy_right']),
+        'joy_dual_layout': jsonEncode({
+          'joy_left': {'cx': 0.02, 'cy': 0.5, 'size': 1.0},
+        }),
+      },
+    };
+    for (final entry in cramped.entries) {
+      final page = _pages[entry.key]!;
+      testWidgets('${entry.key}: a crowded or out-of-bounds control can be '
+          'shrunk but not grown', (tester) async {
+        SharedPreferences.setMockInitialValues(entry.value);
+        await openEditor(tester, page.build());
+        final controls = _byTypeName(page.controlType);
+        Rect leftMost() => [
+          for (final e in controls.evaluate())
+            tester.getRect(find.byWidget(e.widget)),
+        ].reduce((a, b) => a.center.dx < b.center.dx ? a : b);
+
+        await tester.tapAt(leftMost().center);
+        await tester.pumpAndSettle();
+        final start = leftMost().shortestSide;
+
+        await tester.tap(find.byTooltip('Decrease size'));
+        await tester.pumpAndSettle();
+        final shrunk = leftMost().shortestSide;
+        expect(shrunk, lessThan(start - 1));
+
+        await tester.tap(find.byTooltip('Increase size'));
+        await tester.pumpAndSettle();
+        expect(leftMost().shortestSide, closeTo(shrunk, 0.5));
+
+        expect(tester.takeException(), isNull);
+        await closePage(tester);
+      });
+    }
+
+    testWidgets('joystick: a one-axis joystick takes the place of the full '
+        'one on its side', (tester) async {
+      await openEditor(tester, const JoystickPage());
+      final joysticks = _byTypeName('_EditableJoystick');
+      Rect leftJoystick() => [
+        for (final e in joysticks.evaluate())
+          tester.getRect(find.byWidget(e.widget)),
+      ].reduce((a, b) => a.center.dx < b.center.dx ? a : b);
+      expect(joysticks, findsNWidgets(2));
+      final before = leftJoystick();
+
+      await tester.tap(find.byTooltip('Buttons'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Joystick (Y only)'));
+      await tester.tap(find.text('Joystick (Y only)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+
+      expect(joysticks, findsNWidgets(2));
+      expect(leftJoystick(), before);
+      final active = jsonDecode(
+        (await SharedPreferences.getInstance()).getString('joy_dual_active')!,
+      );
+      expect(active, contains('joy_y_only'));
+      expect(active, isNot(contains('joy_left')));
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
+    testWidgets('joystick: a saved layout with both left joysticks keeps '
+        'only the full one', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'joy_dual_active': jsonEncode(['joy_left', 'joy_y_only', 'joy_right']),
+      });
+      await openEditor(tester, const JoystickPage());
+      expect(_byTypeName('_EditableJoystick'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
   });
 }

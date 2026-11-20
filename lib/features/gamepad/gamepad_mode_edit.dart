@@ -1103,7 +1103,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final maxY = h - safeEdgePad - half;
     final cx = current.cx * w;
     final cy = current.cy * h;
-    if (cx < minX || cx > maxX || cy < minY || cy > maxY) {
+    // Shrinking is always allowed: it is how a control that an older layout
+    // or another screen size left past the edge gets fixed.
+    final growing = nextSize > current.size;
+    if (growing && (cx < minX || cx > maxX || cy < minY || cy > maxY)) {
       HapticFeedback.vibrate();
       setState(() => _editWarningId = id);
       _showBoundaryWarning();
@@ -3182,8 +3185,13 @@ class _EditableButton extends StatefulWidget {
 }
 
 class _EditableButtonState extends State<_EditableButton> {
-  late Offset _startFocal;
-  late _ButtonLayout _startLayout;
+  Offset _startFocal = Offset.zero;
+  _ButtonLayout _startLayout = const _ButtonLayout(0, 0, 0);
+
+  /// True only while a drag that began on the already-selected button is
+  /// running. A touch on an unselected button just selects it; the rest of
+  /// that gesture must not move it, even though it is selected by then.
+  bool _gestureActive = false;
   static const double _safeEdgePad = GamepadEditMetrics.safeEdgePad;
   static const double _safeTopEdgePad = GamepadEditMetrics.safeTopEdgePad;
   static const double _snapThresholdPx = 5.0;
@@ -3193,11 +3201,13 @@ class _EditableButtonState extends State<_EditableButton> {
   bool _colliding = false;
   bool _nearEdgeWarning = false;
   void _onScaleStart(ScaleStartDetails d) {
+    _gestureActive = false;
     if (widget.locked) return;
     if (!widget.selected) {
       widget.onTap();
       return;
     }
+    _gestureActive = true;
     _startFocal = d.focalPoint;
     _startLayout = widget.layout;
     _dragging = false;
@@ -3207,7 +3217,7 @@ class _EditableButtonState extends State<_EditableButton> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (widget.locked || !widget.selected) return;
+    if (!_gestureActive || widget.locked || !widget.selected) return;
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
     final s = GamepadEditMetrics.panelUnit(widget.panelSize);
@@ -3343,6 +3353,9 @@ class _EditableButtonState extends State<_EditableButton> {
         onScaleEnd: widget.locked
             ? null
             : (_) {
+                final began = _gestureActive;
+                _gestureActive = false;
+                if (!began) return;
                 widget.onGuideChanged?.call(const _GuideState.hidden());
                 if (_colliding || _dragging || _nearEdgeWarning) {
                   setState(() {

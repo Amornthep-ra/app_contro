@@ -54,6 +54,25 @@ const String kBtnSquareId = 'btn_square';
 const String kBtnCircleId = 'btn_circle';
 const Set<String> kJoyDefaultActiveIds = {kJoyLeftId, kJoyRightId};
 
+/// Each joystick and the one-axis variant that drives the same axes. Only
+/// one of a pair can be on the pad: releasing one would zero the axes the
+/// other is still holding.
+const Map<String, String> kJoyAxisPartner = {
+  kJoyLeftId: kJoyYOnlyId,
+  kJoyYOnlyId: kJoyLeftId,
+  kJoyRightId: kJoyXOnlyId,
+  kJoyXOnlyId: kJoyRightId,
+};
+
+/// [ids] with a one-axis joystick dropped when its full joystick is also
+/// there (older layouts and presets allowed both).
+Set<String> dropDuplicateAxisJoysticks(Iterable<String> ids) {
+  final out = ids.toSet();
+  if (out.contains(kJoyLeftId)) out.remove(kJoyYOnlyId);
+  if (out.contains(kJoyRightId)) out.remove(kJoyXOnlyId);
+  return out;
+}
+
 class JoystickPage extends StatefulWidget {
   const JoystickPage({super.key, this.acquireControl, this.openOnArrival});
 
@@ -684,7 +703,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _layout = _decodeLayout(raw);
     }
     if (activeRaw != null && activeRaw.isNotEmpty) {
-      _activeIds = _decodeIdList(activeRaw);
+      _activeIds = dropDuplicateAxisJoysticks(_decodeIdList(activeRaw));
     } else {
       _activeIds = {kJoyLeftId, kJoyRightId};
     }
@@ -843,6 +862,22 @@ class _JoystickPageState extends State<JoystickPage> {
         _clearButtonState(id);
         if (_isLeftJoy(id)) _resetLeftJoystick();
         if (_isRightJoy(id)) _resetRightJoystick();
+      } else if (_activeIds.contains(kJoyAxisPartner[id])) {
+        // A full joystick and its one-axis variant drive the same axes, so
+        // only one of them can be on the pad: the new one takes its place.
+        final partner = kJoyAxisPartner[id]!;
+        final panel = _panelSize;
+        final spot =
+            _layout[partner] ??
+            (panel == null ? null : _defaultLayout(panel, _activeIds)[partner]);
+        _activeIds.remove(partner);
+        _layout.remove(partner);
+        _lockedIds.remove(partner);
+        if (_selectedId == partner) _selectedId = id;
+        if (_isLeftJoy(partner)) _resetLeftJoystick();
+        if (_isRightJoy(partner)) _resetRightJoystick();
+        _activeIds.add(id);
+        if (spot != null) _layout[id] = spot;
       } else {
         final panel = _panelSize;
         if (panel != null) {
@@ -1174,7 +1209,14 @@ class _JoystickPageState extends State<JoystickPage> {
         _layout = _decodeLayout(jsonEncode(layoutRaw));
       }
       if (activeRaw is List) {
-        _activeIds = activeRaw.map((e) => e.toString()).toSet();
+        _activeIds = dropDuplicateAxisJoysticks(
+          activeRaw.map((e) => e.toString()),
+        );
+      }
+      _layout.removeWhere((k, _) => !_activeIds.contains(k));
+      _lockedIds.removeWhere((id) => !_activeIds.contains(id));
+      if (_selectedId != null && !_activeIds.contains(_selectedId)) {
+        _selectedId = null;
       }
       if (_panelSize != null) {
         final defaults = _defaultLayout(_panelSize!, _activeIds);
@@ -1398,7 +1440,6 @@ class _JoystickPageState extends State<JoystickPage> {
       _flashEditWarning(id);
       return;
     }
-    _pushHistory();
     final sizePx = base * nextSize;
     final half = sizePx / 2;
     final rawCx = current.cx * w;
@@ -1408,14 +1449,18 @@ class _JoystickPageState extends State<JoystickPage> {
     final maxX = w - safeEdgePad - half;
     final minY = safeEdgePad + half;
     final maxY = h - safeEdgePad - half;
-    if (rawCx < minX || rawCx > maxX || rawCy < minY || rawCy > maxY) {
+    // Shrinking is always allowed, in place: it is how a control that an
+    // older layout or another screen size left past the edge gets fixed.
+    final growing = nextSize > current.size;
+    if (growing &&
+        (rawCx < minX || rawCx > maxX || rawCy < minY || rawCy > maxY)) {
       HapticFeedback.vibrate();
       _showBoundaryWarning();
       _flashEditWarning(id);
       return;
     }
-    double cx = rawCx.clamp(minX, maxX);
-    double cy = rawCy.clamp(minY, maxY);
+    final double cx = growing ? rawCx.clamp(minX, maxX) : rawCx;
+    final double cy = growing ? rawCy.clamp(minY, maxY) : rawCy;
     final edgeAdjusted = (cx - rawCx).abs() > 0.01 || (cy - rawCy).abs() > 0.01;
     var collides = false;
     for (final entry in _layout.entries) {
@@ -1445,6 +1490,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _flashEditWarning(id);
       return;
     }
+    _pushHistory();
     setState(() {
       final next = Map<String, _JoyLayout>.from(_layout);
       next[id] = _JoyLayout(cx / w, cy / h, nextSize);
@@ -2665,8 +2711,13 @@ class _EditableJoystick extends StatefulWidget {
 }
 
 class _EditableJoystickState extends State<_EditableJoystick> {
-  late Offset _startFocal;
-  late _JoyLayout _startLayout;
+  Offset _startFocal = Offset.zero;
+  _JoyLayout _startLayout = const _JoyLayout(0, 0, 0);
+
+  /// True only while a drag that began on the already-selected control is
+  /// running. A touch on an unselected control just selects it; the rest of
+  /// that gesture must not move it, even though it is selected by then.
+  bool _gestureActive = false;
   static const double _safeEdgePad = 16.0;
   static const double _edgeWarnThresholdPx = 6.0;
   static const double _guideShowThreshold = 0.035;
@@ -2675,11 +2726,13 @@ class _EditableJoystickState extends State<_EditableJoystick> {
   bool _colliding = false;
   bool _nearEdgeWarning = false;
   void _onScaleStart(ScaleStartDetails d) {
+    _gestureActive = false;
     if (widget.locked) return;
     if (!widget.selected) {
       widget.onSelect();
       return;
     }
+    _gestureActive = true;
     _startFocal = d.focalPoint;
     _startLayout = widget.layout;
     _dragging = false;
@@ -2689,7 +2742,7 @@ class _EditableJoystickState extends State<_EditableJoystick> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (widget.locked || !widget.selected) return;
+    if (!_gestureActive || widget.locked || !widget.selected) return;
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
     final dx = d.focalPoint.dx - _startFocal.dx;
@@ -2816,6 +2869,9 @@ class _EditableJoystickState extends State<_EditableJoystick> {
         onScaleEnd: widget.locked
             ? null
             : (_) {
+                final began = _gestureActive;
+                _gestureActive = false;
+                if (!began) return;
                 widget.onGuideChanged?.call(const _GuideState.hidden());
                 if (_colliding || _dragging || _nearEdgeWarning) {
                   setState(() {
@@ -2896,8 +2952,13 @@ class _EditableButtonItem extends StatefulWidget {
 }
 
 class _EditableButtonItemState extends State<_EditableButtonItem> {
-  late Offset _startFocal;
-  late _JoyLayout _startLayout;
+  Offset _startFocal = Offset.zero;
+  _JoyLayout _startLayout = const _JoyLayout(0, 0, 0);
+
+  /// True only while a drag that began on the already-selected control is
+  /// running. A touch on an unselected control just selects it; the rest of
+  /// that gesture must not move it, even though it is selected by then.
+  bool _gestureActive = false;
   static const double _safeEdgePad = 16.0;
   static const double _snapThresholdPx = 5.0;
   static const double _edgeWarnThresholdPx = 6.0;
@@ -2905,11 +2966,13 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
   bool _colliding = false;
   bool _nearEdgeWarning = false;
   void _onScaleStart(ScaleStartDetails d) {
+    _gestureActive = false;
     if (widget.locked) return;
     if (!widget.selected) {
       widget.onSelect();
       return;
     }
+    _gestureActive = true;
     _startFocal = d.focalPoint;
     _startLayout = widget.layout;
     _dragging = false;
@@ -2919,7 +2982,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (widget.locked || !widget.selected) return;
+    if (!_gestureActive || widget.locked || !widget.selected) return;
     final w = widget.panelSize.width;
     final h = widget.panelSize.height;
     final dx = d.focalPoint.dx - _startFocal.dx;
@@ -3078,6 +3141,9 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
       onScaleStart: _onScaleStart,
       onScaleUpdate: _onScaleUpdate,
       onScaleEnd: (_) {
+        final began = _gestureActive;
+        _gestureActive = false;
+        if (!began) return;
         widget.onGuideChanged?.call(const _GuideState.hidden());
         if (_colliding || _dragging || _nearEdgeWarning) {
           setState(() {
