@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show ConnectionPriority;
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ble/ble_permissions.dart';
+import 'package:pb_controller/core/ble/ble_secure_protocol.dart';
 
 void main() {
   group('BleConnectionStatus helpers', () {
@@ -818,6 +820,121 @@ void main() {
           consecutiveFailures: BleManager.writeFailureThreshold + 2,
           failureStreakAge: longStreak,
         ),
+        isTrue,
+      );
+    });
+  });
+
+  group('desiredBleConnectionPriority', () {
+    test('asks for high priority only while control drives the robot', () {
+      expect(
+        desiredBleConnectionPriority(
+          mode: BleTrafficMode.controlBinary,
+          connected: true,
+        ),
+        ConnectionPriority.high,
+      );
+      expect(
+        desiredBleConnectionPriority(
+          mode: BleTrafficMode.textCommand,
+          connected: true,
+        ),
+        ConnectionPriority.balanced,
+      );
+    });
+
+    test('has no preference while disconnected', () {
+      for (final mode in BleTrafficMode.values) {
+        expect(
+          desiredBleConnectionPriority(mode: mode, connected: false),
+          isNull,
+        );
+      }
+    });
+  });
+
+  group('connection priority follows the control session', () {
+    final manager = BleManager.instance;
+    late List<ConnectionPriority> requests;
+
+    setUp(() {
+      requests = [];
+      manager.debugConnectionPriorityRequest = (priority) async {
+        requests.add(priority);
+      };
+      manager.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.connected,
+        connected: true,
+      );
+    });
+
+    tearDown(() {
+      manager.debugConnectionPriorityRequest = null;
+      manager.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+      );
+    });
+
+    test('raises on Start and lowers once on Stop', () async {
+      final owner = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, [ConnectionPriority.high]);
+
+      manager.releaseTrafficMode(owner, refreshHeartbeat: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, [ConnectionPriority.high, ConnectionPriority.balanced]);
+
+      // Text-mode churn on a balanced link sends nothing more.
+      final textOwner = manager.claimTrafficMode(BleTrafficMode.textCommand)!;
+      manager.releaseTrafficMode(textOwner, refreshHeartbeat: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, hasLength(2));
+    });
+
+    test('sends nothing while disconnected', () async {
+      manager.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+        connected: false,
+      );
+      final owner = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      manager.releaseTrafficMode(owner, refreshHeartbeat: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, isEmpty);
+    });
+
+    test('a failed request is retried on the next Start', () async {
+      var fail = true;
+      manager.debugConnectionPriorityRequest = (priority) async {
+        requests.add(priority);
+        if (fail) throw StateError('gatt busy');
+      };
+      final first = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await Future<void>.delayed(Duration.zero);
+      manager.releaseTrafficMode(first, refreshHeartbeat: false);
+      await Future<void>.delayed(Duration.zero);
+      // The failed high request was forgotten, so Stop needs no balanced.
+      expect(requests, [ConnectionPriority.high]);
+
+      fail = false;
+      final second = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, [ConnectionPriority.high, ConnectionPriority.high]);
+      manager.releaseTrafficMode(second, refreshHeartbeat: false);
+      await Future<void>.delayed(Duration.zero);
+    });
+  });
+
+  group('hasBleControlPayloadCapacity', () {
+    test('requires room for one full PB2 joystick packet', () {
+      expect(hasBleControlPayloadCapacity(payloadSize: 20), isFalse);
+      expect(
+        hasBleControlPayloadCapacity(
+          payloadSize: BleSecureProtocol.joystickPacketLength,
+        ),
+        isTrue,
+      );
+      expect(
+        hasBleControlPayloadCapacity(payloadSize: blePayloadSizeFromMtu(247)),
         isTrue,
       );
     });

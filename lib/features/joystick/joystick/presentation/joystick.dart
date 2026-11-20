@@ -285,7 +285,9 @@ class _JoystickPageState extends State<JoystickPage> {
       }
       showGamepadTopNotice(
         context,
-        message: 'Connect to a BLE device, then tap Start again.',
+        message: controlStartFailureMessage(
+          BleConnectionCoordinator.instance.state,
+        ),
         style: GamepadNoticeStyle.error,
       );
       return;

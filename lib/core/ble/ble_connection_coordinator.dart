@@ -134,6 +134,26 @@ class _BleBoardProtocolError implements Exception {
   final String code;
 }
 
+/// Failure reason when the link cannot carry one PB2 joystick packet per write.
+const controlStartMtuTooSmall = 'mtu_too_small';
+
+/// Message for a Start that returned no owner and needs no pairing prompt.
+/// Shared by every control page so the wording cannot drift between them.
+String controlStartFailureMessage(BleConnectionCoordinatorState state) {
+  if (state.failureReason == controlStartMtuTooSmall) {
+    return 'This board cannot receive control data (BLE MTU too small). '
+        'Update the board firmware, then reconnect.';
+  }
+  switch (state.recoveryOutcome) {
+    case BleRecoveryOutcome.credentialMismatchSuspected:
+    case BleRecoveryOutcome.credentialRejected:
+      return 'Saved pairing does not match this board. '
+          'Use Forget device to pair again.';
+    default:
+      return 'Connect to a BLE device, then tap Start again.';
+  }
+}
+
 /// User input is required only when this board has not been paired before.
 bool requiresBlePairingCode(BleControlSecurityState state) =>
     state == BleControlSecurityState.pairingRequired;
@@ -1378,6 +1398,21 @@ class BleConnectionCoordinator {
           userInitiated: true,
         );
     if (connected && manager.isConnected && _state.controlReady) {
+      if (!manager.hasControlPayloadCapacity) {
+        // Every control write would be truncated or rejected. Keep the link
+        // (the MTU can still grow) but refuse Start with a clear reason.
+        _debug(
+          'control_start_mtu_too_small',
+          'mtu=${manager.mtu ?? '-'} payload=${manager.payloadSize} '
+              'required=${BleSecureProtocol.joystickPacketLength}',
+        );
+        await manager.stopAndReleaseControl(
+          owner: owner,
+          source: 'control_start_mtu',
+        );
+        _emit(_state.copyWith(failureReason: controlStartMtuTooSmall));
+        return null;
+      }
       // Reconnect is only permitted while acquiring this Start request. Once
       // control is live, a link loss must end the session instead of resuming.
       manager.disableControlReconnect(owner);

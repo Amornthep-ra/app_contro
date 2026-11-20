@@ -145,6 +145,7 @@ void main() {
       expect(joystick[7], 1);
       expect(stop[7], 2);
       expect(stop.length, 17);
+      expect(joystick.length, BleSecureProtocol.joystickPacketLength);
     },
   );
 

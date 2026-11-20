@@ -15,6 +15,14 @@ class BleSecureProtocol {
   static const _stopType = 0x02;
   static const _tagLength = 8;
 
+  /// Bytes in the joystick payload built by `JoystickPacket.toControlPayload`.
+  static const controlPayloadLength = 6;
+
+  /// Header, type, sequence, length, payload, truncated tag. One BLE write
+  /// must carry this many bytes, so the ATT MTU must be at least this + 3.
+  static const joystickPacketLength =
+      3 + 1 + 4 + 1 + controlPayloadLength + _tagLength;
+
   static String createNonce() {
     final random = Random.secure();
     return List<int>.generate(

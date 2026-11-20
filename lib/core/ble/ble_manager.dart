@@ -460,6 +460,29 @@ bool shouldReconnectAfterTransportFailure({
       !manualDisconnectInProgress;
 }
 
+/// Connection priority the link should use, or `null` while disconnected.
+///
+/// High priority (Android interval ~11–15 ms) only while a control session is
+/// driving the robot; it costs battery on both phone and board, so every
+/// other connected state returns to balanced.
+@visibleForTesting
+ConnectionPriority? desiredBleConnectionPriority({
+  required BleTrafficMode mode,
+  required bool connected,
+}) {
+  if (!connected) return null;
+  return mode == BleTrafficMode.controlBinary
+      ? ConnectionPriority.high
+      : ConnectionPriority.balanced;
+}
+
+typedef BleConnectionPriorityRequest =
+    Future<void> Function(ConnectionPriority priority);
+
+@visibleForTesting
+bool hasBleControlPayloadCapacity({required int payloadSize}) =>
+    payloadSize >= BleSecureProtocol.joystickPacketLength;
+
 @visibleForTesting
 int blePayloadSizeFromMtu(int? mtu, {int fallback = 20}) {
   if (mtu == null) return fallback;
@@ -683,9 +706,17 @@ class BleManager {
     required BleConnectionStatus status,
     bool? connected,
     String? deviceName,
+    int? mtu,
   }) {
     _debugConnectedOverride = connected;
     _debugDeviceName = connected == null ? null : deviceName;
+    if (mtu != null) {
+      _mtu = mtu;
+      _payloadSize = blePayloadSizeFromMtu(mtu);
+    } else if (connected == null) {
+      _mtu = null;
+      _payloadSize = 20;
+    }
     _setConnectionStatus(status);
   }
 
@@ -737,6 +768,7 @@ class BleManager {
   DateTime? _lastTxTime;
   StreamSubscription<List<int>>? _txSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
+  StreamSubscription<int>? _mtuSub;
   final _autoConnectRequestController =
       StreamController<BleAutoConnectRequest>.broadcast();
   bool _manualDisconnectInProgress = false;
@@ -745,7 +777,23 @@ class BleManager {
   Completer<void>? _managementLeaseReleased;
   BleManagementLease? _activeManagementLease;
   Timer? _managementLeaseTimer;
-  BleTrafficMode _trafficMode = BleTrafficMode.textCommand;
+  BleTrafficMode _trafficModeValue = BleTrafficMode.textCommand;
+
+  // Every traffic-mode change goes through this setter so the connection
+  // priority follows the control session without per-call-site wiring.
+  BleTrafficMode get _trafficMode => _trafficModeValue;
+  set _trafficMode(BleTrafficMode mode) {
+    _trafficModeValue = mode;
+    _syncConnectionPriority();
+  }
+
+  /// Last priority asked of the current link; `null` means the platform
+  /// default (balanced) for a fresh connection.
+  ConnectionPriority? _requestedConnectionPriority;
+
+  @visibleForTesting
+  BleConnectionPriorityRequest? debugConnectionPriorityRequest;
+
   int _trafficModeOwner = 0;
   String _trafficModeOwnerName = 'none';
   BleReconnectMode _reconnectMode = BleReconnectMode.disabled;
@@ -819,6 +867,49 @@ class BleManager {
     String source = 'test',
     int? owner,
   }) => _requestAutoConnect(timeout: timeout, source: source, owner: owner);
+
+  BleConnectionPriorityRequest? _connectionPriorityRequest() {
+    final debug = debugConnectionPriorityRequest;
+    if (debug != null) return debug;
+    // Android only: iOS/macOS expose no API and follow the board's request.
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+    final device = _device;
+    if (device == null) return null;
+    return (priority) => device.requestConnectionPriority(
+      connectionPriorityRequest: priority,
+    );
+  }
+
+  void _syncConnectionPriority() {
+    final desired = desiredBleConnectionPriority(
+      mode: _trafficModeValue,
+      connected: isConnected,
+    );
+    if (desired == null) {
+      _requestedConnectionPriority = null;
+      return;
+    }
+    final current = _requestedConnectionPriority ?? ConnectionPriority.balanced;
+    if (desired == current) return;
+    final request = _connectionPriorityRequest();
+    if (request == null) return;
+
+    _requestedConnectionPriority = desired;
+    _log('connection_priority_requested', 'priority=${desired.name}');
+    unawaited(
+      request(desired).catchError((Object error) {
+        // Not fatal: control keeps working at the current interval. Forget
+        // the value so the next mode change retries.
+        if (_requestedConnectionPriority == desired) {
+          _requestedConnectionPriority = null;
+        }
+        _log(
+          'connection_priority_failed',
+          'priority=${desired.name} error=$error',
+        );
+      }),
+    );
+  }
 
   void _setControlSuspended(bool value) {
     _controlSuspendedForLifecycle = value;
@@ -1446,6 +1537,7 @@ class BleManager {
         _log('tx_subscription_cancel_failed', 'source=$source error=$e');
       }
       _txSub = null;
+      await _cancelMtuSubscription(source);
 
       try {
         await _connSub?.cancel();
@@ -1686,6 +1778,7 @@ class BleManager {
         _stopHeartbeat();
         await _txSub?.cancel();
         _txSub = null;
+        await _cancelMtuSubscription('os_disconnected');
 
         _device = null;
         _tx = null;
@@ -1705,6 +1798,35 @@ class BleManager {
         _setConnectionStatus(BleConnectionStatus.disconnected);
       }
     });
+  }
+
+  void _applyMtu(int mtu, {required String event}) {
+    _mtu = mtu;
+    _payloadSize = blePayloadSizeFromMtu(mtu);
+    _log(
+      event,
+      'mtu=$mtu payloadSize=$_payloadSize '
+      'controlCapacity=$hasControlPayloadCapacity',
+    );
+    _emitDiagnostics();
+  }
+
+  /// Whether one write can carry a full PB2 joystick packet. A smaller ATT
+  /// payload would truncate or reject every control write.
+  bool get hasControlPayloadCapacity => hasBleControlPayloadCapacity(
+    payloadSize: _payloadSize,
+  );
+
+  int get payloadSize => _payloadSize;
+  int? get mtu => _mtu;
+
+  Future<void> _cancelMtuSubscription(String source) async {
+    try {
+      await _mtuSub?.cancel();
+    } catch (e) {
+      _log('mtu_subscription_cancel_failed', 'source=$source error=$e');
+    }
+    _mtuSub = null;
   }
 
   BleCharacteristicSpec _toCharacteristicSpec(BluetoothCharacteristic c) {
@@ -1786,10 +1908,15 @@ class BleManager {
       _log('uart_write_selected', _characteristicLogDetail(writeSpec));
       _log('uart_read_selected', _characteristicLogDetail(readSpec));
 
-      _mtu = _device!.mtuNow;
-      _payloadSize = blePayloadSizeFromMtu(_mtu);
-      _log('mtu_ready', 'mtu=$_mtu payloadSize=$_payloadSize');
-      _emitDiagnostics();
+      _applyMtu(_device!.mtuNow, event: 'mtu_ready');
+      // The negotiated MTU can arrive after discovery, notably on iOS.
+      await _mtuSub?.cancel();
+      _mtuSub = _device!.mtu.listen(
+        (mtu) {
+          if (mtu != _mtu) _applyMtu(mtu, event: 'mtu_changed');
+        },
+        onError: (Object error) => _log('mtu_stream_error', 'error=$error'),
+      );
 
       _setConnectionStatus(BleConnectionStatus.subscribing);
       final txProperties = _tx!.properties;
@@ -1829,6 +1956,10 @@ class BleManager {
       _setConnectionStatus(BleConnectionStatus.connected);
       _connectionController.add(true);
       _cancelControlReconnect(reason: 'services_ready');
+      // A new link starts at the platform default; raise it now if Start
+      // claimed control before the connection finished.
+      _requestedConnectionPriority = null;
+      _syncConnectionPriority();
       return true;
     } on TimeoutException catch (e) {
       final phase = bleDiscoveryTimeoutReason(_connectionStatus);
@@ -1867,9 +1998,14 @@ class BleManager {
       return BleWriteResult.notConnected;
     }
 
-    final rx = _rx!;
+    final rx = _rx;
+    final writeSpec = _writeCharacteristicSpec;
+    if (rx == null || writeSpec == null) {
+      _log('write_failed', 'kind=text reason=no_characteristic');
+      return BleWriteResult.notConnected;
+    }
     final chunks = chunkBleTextPayload(data, payloadSize: _payloadSize);
-    final withoutResponse = _writeCharacteristicSpec!.useWithoutResponse(
+    final withoutResponse = writeSpec.useWithoutResponse(
       preferAcknowledged: data == '0',
     );
     var failed = false;
@@ -1937,7 +2073,12 @@ class BleManager {
       return;
     }
 
-    final rx = _rx!;
+    final rx = _rx;
+    final writeSpec = _writeCharacteristicSpec;
+    if (rx == null || writeSpec == null) {
+      _log('write_failed', 'kind=binary reason=no_characteristic');
+      return;
+    }
     final now = DateTime.now();
     if (!force &&
         now.difference(_lastJoySend) < const Duration(milliseconds: 20)) {
@@ -1957,7 +2098,7 @@ class BleManager {
       payload: packet.toControlPayload(pressedButtons),
     );
 
-    final withoutResponse = _writeCharacteristicSpec!.useWithoutResponse();
+    final withoutResponse = writeSpec.useWithoutResponse();
 
     await _enqueueJoystickLatest(() async {
       try {
@@ -2158,6 +2299,7 @@ class BleManager {
         _log('tx_subscription_cancel_failed', 'source=$source error=$e');
       }
       _txSub = null;
+      await _cancelMtuSubscription(source);
 
       try {
         await _connSub?.cancel();

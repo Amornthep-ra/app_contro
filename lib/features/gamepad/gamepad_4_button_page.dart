@@ -1099,14 +1099,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       }
       showGamepadTopNotice(
         context,
-        message:
-            switch (BleConnectionCoordinator.instance.state.recoveryOutcome) {
-              BleRecoveryOutcome.credentialMismatchSuspected ||
-              BleRecoveryOutcome.credentialRejected => true,
-              _ => false,
-            }
-            ? 'Saved pairing does not match this board. Use Forget device to pair again.'
-            : 'Connect to a BLE device, then tap Start again.',
+        message: controlStartFailureMessage(
+          BleConnectionCoordinator.instance.state,
+        ),
         style: GamepadNoticeStyle.error,
       );
       return;

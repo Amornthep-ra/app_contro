@@ -940,6 +940,59 @@ void main() {
     });
   });
 
+  group('Start requires room for a PB2 control packet', () {
+    tearDown(() {
+      BleManager.instance.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+      );
+    });
+
+    BleConnectionCoordinator readyCoordinator(int mtu) {
+      BleManager.instance.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.connected,
+        connected: true,
+        mtu: mtu,
+      );
+      final coordinator = BleConnectionCoordinator(
+        platform: _FakeBleConnectionPlatform(),
+        listenToManagerAutoConnectRequests: false,
+        canManageConnection: ({int? owner}) => true,
+      );
+      coordinator.debugEmitForTesting(
+        const BleConnectionCoordinatorState(
+          securityState: BleControlSecurityState.ready,
+        ),
+      );
+      return coordinator;
+    }
+
+    test('refuses Start with a clear reason on the default MTU', () async {
+      final coordinator = readyCoordinator(23);
+
+      final owner = await coordinator.acquireControlForStart(ownerName: 'test');
+
+      expect(owner, isNull);
+      expect(coordinator.state.failureReason, controlStartMtuTooSmall);
+      expect(
+        controlStartFailureMessage(coordinator.state),
+        contains('MTU too small'),
+      );
+      expect(BleManager.instance.isControlSessionActive, isFalse);
+      await coordinator.dispose();
+    });
+
+    test('starts normally once the MTU fits a joystick packet', () async {
+      final coordinator = readyCoordinator(247);
+
+      final owner = await coordinator.acquireControlForStart(ownerName: 'test');
+
+      expect(owner, isNotNull);
+      expect(BleManager.instance.isControlSessionActive, isTrue);
+      BleManager.instance.releaseTrafficMode(owner!, refreshHeartbeat: false);
+      await coordinator.dispose();
+    });
+  });
+
   group('BleManager auto-connect request seam', () {
     BleConnectionCoordinator createCoordinator(
       _FakeBleConnectionPlatform platform, {
