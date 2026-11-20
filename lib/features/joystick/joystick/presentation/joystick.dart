@@ -64,6 +64,18 @@ const Map<String, String> kJoyAxisPartner = {
   kJoyXOnlyId: kJoyRightId,
 };
 
+/// Every control the Joystick pad can show.
+const Set<String> kJoyKnownIds = {
+  kJoyLeftId,
+  kJoyRightId,
+  kJoyYOnlyId,
+  kJoyXOnlyId,
+  kBtnTriangleId,
+  kBtnCrossId,
+  kBtnSquareId,
+  kBtnCircleId,
+};
+
 /// [ids] with a one-axis joystick dropped when its full joystick is also
 /// there (older layouts and presets allowed both).
 Set<String> dropDuplicateAxisJoysticks(Iterable<String> ids) {
@@ -71,6 +83,13 @@ Set<String> dropDuplicateAxisJoysticks(Iterable<String> ids) {
   if (out.contains(kJoyLeftId)) out.remove(kJoyYOnlyId);
   if (out.contains(kJoyRightId)) out.remove(kJoyXOnlyId);
   return out;
+}
+
+/// Saved control ids made safe to show: unknown ids and duplicate axis
+/// joysticks dropped, and the default pad when nothing is left.
+Set<String> sanitizeJoyActiveIds(Iterable<String> ids) {
+  final out = dropDuplicateAxisJoysticks(ids.where(kJoyKnownIds.contains));
+  return out.isEmpty ? Set<String>.from(kJoyDefaultActiveIds) : out;
 }
 
 class JoystickPage extends StatefulWidget {
@@ -95,6 +114,9 @@ class _JoystickPageState extends State<JoystickPage> {
   static const _prefsLayout = 'joy_dual_layout';
   static const _prefsActive = 'joy_dual_active';
   static const double _baseJoyRatio = 0.45;
+
+  /// Margin the editor keeps between a control and the pad's edge.
+  static const double _editEdgePad = 16.0;
   static const _prefsPreset1 = 'joy_preset_1';
   static const _prefsPreset2 = 'joy_preset_2';
   static const _prefsPreset3 = 'joy_preset_3';
@@ -703,7 +725,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _layout = _decodeLayout(raw);
     }
     if (activeRaw != null && activeRaw.isNotEmpty) {
-      _activeIds = dropDuplicateAxisJoysticks(_decodeIdList(activeRaw));
+      _activeIds = sanitizeJoyActiveIds(_decodeIdList(activeRaw));
     } else {
       _activeIds = {kJoyLeftId, kJoyRightId};
     }
@@ -728,13 +750,16 @@ class _JoystickPageState extends State<JoystickPage> {
       if (obj is! Map) return {};
       final out = <String, _JoyLayout>{};
       obj.forEach((k, v) {
-        if (v is Map) {
-          final cx = (v['cx'] as num?)?.toDouble();
-          final cy = (v['cy'] as num?)?.toDouble();
-          final size = (v['size'] as num?)?.toDouble() ?? 1.0;
-          if (cx != null && cy != null) {
-            out[k.toString()] = _JoyLayout(cx, cy, size);
-          }
+        final id = k.toString();
+        final isButton = _isButtonId(id);
+        final saved = GamepadEditMetrics.readSavedLayout(
+          v,
+          minSize: isButton ? kJoyBtnMinSize : kJoyMinSize,
+          maxSize: isButton ? kJoyBtnMaxSize : kJoyMaxSize,
+          defaultSize: 1.0,
+        );
+        if (saved != null) {
+          out[id] = _JoyLayout(saved.cx, saved.cy, saved.size);
         }
       });
       return out;
@@ -768,9 +793,67 @@ class _JoystickPageState extends State<JoystickPage> {
       _editMode = !_editMode;
       if (_editMode && _panelSize != null) {
         final defaults = _defaultLayout(_panelSize!, _activeIds);
-        _layout = {...defaults, ..._layout};
+        // Edit what the pad shows, already fitted to this screen.
+        _layout = Map<String, _JoyLayout>.from(
+          _fitToPanel(_panelSize!, {...defaults, ..._layout}, _layout),
+        );
       }
     });
+  }
+
+  /// Active controls in fitting order: joysticks keep their spots and
+  /// buttons move out of their way, after controls the user placed
+  /// ([saved]) have kept theirs.
+  static const List<String> _fitOrder = [
+    kJoyLeftId,
+    kJoyYOnlyId,
+    kJoyRightId,
+    kJoyXOnlyId,
+    kBtnTriangleId,
+    kBtnCrossId,
+    kBtnSquareId,
+    kBtnCircleId,
+  ];
+
+  /// [layout] with the active controls moved, where needed, to fit inside
+  /// the pad's edge margin without overlapping (see
+  /// [GamepadEditMetrics.fitLayout]). Returns [layout] itself when nothing
+  /// had to move.
+  Map<String, _JoyLayout> _fitToPanel(
+    Size panel,
+    Map<String, _JoyLayout> layout,
+    Map<String, _JoyLayout> saved,
+  ) {
+    final w = panel.width;
+    final h = panel.height;
+    final placed = [
+      for (final id in GamepadEditMetrics.savedFirst(
+        _fitOrder,
+        saved.containsKey,
+      ))
+        if (_activeIds.contains(id) && layout[id] != null) (id, layout[id]!),
+    ];
+    double radius(String id, _JoyLayout l) =>
+        (_isButtonId(id) ? _baseBtnSize(panel) : _baseJoySize(panel)) *
+        l.size /
+        2;
+    final fitted = GamepadEditMetrics.fitLayout(
+      panel: panel,
+      pad: const EdgeInsets.all(_editEdgePad),
+      controls: [
+        for (final (id, l) in placed)
+          (Offset(l.cx * w, l.cy * h), radius(id, l)),
+      ],
+    );
+    Map<String, _JoyLayout>? out;
+    for (var i = 0; i < placed.length; i++) {
+      final (id, l) = placed[i];
+      final spot = fitted[i];
+      if ((spot - Offset(l.cx * w, l.cy * h)).distance <= 0.5) continue;
+      out ??= Map<String, _JoyLayout>.from(layout);
+      out[id] = _JoyLayout(spot.dx / w, spot.dy / h, l.size);
+    }
+    return out ?? layout;
   }
 
   bool _isLeftJoy(String id) => id == kJoyLeftId || id == kJoyYOnlyId;
@@ -1205,19 +1288,19 @@ class _JoystickPageState extends State<JoystickPage> {
       if (obj is! Map) return;
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
+      // Undo in the editor brings back what was on the pad before.
+      _pushHistory();
+      _clearButtonState(null);
       if (layoutRaw is Map) {
         _layout = _decodeLayout(jsonEncode(layoutRaw));
       }
       if (activeRaw is List) {
-        _activeIds = dropDuplicateAxisJoysticks(
-          activeRaw.map((e) => e.toString()),
-        );
+        _activeIds = sanitizeJoyActiveIds(activeRaw.map((e) => e.toString()));
       }
       _layout.removeWhere((k, _) => !_activeIds.contains(k));
-      _lockedIds.removeWhere((id) => !_activeIds.contains(id));
-      if (_selectedId != null && !_activeIds.contains(_selectedId)) {
-        _selectedId = null;
-      }
+      _lockedIds.clear();
+      _selectedId = null;
+      _editWarningId = null;
       if (_panelSize != null) {
         final defaults = _defaultLayout(_panelSize!, _activeIds);
         _layout = {...defaults, ..._layout};
@@ -2178,7 +2261,10 @@ class _JoystickPageState extends State<JoystickPage> {
                           final size = Size(c.maxWidth, c.maxHeight);
                           _panelSize = size;
                           final defaults = _defaultLayout(size, _activeIds);
-                          final effective = {...defaults, ..._layout};
+                          final effective = _fitToPanel(size, {
+                            ...defaults,
+                            ..._layout,
+                          }, _layout);
                           final base = _baseJoySize(size);
                           final btnBase = _baseBtnSize(size);
                           final widgets = <Widget>[];

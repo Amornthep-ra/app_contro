@@ -47,6 +47,7 @@ const String kCmdSquare = 'S';
 const String kCmdCircle = 'C';
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;
+const double _defaultBtnSize = 0.30;
 const double speedRowGap = 6.0;
 const Set<String> _defaultLeftActiveIds = {
   'L:up',
@@ -743,6 +744,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       final rightRaw = obj['rightActive'];
       final drive = obj['drive'];
       final turn = obj['turn'];
+      // Undo in the editor brings back what was on the pad before.
+      _pushHistory();
+      _resetInputState();
       if (layoutRaw is Map) {
         _layoutAll = _decodeLayout(jsonEncode(layoutRaw));
       }
@@ -752,6 +756,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       if (rightRaw is List) {
         _rightActive = rightRaw.map((e) => e.toString()).toSet();
       }
+      _sanitizeActive();
+      _lockedIds.clear();
+      _selectedId = null;
+      _editWarningId = null;
       if (drive is num) _driveSpeed = drive.round().clamp(0, 100);
       if (turn is num) _turnSpeed = turn.round().clamp(0, 100);
       setState(() {});
@@ -893,18 +901,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     } else {
       _rightActive = Set<String>.from(_defaultRightActiveIds);
     }
-    _layoutAll.removeWhere(
-      (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
-    );
-    _leftActive = _leftActive.intersection(_supportedEightButtonIds);
-    _rightActive = _rightActive.intersection(_supportedEightButtonIds);
-    if (_leftActive.isEmpty && _rightActive.isEmpty) {
-      _leftActive = Set<String>.from(_defaultLeftActiveIds);
-      _rightActive = Set<String>.from(_defaultRightActiveIds);
-    }
-    _layoutAll.removeWhere(
-      (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
-    );
+    _sanitizeActive();
     _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
     await _saveActive(_prefsActiveLeft, _leftActive);
     await _saveActive(_prefsActiveRight, _rightActive);
@@ -912,6 +909,27 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Keeps only arrows on the left and face buttons on the right, falls
+  /// back to the default pad when nothing is left, and drops layouts of
+  /// buttons that are not on the pad.
+  void _sanitizeActive() {
+    _leftActive = _leftActive
+        .where((id) => id.startsWith('L:'))
+        .toSet()
+        .intersection(_supportedEightButtonIds);
+    _rightActive = _rightActive
+        .where((id) => id.startsWith('R:'))
+        .toSet()
+        .intersection(_supportedEightButtonIds);
+    if (_leftActive.isEmpty && _rightActive.isEmpty) {
+      _leftActive = Set<String>.from(_defaultLeftActiveIds);
+      _rightActive = Set<String>.from(_defaultRightActiveIds);
+    }
+    _layoutAll.removeWhere(
+      (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
+    );
   }
 
   Future<void> _saveLayout(
@@ -945,13 +963,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       if (obj is! Map) return {};
       final out = <String, _ButtonLayout>{};
       obj.forEach((k, v) {
-        if (v is Map) {
-          final cx = (v['cx'] as num?)?.toDouble();
-          final cy = (v['cy'] as num?)?.toDouble();
-          final size = (v['size'] as num?)?.toDouble();
-          if (cx != null && cy != null && size != null) {
-            out[k.toString()] = _ButtonLayout(cx, cy, size);
-          }
+        final saved = GamepadEditMetrics.readSavedLayout(
+          v,
+          minSize: _minBtnSize,
+          maxSize: _maxBtnSize,
+          defaultSize: _defaultBtnSize,
+        );
+        if (saved != null) {
+          out[k.toString()] = _ButtonLayout(saved.cx, saved.cy, saved.size);
         }
       });
       return out;
@@ -2862,6 +2881,45 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
   return out;
 }
 
+/// [layout] with the buttons in [ids] moved, where needed, to fit inside
+/// the pad's safe margins without overlapping (see
+/// [GamepadEditMetrics.fitLayout]). Returns [layout] itself when nothing
+/// had to move.
+Map<String, _ButtonLayout> _fitLayoutToPanel(
+  Size panel,
+  List<String> ids,
+  Map<String, _ButtonLayout> layout,
+) {
+  final w = panel.width;
+  final h = panel.height;
+  final unit = GamepadEditMetrics.panelUnit(panel);
+  final placed = [
+    for (final id in ids)
+      if (layout[id] != null) (id, layout[id]!),
+  ];
+  final fitted = GamepadEditMetrics.fitLayout(
+    panel: panel,
+    pad: const EdgeInsets.fromLTRB(
+      GamepadEditMetrics.safeEdgePad,
+      GamepadEditMetrics.safeTopEdgePad,
+      GamepadEditMetrics.safeEdgePad,
+      GamepadEditMetrics.safeEdgePad,
+    ),
+    controls: [
+      for (final (_, l) in placed) (Offset(l.cx * w, l.cy * h), l.size * unit / 2),
+    ],
+  );
+  Map<String, _ButtonLayout>? out;
+  for (var i = 0; i < placed.length; i++) {
+    final (id, l) = placed[i];
+    final spot = fitted[i];
+    if ((spot - Offset(l.cx * w, l.cy * h)).distance <= 0.5) continue;
+    out ??= Map<String, _ButtonLayout>.from(layout);
+    out[id] = l.copyWith(cx: spot.dx / w, cy: spot.dy / h);
+  }
+  return out ?? layout;
+}
+
 class _ButtonLayout {
   final double cx;
   final double cy;
@@ -3007,6 +3065,11 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
         final size = Size(c.maxWidth, c.maxHeight);
         widget.onPanelSize(size);
         final defaults = _defaultLayoutForIds(size, widget.ids);
+        // Buttons the user placed keep their spots when fitting below.
+        final fitOrder = GamepadEditMetrics.savedFirst(
+          widget.ids,
+          _layout.containsKey,
+        );
         bool changed = false;
         if (!_initialized) {
           _initialized = true;
@@ -3019,6 +3082,13 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
           }
         }
         _layout.removeWhere((k, _) => !widget.ids.contains(k));
+        // A layout from another screen size can sit past the edge or on
+        // top of another button: show and save it moved into place.
+        final fitted = _fitLayoutToPanel(size, fitOrder, _layout);
+        if (!identical(fitted, _layout)) {
+          fitted.forEach((id, layout) => _layout[id] = layout);
+          changed = true;
+        }
         if (changed) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
@@ -3109,7 +3179,11 @@ class _LayoutPadPanel extends StatelessWidget {
       builder: (context, c) {
         final size = Size(c.maxWidth, c.maxHeight);
         final defaults = _defaultLayoutForIds(size, ids);
-        final effective = <String, _ButtonLayout>{...defaults, ...layout};
+        final effective = _fitLayoutToPanel(
+          size,
+          GamepadEditMetrics.savedFirst(ids, layout.containsKey),
+          {...defaults, ...layout},
+        );
         final w = size.width;
         final h = size.height;
         final s = GamepadEditMetrics.panelUnit(size);

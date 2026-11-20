@@ -158,6 +158,102 @@ void main() {
     });
   });
 
+  group('GamepadEditMetrics.readSavedLayout', () {
+    ({double cx, double cy, double size})? read(Object? raw) =>
+        GamepadEditMetrics.readSavedLayout(
+          raw,
+          minSize: 0.2,
+          maxSize: 0.8,
+          defaultSize: 0.3,
+        );
+
+    test('keeps a good entry', () {
+      expect(read({'cx': 0.25, 'cy': 0.5, 'size': 0.4}), (
+        cx: 0.25,
+        cy: 0.5,
+        size: 0.4,
+      ));
+    });
+
+    test('pulls the centre onto the pad and the size into range', () {
+      expect(read({'cx': 5, 'cy': -3, 'size': -1}), (
+        cx: 1.0,
+        cy: 0.0,
+        size: 0.2,
+      ));
+      expect(read({'cx': 0.5, 'cy': 0.5, 'size': 9})?.size, 0.8);
+    });
+
+    test('uses the default size when it is missing', () {
+      expect(read({'cx': 0.5, 'cy': 0.5})?.size, 0.3);
+    });
+
+    test('drops entries without a usable centre', () {
+      expect(read(null), isNull);
+      expect(read('x'), isNull);
+      expect(read({'cx': 'a', 'cy': 0.5}), isNull);
+      expect(read({'cy': 0.5}), isNull);
+    });
+  });
+
+  group('GamepadEditMetrics.fitLayout', () {
+    const panel = Size(400, 200);
+    const pad = EdgeInsets.fromLTRB(12, 4, 12, 12);
+
+    test('leaves a layout that fits alone', () {
+      const controls = [(Offset(80, 100), 30.0), (Offset(300, 100), 30.0)];
+      expect(
+        GamepadEditMetrics.fitLayout(
+          panel: panel,
+          pad: pad,
+          controls: controls,
+        ),
+        [for (final c in controls) c.$1],
+      );
+    });
+
+    test('pulls a control past the edge back inside the margins', () {
+      final fitted = GamepadEditMetrics.fitLayout(
+        panel: panel,
+        pad: pad,
+        controls: const [(Offset(395, -10), 30)],
+      );
+      expect(fitted.single, const Offset(400 - 12 - 30, 4 + 30.0));
+    });
+
+    test('moves the later of two overlapping controls clear of the first', () {
+      final fitted = GamepadEditMetrics.fitLayout(
+        panel: panel,
+        pad: pad,
+        controls: const [(Offset(150, 100), 30), (Offset(170, 100), 30)],
+      );
+      expect(fitted.first, const Offset(150, 100));
+      expect(
+        (fitted.last - fitted.first).distance - 60,
+        greaterThanOrEqualTo(GamepadEditMetrics.minControlGap),
+      );
+    });
+
+    test('keeps controls that are close but not overlapping', () {
+      const controls = [(Offset(150, 100), 30.0), (Offset(212, 100), 30.0)];
+      expect(
+        GamepadEditMetrics.fitLayout(
+          panel: panel,
+          pad: pad,
+          controls: controls,
+        ),
+        [for (final c in controls) c.$1],
+      );
+    });
+
+    test('savedFirst puts placed controls before default ones', () {
+      expect(
+        GamepadEditMetrics.savedFirst(['a', 'b', 'c', 'd'], {'c', 'a'}.contains),
+        ['a', 'c', 'b', 'd'],
+      );
+    });
+  });
+
   group('layout editor', () {
     setUpAll(_loadRoboto);
 
@@ -607,8 +703,33 @@ void main() {
       });
     }
 
-    // Each saved layout leaves the left-most control crowded or past the
-    // pad's edge, as one made on another screen size can.
+    List<Rect> rectsOf(WidgetTester tester, Finder controls) => [
+      for (final e in controls.evaluate())
+        tester.getRect(find.byWidget(e.widget)),
+    ];
+
+    void expectInsideWithoutOverlap(List<Rect> rects, Rect bounds) {
+      for (final r in rects) {
+        expect(bounds.inflate(0.5).contains(r.topLeft), isTrue, reason: '$r');
+        expect(
+          bounds.inflate(0.5).contains(r.bottomRight),
+          isTrue,
+          reason: '$r in $bounds',
+        );
+      }
+      for (var i = 0; i < rects.length; i++) {
+        for (var j = i + 1; j < rects.length; j++) {
+          expect(
+            _gap(rects[i], rects[j]),
+            greaterThanOrEqualTo(-0.5),
+            reason: '${rects[i]} overlaps ${rects[j]}',
+          );
+        }
+      }
+    }
+
+    // Each saved layout, as one made on another screen size can, has a
+    // control past the pad's edge and/or two controls on top of each other.
     final cramped = <String, Map<String, Object>>{
       'four-button': {
         'gp4_active_all': jsonEncode(['F:left', 'F:right']),
@@ -618,48 +739,140 @@ void main() {
         }),
       },
       'eight-button': {
-        'gp8_active_left': jsonEncode(['L:up']),
+        'gp8_active_left': jsonEncode(['L:up', 'L:down']),
         'gp8_active_right': jsonEncode(<String>[]),
         'gp8_layout_all': jsonEncode({
-          'L:up': {'cx': 0.3, 'cy': 0.12, 'size': 0.30},
+          'L:up': {'cx': 0.3, 'cy': 0.05, 'size': 0.30},
+          'L:down': {'cx': 0.3, 'cy': 0.2, 'size': 0.30},
         }),
       },
       'joystick': {
         'joy_dual_active': jsonEncode(['joy_left', 'joy_right']),
         'joy_dual_layout': jsonEncode({
           'joy_left': {'cx': 0.02, 'cy': 0.5, 'size': 1.0},
+          'joy_right': {'cx': 0.2, 'cy': 0.5, 'size': 1.0},
         }),
       },
     };
     for (final entry in cramped.entries) {
       final page = _pages[entry.key]!;
-      testWidgets('${entry.key}: a crowded or out-of-bounds control can be '
-          'shrunk but not grown', (tester) async {
+      testWidgets('${entry.key}: a layout past the edge or overlapping is '
+          'fitted into the pad and can still be resized', (tester) async {
         SharedPreferences.setMockInitialValues(entry.value);
         await openEditor(tester, page.build());
         final controls = _byTypeName(page.controlType);
-        Rect leftMost() => [
-          for (final e in controls.evaluate())
-            tester.getRect(find.byWidget(e.widget)),
-        ].reduce((a, b) => a.center.dx < b.center.dx ? a : b);
+        final bounds = page.panelType == null
+            ? Offset.zero & tester.view.physicalSize
+            : tester.getRect(_byTypeName(page.panelType!));
+        expectInsideWithoutOverlap(rectsOf(tester, controls), bounds);
 
+        Rect leftMost() => rectsOf(
+          tester,
+          controls,
+        ).reduce((a, b) => a.center.dx < b.center.dx ? a : b);
         await tester.tapAt(leftMost().center);
         await tester.pumpAndSettle();
         final start = leftMost().shortestSide;
-
         await tester.tap(find.byTooltip('Decrease size'));
         await tester.pumpAndSettle();
-        final shrunk = leftMost().shortestSide;
-        expect(shrunk, lessThan(start - 1));
-
-        await tester.tap(find.byTooltip('Increase size'));
-        await tester.pumpAndSettle();
-        expect(leftMost().shortestSide, closeTo(shrunk, 0.5));
+        expect(leftMost().shortestSide, lessThan(start - 1));
 
         expect(tester.takeException(), isNull);
         await closePage(tester);
       });
     }
+
+    testWidgets('eight-button: play mode fits a saved layout without '
+        'rewriting it', (tester) async {
+      final layout = jsonEncode({
+        'L:up': {'cx': 0.3, 'cy': 0.0, 'size': 0.5},
+        'L:down': {'cx': 0.32, 'cy': 0.1, 'size': 0.5},
+        'R:circle': {'cx': 1.0, 'cy': 1.0, 'size': 0.5},
+      });
+      SharedPreferences.setMockInitialValues({
+        'gp8_active_left': jsonEncode(['L:up', 'L:down']),
+        'gp8_active_right': jsonEncode(['R:circle']),
+        'gp8_layout_all': layout,
+      });
+      tester.view.physicalSize = const Size(914, 411);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const MaterialApp(home: GamepadModeEdit()));
+      await tester.pumpAndSettle();
+
+      final buttons = find.byWidgetPredicate(
+        (w) => w.runtimeType.toString() == 'GamepadImageHoldButton',
+      );
+      expect(buttons, findsNWidgets(3));
+      expectInsideWithoutOverlap(
+        rectsOf(tester, buttons),
+        Offset.zero & tester.view.physicalSize,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('gp8_layout_all'), layout);
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
+
+    // Saved data no version of the app writes, but storage can hold.
+    final corrupt = <String, (Map<String, Object>, int)>{
+      'four-button': (
+        {
+          'gp4_active_all': jsonEncode(['F:forward', 'bogus']),
+          'gp4_layout_all': jsonEncode({
+            'F:forward': {'cx': 5, 'cy': -3, 'size': -1},
+          }),
+        },
+        1,
+      ),
+      'eight-button': (
+        {
+          // A face button in the arrows' list, and an unreadable spot.
+          'gp8_active_left': jsonEncode(['L:up', 'R:cross']),
+          'gp8_active_right': jsonEncode(<String>[]),
+          'gp8_layout_all': jsonEncode({
+            'L:up': {'cx': 'x', 'cy': 0.5},
+          }),
+        },
+        1,
+      ),
+      'joystick': (
+        // Nothing usable: the default two joysticks come back.
+        {'joy_dual_active': jsonEncode(['bogus'])},
+        2,
+      ),
+    };
+    for (final entry in corrupt.entries) {
+      final page = _pages[entry.key]!;
+      final (prefs, count) = entry.value;
+      testWidgets('${entry.key}: corrupt saved data still gives a usable '
+          'pad', (tester) async {
+        SharedPreferences.setMockInitialValues(prefs);
+        await openEditor(tester, page.build());
+        expect(tester.takeException(), isNull);
+        final controls = _byTypeName(page.controlType);
+        expect(controls, findsNWidgets(count));
+        final bounds = page.panelType == null
+            ? Offset.zero & tester.view.physicalSize
+            : tester.getRect(_byTypeName(page.panelType!));
+        expectInsideWithoutOverlap(rectsOf(tester, controls), bounds);
+        for (final r in rectsOf(tester, controls)) {
+          expect(r.shortestSide, greaterThan(20));
+        }
+        await closePage(tester);
+      });
+    }
+
+    testWidgets('joystick: a pad saved with every control removed opens '
+        'with the default joysticks', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'joy_dual_active': jsonEncode(<String>[]),
+      });
+      await openEditor(tester, const JoystickPage());
+      expect(_byTypeName('_EditableJoystick'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+      await closePage(tester);
+    });
 
     testWidgets('joystick: a one-axis joystick takes the place of the full '
         'one on its side', (tester) async {

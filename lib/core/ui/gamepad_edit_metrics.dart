@@ -84,6 +84,81 @@ class GamepadEditMetrics {
     return best ?? start;
   }
 
+  /// A control's saved position read back from storage: centre as
+  /// fractions of the pad (kept within 0..1) and size kept within
+  /// [minSize]..[maxSize] ([defaultSize] when missing). Null when the entry
+  /// is unusable, so the control falls back to its default spot.
+  static ({double cx, double cy, double size})? readSavedLayout(
+    Object? raw, {
+    required double minSize,
+    required double maxSize,
+    required double defaultSize,
+  }) {
+    if (raw is! Map) return null;
+    double? finite(Object? value) =>
+        value is num && value.isFinite ? value.toDouble() : null;
+    final cx = finite(raw['cx']);
+    final cy = finite(raw['cy']);
+    if (cx == null || cy == null) return null;
+    final size = finite(raw['size']) ?? defaultSize;
+    return (
+      cx: cx.clamp(0.0, 1.0),
+      cy: cy.clamp(0.0, 1.0),
+      size: size.clamp(minSize, maxSize),
+    );
+  }
+
+  /// Fits round controls (centre, radius) into [panel], in order.
+  ///
+  /// Each centre is kept far enough inside [pad] for the whole control to
+  /// show. A control that then overlaps one placed before it moves to the
+  /// nearest free spot ([freeSpotFor]). Layouts saved on another screen size
+  /// or shape can otherwise land past the edge or on top of each other.
+  /// Controls that are merely closer than [minControlGap] stay where they
+  /// are, as the editor allows. Returns the centres in the same order.
+  static List<Offset> fitLayout({
+    required Size panel,
+    required EdgeInsets pad,
+    required List<(Offset, double)> controls,
+  }) {
+    final placed = <(Offset, double)>[];
+    for (final (centre, radius) in controls) {
+      final area = Rect.fromLTRB(
+        pad.left + radius,
+        pad.top + radius,
+        panel.width - pad.right - radius,
+        panel.height - pad.bottom - radius,
+      );
+      double fit(double value, double min, double max) =>
+          max < min ? (min + max) / 2 : value.clamp(min, max);
+      var spot = Offset(
+        fit(centre.dx, area.left, area.right),
+        fit(centre.dy, area.top, area.bottom),
+      );
+      final overlaps = placed.any(
+        (other) => (spot - other.$1).distance < radius + other.$2 - 0.5,
+      );
+      if (overlaps) {
+        spot = freeSpotFor(
+          preferred: spot,
+          radius: radius,
+          centreArea: area,
+          others: placed,
+        );
+      }
+      placed.add((spot, radius));
+    }
+    return [for (final p in placed) p.$1];
+  }
+
+  /// [ids] with the ones that have a saved spot ([isSaved]) first, so
+  /// [fitLayout] keeps where the user put a control and moves a control
+  /// sitting at its default spot instead. Order is otherwise kept.
+  static List<String> savedFirst(
+    Iterable<String> ids,
+    bool Function(String id) isSaved,
+  ) => [...ids.where(isSaved), ...ids.where((id) => !isSaved(id))];
+
   static double panelUnit(Size panel) {
     return math.min(panel.width, panel.height).clamp(0.0, maxPanelUnit);
   }

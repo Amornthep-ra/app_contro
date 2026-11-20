@@ -41,6 +41,14 @@ const double _panelRowGap = 28.0;
 const double _panelColGap = 32.0;
 const double _minBtnSize = 0.18;
 const double _maxBtnSize = 0.8;
+const double _defaultBtnSize = 0.30;
+const Set<String> _defaultFourButtonIds = {
+  'F:forward',
+  'F:backward',
+  'F:left',
+  'F:right',
+};
+const Set<String> _speedLabels = {'Lo', 'Med', 'Hi'};
 const Set<String> _supportedFourButtonIds = {
   'F:forward',
   'F:backward',
@@ -435,13 +443,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       if (obj is! Map) return {};
       final out = <String, _ButtonLayout>{};
       obj.forEach((k, v) {
-        if (v is Map) {
-          final cx = (v['cx'] as num?)?.toDouble();
-          final cy = (v['cy'] as num?)?.toDouble();
-          final size = (v['size'] as num?)?.toDouble();
-          if (cx != null && cy != null) {
-            out[k.toString()] = _ButtonLayout(cx, cy, size ?? 1.0);
-          }
+        final saved = GamepadEditMetrics.readSavedLayout(
+          v,
+          minSize: _minBtnSize,
+          maxSize: _maxBtnSize,
+          defaultSize: _defaultBtnSize,
+        );
+        if (saved != null) {
+          out[k.toString()] = _ButtonLayout(saved.cx, saved.cy, saved.size);
         }
       });
       return out;
@@ -917,6 +926,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       final speed = obj['speed'];
+      // Undo in the editor brings back what was on the pad before.
+      _pushHistory();
+      _resetInputState();
       if (layoutRaw is Map) {
         _layoutAll = _decodeLayout(jsonEncode(layoutRaw));
       }
@@ -926,7 +938,16 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
             .toSet()
             .intersection(_supportedFourButtonIds);
       }
-      if (speed is String) _speedLabel = speed;
+      if (_activeIds.isEmpty) {
+        _activeIds = Set<String>.from(_defaultFourButtonIds);
+      }
+      _layoutAll.removeWhere((k, _) => !_activeIds.contains(k));
+      _lockedIds.clear();
+      _selectedId = null;
+      _editWarningId = null;
+      if (speed is String && _speedLabels.contains(speed)) {
+        _speedLabel = speed;
+      }
       setState(() {});
       _saveLayout(_prefsLayoutAll, _layoutAll);
       _saveActive(_prefsActiveAll, _activeIds);
@@ -2307,6 +2328,45 @@ _ScaledHoldCfg _scaledHoldCfg(BtnCfg base, _ButtonLayout layout, Size panel) {
   return _ScaledHoldCfg(cfg, Offset(cx, cy));
 }
 
+/// [layout] with the arrows in [ids] moved, where needed, to fit inside the
+/// pad's safe margins without overlapping (see
+/// [GamepadEditMetrics.fitLayout]). Returns [layout] itself when nothing
+/// had to move.
+Map<String, _ButtonLayout> _fitLayoutToPanel(
+  Size panel,
+  Map<String, _BtnSpec> specs,
+  List<String> ids,
+  Map<String, _ButtonLayout> layout,
+) {
+  final placed = <(String, _ScaledHoldCfg)>[
+    for (final id in ids)
+      if (specs[id] != null && layout[id] != null)
+        (id, _scaledHoldCfg(specs[id]!.cfg, layout[id]!, panel)),
+  ];
+  final fitted = GamepadEditMetrics.fitLayout(
+    panel: panel,
+    pad: const EdgeInsets.fromLTRB(
+      GamepadEditMetrics.safeEdgePad,
+      GamepadEditMetrics.safeTopEdgePad,
+      GamepadEditMetrics.safeEdgePad,
+      GamepadEditMetrics.safeEdgePad,
+    ),
+    controls: [for (final (_, s) in placed) (s.center, s.radius)],
+  );
+  Map<String, _ButtonLayout>? out;
+  for (var i = 0; i < placed.length; i++) {
+    final (id, scaled) = placed[i];
+    final spot = fitted[i];
+    if ((spot - scaled.center).distance <= 0.5) continue;
+    out ??= Map<String, _ButtonLayout>.from(layout);
+    out[id] = layout[id]!.copyWith(
+      cx: spot.dx / panel.width,
+      cy: spot.dy / panel.height,
+    );
+  }
+  return out ?? layout;
+}
+
 BtnCfg _defaultRenderedCfg(BtnCfg base, Size panel) {
   return _scaledHoldCfg(base, const _ButtonLayout(0.5, 0.5, 0.30), panel).cfg;
 }
@@ -2550,6 +2610,11 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
         final size = Size(c.maxWidth, c.maxHeight);
         widget.onPanelSize(size);
         final defaults = _defaultLayoutForIds(size, widget.specs, widget.ids);
+        // Arrows the user placed keep their spots when fitting below.
+        final fitOrder = GamepadEditMetrics.savedFirst(
+          widget.ids,
+          _layout.containsKey,
+        );
         bool changed = false;
         if (!_initialized) {
           _initialized = true;
@@ -2562,6 +2627,18 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
           }
         }
         _layout.removeWhere((k, _) => !widget.ids.contains(k));
+        // A layout from another screen size can sit past the edge or on
+        // top of another arrow: show and save it moved into place.
+        final fitted = _fitLayoutToPanel(
+          size,
+          widget.specs,
+          fitOrder,
+          _layout,
+        );
+        if (!identical(fitted, _layout)) {
+          fitted.forEach((id, layout) => _layout[id] = layout);
+          changed = true;
+        }
         if (changed) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
@@ -2661,7 +2738,12 @@ class _LayoutPadPanel extends StatelessWidget {
       builder: (context, c) {
         final size = Size(c.maxWidth, c.maxHeight);
         final defaults = _defaultLayoutForIds(size, specs, ids);
-        final effective = <String, _ButtonLayout>{...defaults, ...layout};
+        final effective = _fitLayoutToPanel(
+          size,
+          specs,
+          GamepadEditMetrics.savedFirst(ids, layout.containsKey),
+          {...defaults, ...layout},
+        );
         return Stack(
           children: ids.map((id) {
             final spec = specs[id];
