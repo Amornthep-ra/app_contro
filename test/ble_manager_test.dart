@@ -856,9 +856,13 @@ void main() {
   group('connection priority follows the control session', () {
     final manager = BleManager.instance;
     late List<ConnectionPriority> requests;
+    const downgradeDelay = Duration(milliseconds: 20);
+    Future<void> afterDowngradeDelay() =>
+        Future<void>.delayed(downgradeDelay * 2);
 
     setUp(() {
       requests = [];
+      manager.connectionPriorityDowngradeDelay = downgradeDelay;
       manager.debugConnectionPriorityRequest = (priority) async {
         requests.add(priority);
       };
@@ -868,27 +872,62 @@ void main() {
       );
     });
 
-    tearDown(() {
-      manager.debugConnectionPriorityRequest = null;
+    tearDown(() async {
       manager.debugPresentConnectionForTesting(
         status: BleConnectionStatus.disconnected,
       );
+      // Let any pending downgrade timer fire against the disconnected link.
+      await afterDowngradeDelay();
+      manager.debugConnectionPriorityRequest = null;
+      manager.connectionPriorityDowngradeDelay = const Duration(
+        milliseconds: 500,
+      );
     });
 
-    test('raises on Start and lowers once on Stop', () async {
+    test('raises on Start and lowers once on Stop after a delay', () async {
       final owner = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
       await Future<void>.delayed(Duration.zero);
       expect(requests, [ConnectionPriority.high]);
 
       manager.releaseTrafficMode(owner, refreshHeartbeat: false);
       await Future<void>.delayed(Duration.zero);
+      expect(requests, [ConnectionPriority.high], reason: 'still delayed');
+      await afterDowngradeDelay();
       expect(requests, [ConnectionPriority.high, ConnectionPriority.balanced]);
 
       // Text-mode churn on a balanced link sends nothing more.
       final textOwner = manager.claimTrafficMode(BleTrafficMode.textCommand)!;
       manager.releaseTrafficMode(textOwner, refreshHeartbeat: false);
-      await Future<void>.delayed(Duration.zero);
+      await afterDowngradeDelay();
       expect(requests, hasLength(2));
+    });
+
+    test('switching control pages keeps high with no extra requests', () async {
+      final first = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, [ConnectionPriority.high]);
+
+      // Mode switch: the old page hands off, the new page claims at once.
+      manager.handoffControlForModeSwitch(owner: first);
+      final second = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await afterDowngradeDelay();
+      expect(requests, [ConnectionPriority.high]);
+
+      manager.releaseTrafficMode(second, refreshHeartbeat: false);
+      await afterDowngradeDelay();
+      expect(requests, [ConnectionPriority.high, ConnectionPriority.balanced]);
+    });
+
+    test('a disconnect during the delay sends no downgrade', () async {
+      final owner = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
+      await Future<void>.delayed(Duration.zero);
+      manager.releaseTrafficMode(owner, refreshHeartbeat: false);
+      manager.debugPresentConnectionForTesting(
+        status: BleConnectionStatus.disconnected,
+        connected: false,
+      );
+      await afterDowngradeDelay();
+      expect(requests, [ConnectionPriority.high]);
     });
 
     test('sends nothing while disconnected', () async {
@@ -911,7 +950,7 @@ void main() {
       final first = manager.claimTrafficMode(BleTrafficMode.controlBinary)!;
       await Future<void>.delayed(Duration.zero);
       manager.releaseTrafficMode(first, refreshHeartbeat: false);
-      await Future<void>.delayed(Duration.zero);
+      await afterDowngradeDelay();
       // The failed high request was forgotten, so Stop needs no balanced.
       expect(requests, [ConnectionPriority.high]);
 

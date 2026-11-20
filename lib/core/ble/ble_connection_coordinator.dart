@@ -1227,6 +1227,10 @@ class BleConnectionCoordinator {
         recoveryOutcome: BleRecoveryOutcome.none,
       ),
     );
+    // Mark connecting before tearing down the old link: a `*_replace`
+    // disconnect keeps the current status, so an early return below would
+    // otherwise leave a stale "Connected" that the failure path cannot clear.
+    BleManager.instance.markConnecting(source: source);
     try {
       await BleManager.instance
           .disconnect(source: '${source}_replace')

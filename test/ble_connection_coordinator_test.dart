@@ -16,6 +16,7 @@ class _FakeBleConnectionPlatform implements BleConnectionPlatform {
   Object? startError;
   Object? connectError;
   Completer<void>? stopScanGate;
+  Completer<void>? disconnectGate;
   var startCalls = 0;
   var stopCalls = 0;
   var connectCalls = 0;
@@ -32,7 +33,9 @@ class _FakeBleConnectionPlatform implements BleConnectionPlatform {
   }
 
   @override
-  Future<void> disconnect(ScanResult result) async {}
+  Future<void> disconnect(ScanResult result) async {
+    await disconnectGate?.future;
+  }
 
   @override
   Future<void> startScan({required Duration timeout}) async {
@@ -417,6 +420,43 @@ void main() {
       await coordinator.dispose();
       await platform.dispose();
     });
+
+    test(
+      'a device switch aborted after teardown does not leave Connected',
+      () async {
+        // Model a live link that the user replaces with another board.
+        BleManager.instance.debugPresentConnectionForTesting(
+          status: BleConnectionStatus.connected,
+        );
+        final platform = _FakeBleConnectionPlatform()
+          ..disconnectGate = Completer<void>();
+        var canManage = true;
+        final coordinator = BleConnectionCoordinator(
+          platform: platform,
+          listenToManagerAutoConnectRequests: false,
+          canManageConnection: ({int? owner}) => canManage,
+        );
+
+        final connect = coordinator.connect(_scanResult(nordicUart: true));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          BleManager.instance.connectionStatus,
+          BleConnectionStatus.connecting,
+        );
+        // Control took the link while the old connection was being torn down.
+        canManage = false;
+        platform.disconnectGate!.complete();
+        await connect;
+
+        expect(platform.connectCalls, 0);
+        expect(
+          BleManager.instance.connectionStatus,
+          BleConnectionStatus.disconnected,
+        );
+        await coordinator.dispose();
+        await platform.dispose();
+      },
+    );
 
     test('rechecks policy after stopping scan before connecting', () async {
       final platform = _FakeBleConnectionPlatform();

@@ -794,6 +794,11 @@ class BleManager {
   @visibleForTesting
   BleConnectionPriorityRequest? debugConnectionPriorityRequest;
 
+  /// How long a released control session waits before lowering priority.
+  @visibleForTesting
+  Duration connectionPriorityDowngradeDelay = const Duration(milliseconds: 500);
+  Timer? _priorityDowngradeTimer;
+
   int _trafficModeOwner = 0;
   String _trafficModeOwnerName = 'none';
   BleReconnectMode _reconnectMode = BleReconnectMode.disabled;
@@ -880,17 +885,53 @@ class BleManager {
     );
   }
 
+  ConnectionPriority? _desiredConnectionPriority() =>
+      desiredBleConnectionPriority(
+        mode: _trafficModeValue,
+        connected: isConnected,
+      );
+
+  ConnectionPriority get _currentConnectionPriority =>
+      _requestedConnectionPriority ?? ConnectionPriority.balanced;
+
+  void _cancelPriorityDowngrade() {
+    _priorityDowngradeTimer?.cancel();
+    _priorityDowngradeTimer = null;
+  }
+
   void _syncConnectionPriority() {
-    final desired = desiredBleConnectionPriority(
-      mode: _trafficModeValue,
-      connected: isConnected,
-    );
+    final desired = _desiredConnectionPriority();
     if (desired == null) {
+      _cancelPriorityDowngrade();
       _requestedConnectionPriority = null;
       return;
     }
-    final current = _requestedConnectionPriority ?? ConnectionPriority.balanced;
-    if (desired == current) return;
+    if (desired == _currentConnectionPriority) {
+      // Covers a mode switch: control was released and reclaimed before the
+      // pending downgrade fired, so the link simply stays high.
+      _cancelPriorityDowngrade();
+      return;
+    }
+    if (_connectionPriorityRequest() == null) return;
+
+    if (desired == ConnectionPriority.balanced) {
+      // Delay the downgrade. Switching control pages releases then reclaims
+      // within milliseconds; back-to-back requests can be rejected by Android
+      // while the first is still being negotiated with the board.
+      _priorityDowngradeTimer ??= Timer(connectionPriorityDowngradeDelay, () {
+        _priorityDowngradeTimer = null;
+        if (_desiredConnectionPriority() == ConnectionPriority.balanced &&
+            _currentConnectionPriority != ConnectionPriority.balanced) {
+          _sendConnectionPriority(ConnectionPriority.balanced);
+        }
+      });
+      return;
+    }
+    _cancelPriorityDowngrade();
+    _sendConnectionPriority(desired);
+  }
+
+  void _sendConnectionPriority(ConnectionPriority desired) {
     final request = _connectionPriorityRequest();
     if (request == null) return;
 
