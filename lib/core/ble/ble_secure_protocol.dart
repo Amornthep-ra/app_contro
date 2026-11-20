@@ -52,7 +52,7 @@ class BleSecureProtocol {
       'PB2|CAPS|${capabilities.boardId}|${capabilities.boardModel}|'
       '${capabilities.firmwareVersion}|$appNonce|${capabilities.boardNonce}',
     );
-    return _constantTimeEquals(expected, capabilities.boardTag);
+    return _constantTimeEquals(expected, capabilities.boardTag.toLowerCase());
   }
 
   static BleSecureControlSession createSession({
@@ -157,9 +157,15 @@ class BleSecureProtocol {
       'PB2|OK|${capabilities.boardId}|$appNonce|${capabilities.boardNonce}|'
       '${acknowledgement.sessionId}',
     );
-    return _constantTimeEquals(expected, acknowledgement.boardTag);
+    return _constantTimeEquals(
+      expected,
+      acknowledgement.boardTag.toLowerCase(),
+    );
   }
 
+  /// Lowercase hex. Received tags are lowercased before comparison because
+  /// firmware hex encoders differ in case; only the tag is normalized, never
+  /// the HMAC inputs.
   static String _hmacHex(List<int> secret, String value) =>
       Hmac(sha256, secret).convert(utf8.encode(value)).toString();
 

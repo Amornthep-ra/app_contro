@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_secure_protocol.dart';
 import 'ble_permissions.dart';
+import 'ble_protocol_line_assembler.dart';
 import 'joystick_packet.dart';
 
 enum BleTrafficMode { textCommand, controlBinary }
@@ -393,21 +394,34 @@ List<int> buildZeroControlPacket() {
   ).toBinaryPacket(const <int>{});
 }
 
+/// A congested link can time out a few 200 ms writes in a row and recover.
+/// Tearing down then costs a full reconnect and re-authentication, while the
+/// robot's 400 ms watchdog already stops it during the gap. Only a failure
+/// streak that is both long enough and old enough counts as a dead link.
 @visibleForTesting
 bool shouldTriggerWriteTransportFailure({
   required int consecutiveFailures,
-  int threshold = 2,
+  required Duration failureStreakAge,
+  int threshold = BleManager.writeFailureThreshold,
+  Duration minimumStreakAge = BleManager.writeFailureMinimumStreak,
 }) {
-  return consecutiveFailures >= threshold;
+  return consecutiveFailures >= threshold &&
+      failureStreakAge >= minimumStreakAge;
 }
 
+/// Whether the legacy text-protocol heartbeat (PING, then disconnect after
+/// 5 s without RX) applies.
+///
+/// It never applies to an authenticated PB2 link: the board does not answer
+/// PING and the control channel is write-only, so a quiet RX stream is normal.
+/// A dead PB2 link is detected instead by failed control writes while driving
+/// ([shouldTriggerWriteTransportFailure]) and by the OS supervision timeout
+/// while idle, which reports through the device's connection state.
 @visibleForTesting
 bool shouldMonitorHeartbeatRx(
   BleTrafficMode mode, {
   bool isSecureControlReady = false,
 }) {
-  // The control protocol is write-only; a quiet notification stream is normal.
-  // Authenticated PB2 also stays quiet before Start and after Stop.
   return !isSecureControlReady && mode == BleTrafficMode.textCommand;
 }
 
@@ -616,7 +630,8 @@ class BleManager {
       StreamController<BleDiagnosticsSnapshot>.broadcast();
   final StreamController<String> _protocolLineController =
       StreamController<String>.broadcast();
-  final StringBuffer _protocolLineBuffer = StringBuffer();
+  final BleProtocolLineAssembler _protocolLineAssembler =
+      BleProtocolLineAssembler();
   BleSecureControlSession? _secureControlSession;
 
   Stream<bool> get connectionStream => _connectionController.stream;
@@ -648,18 +663,9 @@ class BleManager {
   }
 
   void _recordProtocolBytes(List<int> data) {
-    if (data.any((byte) => byte != 10 && (byte < 32 || byte > 126))) return;
-    final text = String.fromCharCodes(data);
-    _protocolLineBuffer.write(text);
-    final buffered = _protocolLineBuffer.toString();
-    final lines = buffered.split('\n');
-    _protocolLineBuffer
-      ..clear()
-      ..write(lines.removeLast());
-    for (final line in lines) {
-      if (line.isNotEmpty && !_protocolLineController.isClosed) {
-        _protocolLineController.add(line.trim());
-      }
+    for (final line in _protocolLineAssembler.add(data)) {
+      if (_protocolLineController.isClosed) return;
+      _protocolLineController.add(line);
     }
   }
 
@@ -766,7 +772,8 @@ class BleManager {
   static const Duration _binaryWriteTimeout = Duration(milliseconds: 200);
   static const Duration _serviceDiscoveryTimeout = Duration(seconds: 10);
   static const Duration _notificationSubscribeTimeout = Duration(seconds: 5);
-  static const int _writeFailureThreshold = 2;
+  static const int writeFailureThreshold = 3;
+  static const Duration writeFailureMinimumStreak = Duration(seconds: 1);
 
   final Queue<_BleQueuedWrite> _textWriteQueue = Queue<_BleQueuedWrite>();
   final Queue<_BleQueuedWrite> _stopWriteQueue = Queue<_BleQueuedWrite>();
@@ -777,6 +784,7 @@ class BleManager {
   DateTime _lastJoySend = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastRateLimitLog = DateTime.fromMillisecondsSinceEpoch(0);
   int _writeFailureCount = 0;
+  DateTime? _firstWriteFailureAt;
   bool _transportFailureHandling = false;
   bool _controlSuspendedForLifecycle = false;
   final ValueNotifier<bool> _controlSuspendedController = ValueNotifier(false);
@@ -1358,12 +1366,14 @@ class BleManager {
 
   void _resetTransportHealth() {
     _writeFailureCount = 0;
+    _firstWriteFailureAt = null;
     _emitDiagnostics();
   }
 
   void _recordWriteSuccess() {
     if (_writeFailureCount == 0) return;
     _writeFailureCount = 0;
+    _firstWriteFailureAt = null;
     _emitDiagnostics();
     _log('write_failure_count_reset');
   }
@@ -1373,19 +1383,23 @@ class BleManager {
     int? owner,
     Object? error,
   }) async {
+    final now = DateTime.now();
     _writeFailureCount++;
+    final firstFailureAt = _firstWriteFailureAt ??= now;
+    final streakAge = now.difference(firstFailureAt);
     _recordFailure('write_failed:$source');
     _log(
       'write_failure_count',
       _ownerDetail(
         owner,
-        'source=$source count=$_writeFailureCount threshold=$_writeFailureThreshold error=$error',
+        'source=$source count=$_writeFailureCount threshold=$writeFailureThreshold '
+        'streakMs=${streakAge.inMilliseconds} error=$error',
       ),
     );
 
     if (shouldTriggerWriteTransportFailure(
       consecutiveFailures: _writeFailureCount,
-      threshold: _writeFailureThreshold,
+      failureStreakAge: streakAge,
     )) {
       await _handleTransportFailure(
         source: 'write_failed:$source',
@@ -1654,7 +1668,7 @@ class BleManager {
 
   void setDevice(BluetoothDevice device) {
     _clearSecureControlSession();
-    _protocolLineBuffer.clear();
+    _protocolLineAssembler.reset();
     _device = device;
     _emitDiagnostics();
     _log('device_set');
@@ -1665,7 +1679,7 @@ class BleManager {
 
       if (state == BluetoothConnectionState.disconnected) {
         _clearSecureControlSession();
-        _protocolLineBuffer.clear();
+        _protocolLineAssembler.reset();
         _log('os_disconnected');
         _endControlSessionForLinkLoss(source: 'os_disconnected');
 
@@ -2125,7 +2139,7 @@ class BleManager {
       _log('disconnect_failed', 'source=$source error=$e');
     } finally {
       _clearSecureControlSession();
-      _protocolLineBuffer.clear();
+      _protocolLineAssembler.reset();
       _device = null;
       _tx = null;
       _rx = null;

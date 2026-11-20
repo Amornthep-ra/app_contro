@@ -775,28 +775,48 @@ void main() {
   });
 
   group('shouldTriggerWriteTransportFailure', () {
+    const longStreak = Duration(seconds: 2);
+
     test('returns false before the failure threshold', () {
       expect(
         shouldTriggerWriteTransportFailure(
-          consecutiveFailures: 1,
-          threshold: 2,
+          consecutiveFailures: BleManager.writeFailureThreshold - 1,
+          failureStreakAge: longStreak,
         ),
         isFalse,
       );
     });
 
-    test('returns true at and after the failure threshold', () {
+    test('tolerates a short burst of failures on a congested link', () {
+      // Two 200 ms timeouts back to back used to tear the link down.
       expect(
         shouldTriggerWriteTransportFailure(
           consecutiveFailures: 2,
-          threshold: 2,
+          failureStreakAge: const Duration(milliseconds: 400),
+        ),
+        isFalse,
+      );
+      expect(
+        shouldTriggerWriteTransportFailure(
+          consecutiveFailures: 10,
+          failureStreakAge: const Duration(milliseconds: 900),
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns true once the streak is long and old enough', () {
+      expect(
+        shouldTriggerWriteTransportFailure(
+          consecutiveFailures: BleManager.writeFailureThreshold,
+          failureStreakAge: BleManager.writeFailureMinimumStreak,
         ),
         isTrue,
       );
       expect(
         shouldTriggerWriteTransportFailure(
-          consecutiveFailures: 3,
-          threshold: 2,
+          consecutiveFailures: BleManager.writeFailureThreshold + 2,
+          failureStreakAge: longStreak,
         ),
         isTrue,
       );

@@ -65,6 +65,63 @@ void main() {
     );
   });
 
+  test('accepts uppercase hex tags from firmware', () {
+    final caps = capabilities();
+    final upperCaps = BleBoardCapabilities(
+      protocolVersion: 2,
+      boardId: boardId,
+      boardModel: model,
+      firmwareVersion: firmware,
+      boardNonce: boardNonce,
+      boardTag: caps.boardTag.toUpperCase(),
+    );
+    expect(
+      BleSecureProtocol.verifiesBoard(
+        secret: secret,
+        capabilities: upperCaps,
+        appNonce: appNonce,
+      ),
+      isTrue,
+    );
+    const sessionId = 's1';
+    final acknowledgement = BleAuthenticationAck(
+      sessionId: sessionId,
+      boardTag: _hmac(
+        secret,
+        'PB2|OK|$boardId|$appNonce|$boardNonce|$sessionId',
+      ).toUpperCase(),
+    );
+    expect(
+      BleSecureProtocol.verifiesAuthenticated(
+        secret: secret,
+        capabilities: caps,
+        appNonce: appNonce,
+        acknowledgement: acknowledgement,
+      ),
+      isTrue,
+    );
+  });
+
+  test('still rejects a tag with the wrong value', () {
+    final caps = capabilities();
+    final tampered = BleBoardCapabilities(
+      protocolVersion: 2,
+      boardId: boardId,
+      boardModel: model,
+      firmwareVersion: firmware,
+      boardNonce: boardNonce,
+      boardTag: '0' * caps.boardTag.length,
+    );
+    expect(
+      BleSecureProtocol.verifiesBoard(
+        secret: secret,
+        capabilities: tampered,
+        appNonce: appNonce,
+      ),
+      isFalse,
+    );
+  });
+
   test(
     'creates authenticated joystick and stop packets with unique sequence',
     () {
