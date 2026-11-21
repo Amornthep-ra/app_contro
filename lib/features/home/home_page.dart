@@ -74,6 +74,9 @@ class _HomePageState extends State<HomePage>
 
   static const _prefsLastDeviceIdKey = 'ble_last_device_id';
   static const _prefsLastDeviceNameKey = 'ble_last_device_name';
+  static final _guideUri = Uri.parse(
+    'https://github.com/Amornthep-ra/PB-BLE-Example-All.git',
+  );
   static final _tutorialVideoUri = Uri.parse('https://youtu.be/DPofZ1vu0lo');
   static final _facebookPageUri = Uri.parse(
     'https://www.facebook.com/PrinceBotAndElectronics',
@@ -661,6 +664,22 @@ class _HomePageState extends State<HomePage>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _LinkRow(
+                actionKey: const ValueKey('home-guide-action'),
+                icon: Icons.menu_book_rounded,
+                title: 'Guide',
+                subtitle: 'Read the guide and examples on GitHub',
+                enabled: !_openingPage,
+                onTap: () =>
+                    _openExternal(_guideUri, 'Unable to open the guide.'),
+              ),
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 72,
+                endIndent: 18,
+                color: LavenderPalette.ink.withValues(alpha: 0.07),
+              ),
               _LinkRow(
                 actionKey: const ValueKey('home-tutorial-action'),
                 icon: Icons.play_circle_rounded,

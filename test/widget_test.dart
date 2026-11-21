@@ -333,7 +333,6 @@ void main() {
       expect(find.text('EN'), findsNothing);
       expect(find.text('TH'), findsNothing);
       expect(find.text('Contact'), findsOneWidget);
-      expect(find.text('Guide'), findsNothing);
       expect(
         find.byWidgetPredicate(
           (widget) =>
@@ -391,7 +390,7 @@ void main() {
         expect(semantics.label, contains('Follow us on Facebook'));
         expect(semantics.flagsCollection.isButton, isTrue);
 
-        // The YouTube tutorial link sits first in Resources.
+        // The YouTube tutorial link sits above Contact.
         final tutorial = find.byKey(const ValueKey('home-tutorial-action'));
         expect(tutorial, findsOneWidget);
         expect(
@@ -403,9 +402,70 @@ void main() {
         expect(tutorialSemantics.label, contains('YouTube'));
         expect(tutorialSemantics.flagsCollection.isButton, isTrue);
         expect(tester.getSize(tutorial).height, lessThan(104));
+
+        // Guide sits first in Resources, directly above How to use, with
+        // the same row look and size.
+        final guide = find.byKey(const ValueKey('home-guide-action'));
+        expect(guide, findsOneWidget);
+        expect(
+          tester.getBottomLeft(guide).dy,
+          lessThanOrEqualTo(tester.getTopLeft(tutorial).dy),
+        );
+        expect(
+          tester.getTopLeft(tutorial).dy - tester.getBottomLeft(guide).dy,
+          lessThan(2),
+        );
+        expect(tester.getSize(guide), tester.getSize(tutorial));
+        final guideSemantics = tester.getSemantics(guide);
+        expect(guideSemantics.label, contains('Guide'));
+        expect(guideSemantics.label, contains('GitHub'));
+        expect(guideSemantics.flagsCollection.isButton, isTrue);
       }
     },
   );
+
+  testWidgets('Home Guide opens the GitHub guide externally', (
+    WidgetTester tester,
+  ) async {
+    LanguageController.isThai.value = false;
+    SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
+      appName: 'PB Controller',
+      packageName: 'com.example.pb_controller',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    final launched = <MethodCall>[];
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      launched.add(call);
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(
+      const MaterialApp(home: HomePage(animateBackground: false)),
+    );
+    await tester.pumpAndSettle();
+
+    final guide = find.byKey(const ValueKey('home-guide-action'));
+    await tester.ensureVisible(guide);
+    await tester.pumpAndSettle();
+    await tester.tap(guide);
+    await tester.pumpAndSettle();
+
+    final launches = launched.where((c) => c.method == 'launch').toList();
+    expect(launches, hasLength(1));
+    final args = launches.single.arguments as Map;
+    expect(
+      args['url'],
+      'https://github.com/Amornthep-ra/PB-BLE-Example-All.git',
+    );
+    expect(find.text('Unable to open the guide.'), findsNothing);
+  });
 
   testWidgets('Home page keeps Scan devices as the BLE navigation action', (
     WidgetTester tester,
