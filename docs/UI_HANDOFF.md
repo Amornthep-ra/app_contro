@@ -186,7 +186,6 @@ Files: `lib/features/gamepad/gamepad_4_button_page.dart`, `gamepad_mode_edit.dar
 - Group the edit toolbar: [Done] | [Lock − +] | [Grid] | [Undo Redo] | [Reset Delete], 8 px inside a group, 16 px between groups (needs a group-gap option in `GamepadCenteredToolbar` / `GamepadToolbarLayout.calculate`). Reset sits next to Redo today and wipes the layout without asking (Undo can bring it back). Optional "Done" text label.
 - Top edge: `GamepadEditMetrics.safeTopEdgePad` is 4 px vs 12 px on the other edges, so controls can sit right under the toolbar/hint (and, while driving, under the floating speed panel). Proposed: 12 px, clamp saved layouts on load for 4/8 BTN.
 - 4 BTN default spacing is uneven (914×411: ↑↓ 15 px apart vs ←→ 30 px; 640×360: 22.5 vs 13.6).
-- Unused file noticed: `lib/features/gamepad/controllers/gamepad_edit_controller.dart` (no imports).
 
 ### Tests
 `test/control_start_stop_test.dart`, `test/control_chrome_test.dart`, `test/control_input_gate_test.dart`, `test/gamepad_control_toolbar_test.dart` (edges + safety gap), `test/control_speed_panel_test.dart` (floating speed panels, `slotLeft`), `test/gamepad_edit_layout_test.dart` (editor tool taps, grid/snap, 6 dp gap), plus the existing toolbar/joystick/review tests.

@@ -7,7 +7,6 @@ import '../../features/gamepad/gamepad_4_button_page.dart';
 import '../../features/gamepad/gamepad_mode_edit.dart';
 import '../../features/gamepad/control_mode_settings_page.dart';
 import '../../features/joystick/joystick/presentation/joystick.dart';
-import '../../features/joystick/joystick_test_page.dart';
 
 /// Lets pages react when a route above them is popped (see [RouteAware]).
 final RouteObserver<ModalRoute<void>> appRouteObserver =
@@ -21,7 +20,6 @@ class AppRoutes {
   static const String gamepad4Button = '/gamepad-4-button';
   static const String gamepad8Button = '/gamepad-8-button';
   static const String dualJoystickMode1 = '/dual-joystick-mode1';
-  static const String joystickTest = '/joystick-test';
 
   /// What a control page should open on arrival when Settings switched to
   /// it (Edit layout / Saved layouts for another mode).
@@ -60,10 +58,6 @@ class AppRoutes {
         return MaterialPageRoute(
           builder: (_) => JoystickPage(openOnArrival: _openOnArrival(settings)),
         );
-
-
-      case joystickTest:
-        return MaterialPageRoute(builder: (_) => const JoystickTestPage());
 
       default:
         return MaterialPageRoute(builder: (_) => const HomePage());
