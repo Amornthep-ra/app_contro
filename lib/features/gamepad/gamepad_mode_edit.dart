@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/widgets/control_input_gate.dart';
+import '../../core/widgets/control_page_mixin.dart';
 import '../../core/widgets/control_background.dart';
 import '../../core/widgets/gamepad_edit_hint.dart';
 import '../../core/widgets/control_start_stop.dart';
@@ -186,7 +187,8 @@ class GamepadModeEdit extends StatefulWidget {
   State<GamepadModeEdit> createState() => _GamepadModeEditState();
 }
 
-class _GamepadModeEditState extends State<GamepadModeEdit> {
+class _GamepadModeEditState extends State<GamepadModeEdit>
+    with ControlPageMixin<GamepadModeEdit> {
   static const _prefsLayoutLeft = 'gp8_layout_left';
   static const _prefsLayoutRight = 'gp8_layout_right';
   static const _prefsLayoutAll = 'gp8_layout_all';
@@ -217,7 +219,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   /// Position of the Speed button in the control toolbar items.
   static const int _speedSlotIndex = 2;
-  bool _editMode = false;
+  @override
+  bool editMode = false;
   bool _showGrid = false;
   final Set<String> _lockedIds = {};
   bool _menuOpen = false;
@@ -237,10 +240,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   int _lastSendMs = 0;
   StreamSubscription<bool>? _bleConnSub;
   int? _bleTrafficOwner;
-  bool _startInProgress = false;
-  bool _controlStarted = false;
+  @override
+  bool startInProgress = false;
+  @override
+  bool controlStarted = false;
   bool _modeSwitchInProgress = false;
-  void _resetInputState() {
+  @override
+  void resetInputState() {
     void apply() {
       _up = false;
       _down = false;
@@ -291,8 +297,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   String _commandByteLabel() => _buttonsByte().toString();
   void _sendBinary({bool force = false}) {
-    if (!_controlStarted ||
-        _startInProgress ||
+    if (!controlStarted ||
+        startInProgress ||
         _modeSwitchInProgress ||
         BleManager.instance.controlSuspendedForLifecycle) {
       return;
@@ -336,24 +342,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  void _stopControlLoop() {
+  @override
+  void stopControlLoop() {
     _tick?.cancel();
     _tick = null;
   }
 
-  void _handleControlSuspended() {
-    if (!BleManager.instance.controlSuspendedForLifecycle || !_controlStarted) {
-      return;
-    }
-    _stopControlLoop();
-    _resetInputState();
-    if (mounted) setState(() => _controlStarted = false);
-  }
-
-  bool get _canStartControl => !_startInProgress && !_modeSwitchInProgress;
-  Future<void> _startControl() async {
-    if (_controlStarted || !_canStartControl) return;
-    setState(() => _startInProgress = true);
+  @override
+  bool get canStartControl => !startInProgress && !_modeSwitchInProgress;
+  @override
+  Future<void> startControl() async {
+    if (controlStarted || !canStartControl) return;
+    setState(() => startInProgress = true);
     final owner =
         await (widget.acquireControl?.call() ??
             BleConnectionCoordinator.instance.acquireControlForStart(
@@ -361,13 +361,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             ));
     if (!mounted) return;
     if (owner == null) {
-      setState(() => _startInProgress = false);
+      setState(() => startInProgress = false);
       if (requiresBlePairingCode(
         BleConnectionCoordinator.instance.state.securityState,
       )) {
         final paired = await promptForBlePairingCode(context: context);
         if (paired == true && mounted) {
-          await _startControl();
+          await startControl();
         }
         return;
       }
@@ -381,21 +381,22 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       return;
     }
     _bleTrafficOwner = owner;
-    _resetInputState();
+    resetInputState();
     if (!mounted) return;
     setState(() {
-      _startInProgress = false;
-      _controlStarted = true;
+      startInProgress = false;
+      controlStarted = true;
     });
     _startControlLoop();
     _sendBinary(force: true);
   }
 
-  Future<void> _stopControl() async {
-    if (!_controlStarted) return;
-    _stopControlLoop();
-    _resetInputState();
-    if (mounted) setState(() => _controlStarted = false);
+  @override
+  Future<void> stopControl() async {
+    if (!controlStarted) return;
+    stopControlLoop();
+    resetInputState();
+    if (mounted) setState(() => controlStarted = false);
     await _releaseTrafficOwnershipForExit(emergency: true);
   }
 
@@ -404,35 +405,35 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     super.initState();
     unawaited(ControlModePreference.save(LastControlMode.eightButton));
     BleManager.instance.controlSuspendedListenable.addListener(
-      _handleControlSuspended,
+      handleControlSuspended,
     );
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     unawaited(_loadSpeedPrefs());
     final layoutsLoaded = _loadLayouts();
     final open = widget.openOnArrival;
-    if (open != null) unawaited(_openAfterLoad(layoutsLoaded, open));
+    if (open != null) unawaited(openAfterLoad(layoutsLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
-      _resetInputState();
+      resetInputState();
       if (!connected) {
-        _stopControlLoop();
-        setState(() => _controlStarted = false);
+        stopControlLoop();
+        setState(() => controlStarted = false);
         unawaited(_releaseTrafficOwnershipForExit());
       }
     });
   }
 
   Future<void> _switchToPreset({ControlModeOpen? open}) async {
-    if (_modeSwitchInProgress || _editMode) return;
+    if (_modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
     setState(() {
       _modeSwitchInProgress = true;
-      _controlStarted = false;
+      controlStarted = false;
       _speedPanelOpen = false;
     });
-    _resetInputState();
-    _stopControlLoop();
+    resetInputState();
+    stopControlLoop();
     unawaited(ControlModePreference.save(LastControlMode.fourButton));
     _bleTrafficOwner = null;
     if (owner != null) {
@@ -450,16 +451,16 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _switchToJoystick({ControlModeOpen? open}) async {
-    if (_modeSwitchInProgress || _editMode) return;
+    if (_modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
     setState(() {
       _modeSwitchInProgress = true;
-      _controlStarted = false;
+      controlStarted = false;
       _speedPanelOpen = false;
     });
-    _resetInputState();
-    _stopControlLoop();
+    resetInputState();
+    stopControlLoop();
     unawaited(ControlModePreference.save(LastControlMode.joystick));
     _bleTrafficOwner = null;
     if (owner != null) {
@@ -477,66 +478,22 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _openSettings() async {
-    if (_editMode) return;
+    if (editMode) return;
     final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.eightButton,
-        onManageLayouts: _showPresetSheet,
+        onManageLayouts: showPresetSheet,
       ),
     );
     if (!mounted || result == null) return;
     switch (result.mode) {
       case ControlMode.eightButton:
-        _openFromSettings(result.open);
+        openFromSettings(result.open);
       case ControlMode.fourButton:
         await _switchToPreset(open: result.open);
       case ControlMode.joystick:
         await _switchToJoystick(open: result.open);
     }
-  }
-
-  /// Opens what Settings asked for, on this page.
-  void _openFromSettings(ControlModeOpen? open) {
-    switch (open) {
-      case ControlModeOpen.layoutEditor:
-        if (!_editMode) _toggleEdit();
-      case ControlModeOpen.savedLayouts:
-        unawaited(_showPresetSheet());
-      case null:
-        break;
-    }
-  }
-
-  /// Reached by switching from Settings: open the editor or Saved layouts
-  /// once the saved layout has loaded and the pad has been laid out.
-  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
-    await loaded;
-    if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _openFromSettings(open);
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
-
-  void _showStartFirstNotice() {
-    showGamepadTopNotice(
-      context,
-      message: 'Tap Start to drive',
-      style: GamepadNoticeStyle.warning,
-    );
-  }
-
-  Widget _buildToolbarStartStop() {
-    return ValueListenableBuilder<bool>(
-      valueListenable: BleManager.instance.controlSuspendedListenable,
-      builder: (context, suspended, _) => ControlStartStopButton(
-        started: _controlStarted && !suspended,
-        busy: _startInProgress,
-        onPressed: _controlStarted && !suspended
-            ? _stopControl
-            : (_canStartControl ? _startControl : null),
-      ),
-    );
   }
 
   Widget _buildStartHint(GamepadControlLayout layout) {
@@ -554,8 +511,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               // Only under a one-row toolbar, where it sits right below Start.
               visible:
                   layout.rows.length == 1 &&
-                  !(_controlStarted && !suspended) &&
-                  !_startInProgress &&
+                  !(controlStarted && !suspended) &&
+                  !startInProgress &&
                   !_speedPanelOpen,
               anchorX: ControlStartHint.anchorXFor(layout),
             ),
@@ -568,10 +525,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   @override
   void dispose() {
     _editWarningTimer?.cancel();
-    _stopControlLoop();
+    stopControlLoop();
     _bleConnSub?.cancel();
     BleManager.instance.controlSuspendedListenable.removeListener(
-      _handleControlSuspended,
+      handleControlSuspended,
     );
     unawaited(_releaseTrafficOwnershipForExit());
     super.dispose();
@@ -682,7 +639,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       final turn = obj['turn'];
       // Undo in the editor brings back what was on the pad before.
       _pushHistory();
-      _resetInputState();
+      resetInputState();
       if (layoutRaw is Map) {
         _layoutAll = _decodeLayout(jsonEncode(layoutRaw));
       }
@@ -707,7 +664,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     } catch (_) {}
   }
 
-  Future<void> _showPresetSheet() => showControlPresetSheet(
+  @override
+  Future<void> showPresetSheet() => showControlPresetSheet(
     context: context,
     presetKey: _presetKey,
     onSave: (slot, name) => _savePreset(slot, name: name),
@@ -855,9 +813,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         defaultSize: _defaultBtnSize,
       );
 
-  void _toggleEdit() {
+  @override
+  void toggleEdit() {
     setState(() {
-      _editMode = !_editMode;
+      editMode = !editMode;
       _editWarningId = null;
     });
   }
@@ -1324,7 +1283,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       canUndo: _history.canUndo,
       canRedo: _history.canRedo,
       buzzOnTap: true,
-      onDone: _toggleEdit,
+      onDone: toggleEdit,
       onButtons: _showEditMenuAndroid,
       onToggleLock: _toggleSelectedLock,
       onChangeSize: _adjustSelectedSize,
@@ -1365,7 +1324,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
         alignment: Alignment.topCenter,
-        child: !_speedPanelOpen || _editMode
+        child: !_speedPanelOpen || editMode
             ? const SizedBox.shrink()
             : Container(
                 width: panelWidth,
@@ -1776,12 +1735,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       '@ble',
       '',
     ], leadingCount: 2);
-    final controlLayout = _editMode ? null : playLayout;
+    final controlLayout = editMode ? null : playLayout;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
     final textScaleFactor = media.textScaler.scale(1);
     // The editor's pad matches the driving pad's size exactly.
-    final editorTopInset = _editMode
+    final editorTopInset = editMode
         ? gamepadEditorTopInset(
             playLayout: playLayout,
             viewportWidth: media.size.width - media.padding.horizontal,
@@ -1801,15 +1760,15 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: media.size.width - media.padding.horizontal,
-              toolbarItemCount: _editMode ? 10 : null,
-              singleRowToolbar: _editMode,
+              toolbarItemCount: editMode ? 10 : null,
+              singleRowToolbar: editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,
-              toolbarContent: _editMode ? _buildCenteredEditAppBar() : null,
-              leading: _editMode ? null : _buildAppBarBackButton(),
-              startStop: _editMode ? null : _buildToolbarStartStop(),
-              speedToggle: _editMode ? null : _speedToggle(),
-              cmdChip: _editMode
+              toolbarContent: editMode ? _buildCenteredEditAppBar() : null,
+              leading: editMode ? null : _buildAppBarBackButton(),
+              startStop: editMode ? null : buildToolbarStartStop(),
+              speedToggle: editMode ? null : _speedToggle(),
+              cmdChip: editMode
                   ? null
                   : SizedBox(
                       child: _appBarBadge(
@@ -1817,7 +1776,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         '= ${_commandByteLabel()} | DRV = $_driveSpeed% | TRN = $_turnSpeed%',
                       ),
                     ),
-              bleBadge: _editMode
+              bleBadge: editMode
                   ? null
                   : ConnectionStatusBadge(
                       autoPromptPairing: true,
@@ -1830,7 +1789,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         style: GamepadNoticeStyle.ble,
                       ),
                     ),
-              actionsBuilder: _editMode
+              actionsBuilder: editMode
                   ? null
                   : (gap) {
                       return GamepadAppBarActionGroup(
@@ -1855,7 +1814,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                 SafeArea(
                   child: Stack(
                     children: [
-                      if (_editMode)
+                      if (editMode)
                         GamepadEditHint(hasSelection: _selectedId != null),
                       LayoutBuilder(
                         builder: (context, cons) {
@@ -1870,13 +1829,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                               children: [
                                 Expanded(
                                   child: ControlInputGate(
-                                    started: _controlStarted,
-                                    editing: _editMode,
+                                    started: controlStarted,
+                                    editing: editMode,
                                     suspended: BleManager
                                         .instance
                                         .controlSuspendedListenable,
-                                    onLockedTap: _showStartFirstNotice,
-                                    child: _editMode
+                                    onLockedTap: showStartFirstNotice,
+                                    child: editMode
                                         ? _EditablePadPanel(
                                             ids: _allActiveIds(),
                                             specs: const {

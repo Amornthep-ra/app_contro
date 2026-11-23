@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
+import '../../../../core/widgets/control_page_mixin.dart';
 import '../../../../core/widgets/control_background.dart';
 import '../../../../core/widgets/gamepad_edit_hint.dart';
 import '../../../../core/ui/gamepad_edit_metrics.dart';
@@ -163,7 +164,8 @@ class JoystickPage extends StatefulWidget {
   State<JoystickPage> createState() => _JoystickPageState();
 }
 
-class _JoystickPageState extends State<JoystickPage> {
+class _JoystickPageState extends State<JoystickPage>
+    with ControlPageMixin<JoystickPage> {
   static const Color _cmdAccent = Color(0xFFF59E0B);
   static const Color _jlAccent = Color(0xFF22C55E);
   static const Color _jrAccent = Color(0xFF38BDF8);
@@ -183,7 +185,8 @@ class _JoystickPageState extends State<JoystickPage> {
   static const _prefsPreset3 = 'joy_preset_3';
   static const _prefsPreset4 = 'joy_preset_4';
   static const _prefsPreset5 = 'joy_preset_5';
-  bool _editMode = false;
+  @override
+  bool editMode = false;
   bool _menuOpen = false;
   String? _selectedId;
   Size? _panelSize;
@@ -228,9 +231,11 @@ class _JoystickPageState extends State<JoystickPage> {
       color.withAlpha((opacity * 255).round());
   StreamSubscription<bool>? _bleConnSub;
   int? _bleTrafficOwner;
-  bool _startInProgress = false;
+  @override
+  bool startInProgress = false;
   bool _leavingControlPage = false;
-  bool _controlStarted = false;
+  @override
+  bool controlStarted = false;
   bool _modeSwitchInProgress = false;
 
   /// Tells the sticks and face buttons that input was cleared, so they
@@ -241,7 +246,8 @@ class _JoystickPageState extends State<JoystickPage> {
     if (mounted) _inputResetSignal.value++;
   }
 
-  void _resetInputState() {
+  @override
+  void resetInputState() {
     _signalInputReset();
     void apply() {
       _clearStickTargets();
@@ -298,9 +304,9 @@ class _JoystickPageState extends State<JoystickPage> {
     Set<int>? buttons,
     bool force = false,
   }) {
-    if (!_controlStarted ||
+    if (!controlStarted ||
         _modeSwitchInProgress ||
-        _startInProgress ||
+        startInProgress ||
         BleManager.instance.controlSuspendedForLifecycle) {
       return;
     }
@@ -374,40 +380,39 @@ class _JoystickPageState extends State<JoystickPage> {
     _timer = null;
   }
 
-  void _handleControlSuspended() {
-    if (!BleManager.instance.controlSuspendedForLifecycle || !_controlStarted) {
-      return;
-    }
-    _resetInputState();
-    if (mounted) setState(() => _controlStarted = false);
-  }
+  // The send timer runs for the page's lifetime and idles while control is
+  // stopped; only leaving the page cancels it (_stopTimer).
+  @override
+  void stopControlLoop() {}
 
-  bool get _canStartControl =>
-      !_leavingControlPage && !_startInProgress && !_modeSwitchInProgress;
-  Future<void> _startControl() async {
-    if (_controlStarted || !_canStartControl) return;
-    setState(() => _startInProgress = true);
+  @override
+  bool get canStartControl =>
+      !_leavingControlPage && !startInProgress && !_modeSwitchInProgress;
+  @override
+  Future<void> startControl() async {
+    if (controlStarted || !canStartControl) return;
+    setState(() => startInProgress = true);
     final owner =
         await (widget.acquireControl?.call() ??
             BleConnectionCoordinator.instance.acquireControlForStart(
               ownerName: 'joystick',
             ));
     // Also give control back if the editor opened while Start was pending.
-    if (!mounted || _leavingControlPage || _modeSwitchInProgress || _editMode) {
+    if (!mounted || _leavingControlPage || _modeSwitchInProgress || editMode) {
       if (owner != null) {
         await BleManager.instance.stopAndReleaseControl(owner: owner);
       }
-      if (mounted) setState(() => _startInProgress = false);
+      if (mounted) setState(() => startInProgress = false);
       return;
     }
     if (owner == null) {
-      setState(() => _startInProgress = false);
+      setState(() => startInProgress = false);
       if (requiresBlePairingCode(
         BleConnectionCoordinator.instance.state.securityState,
       )) {
         final paired = await promptForBlePairingCode(context: context);
         if (paired == true && mounted) {
-          await _startControl();
+          await startControl();
         }
         return;
       }
@@ -421,11 +426,11 @@ class _JoystickPageState extends State<JoystickPage> {
       return;
     }
     _bleTrafficOwner = owner;
-    _resetInputState();
+    resetInputState();
     if (!mounted) return;
     setState(() {
-      _startInProgress = false;
-      _controlStarted = true;
+      startInProgress = false;
+      controlStarted = true;
     });
     _sendBinary(
       JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
@@ -434,10 +439,11 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Future<void> _stopControl() async {
-    if (!_controlStarted) return;
-    _resetInputState();
-    if (mounted) setState(() => _controlStarted = false);
+  @override
+  Future<void> stopControl() async {
+    if (!controlStarted) return;
+    resetInputState();
+    if (mounted) setState(() => controlStarted = false);
     await _releaseTrafficOwnershipForExit(emergency: true);
   }
 
@@ -477,22 +483,22 @@ class _JoystickPageState extends State<JoystickPage> {
     super.initState();
     unawaited(ControlModePreference.save(LastControlMode.joystick));
     BleManager.instance.controlSuspendedListenable.addListener(
-      _handleControlSuspended,
+      handleControlSuspended,
     );
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     final layoutLoaded = _loadLayout();
     final open = widget.openOnArrival;
-    if (open != null) unawaited(_openAfterLoad(layoutLoaded, open));
+    if (open != null) unawaited(openAfterLoad(layoutLoaded, open));
     _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
-      _resetInputState();
+      resetInputState();
       if (!connected) {
-        setState(() => _controlStarted = false);
+        setState(() => controlStarted = false);
         unawaited(_releaseTrafficOwnershipForExit());
       }
     });
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
-      if (!_controlStarted || _editMode) return;
+      if (!controlStarted || editMode) return;
       _stepSticks();
       var packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
@@ -574,14 +580,14 @@ class _JoystickPageState extends State<JoystickPage> {
     required String source,
     ControlModeOpen? open,
   }) async {
-    if (_modeSwitchInProgress || _editMode) return;
+    if (_modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
     final owner = _bleTrafficOwner;
     setState(() {
       _modeSwitchInProgress = true;
-      _controlStarted = false;
+      controlStarted = false;
     });
-    _resetInputState();
+    resetInputState();
     _stopTimer();
     unawaited(
       ControlModePreference.save(
@@ -603,17 +609,17 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _openSettings() async {
-    if (_editMode || _modeSwitchInProgress) return;
+    if (editMode || _modeSwitchInProgress) return;
     final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.joystick,
-        onManageLayouts: _showPresetSheet,
+        onManageLayouts: showPresetSheet,
       ),
     );
     if (!mounted || result == null) return;
     switch (result.mode) {
       case ControlMode.joystick:
-        _openFromSettings(result.open);
+        openFromSettings(result.open);
       case ControlMode.fourButton:
         await _switchToControlMode(
           route: AppRoutes.gamepad4Button,
@@ -627,50 +633,6 @@ class _JoystickPageState extends State<JoystickPage> {
           open: result.open,
         );
     }
-  }
-
-  /// Opens what Settings asked for, on this page.
-  void _openFromSettings(ControlModeOpen? open) {
-    switch (open) {
-      case ControlModeOpen.layoutEditor:
-        if (!_editMode) _toggleEdit();
-      case ControlModeOpen.savedLayouts:
-        unawaited(_showPresetSheet());
-      case null:
-        break;
-    }
-  }
-
-  /// Reached by switching from Settings: open the editor or Saved layouts
-  /// once the saved layout has loaded and the pad has been laid out.
-  Future<void> _openAfterLoad(Future<void> loaded, ControlModeOpen open) async {
-    await loaded;
-    if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _openFromSettings(open);
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
-
-  void _showStartFirstNotice() {
-    showGamepadTopNotice(
-      context,
-      message: 'Tap Start to drive',
-      style: GamepadNoticeStyle.warning,
-    );
-  }
-
-  Widget _buildToolbarStartStop() {
-    return ValueListenableBuilder<bool>(
-      valueListenable: BleManager.instance.controlSuspendedListenable,
-      builder: (context, suspended, _) => ControlStartStopButton(
-        started: _controlStarted && !suspended,
-        busy: _startInProgress,
-        onPressed: _controlStarted && !suspended
-            ? _stopControl
-            : (_canStartControl ? _startControl : null),
-      ),
-    );
   }
 
   Widget _buildStartHint(GamepadControlLayout layout) {
@@ -688,8 +650,8 @@ class _JoystickPageState extends State<JoystickPage> {
               // Only under a one-row toolbar, where it sits right below Start.
               visible:
                   layout.rows.length == 1 &&
-                  !(_controlStarted && !suspended) &&
-                  !_startInProgress,
+                  !(controlStarted && !suspended) &&
+                  !startInProgress,
               anchorX: ControlStartHint.anchorXFor(layout),
             ),
           ],
@@ -705,7 +667,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _editWarningTimer?.cancel();
     _bleConnSub?.cancel();
     BleManager.instance.controlSuspendedListenable.removeListener(
-      _handleControlSuspended,
+      handleControlSuspended,
     );
     unawaited(_releaseTrafficOwnershipForExit());
     _leftDebug.dispose();
@@ -862,14 +824,15 @@ class _JoystickPageState extends State<JoystickPage> {
         defaultSize: 1.0,
       );
 
-  void _toggleEdit() {
+  @override
+  void toggleEdit() {
     // The editor is not for driving: entering it stops the robot like
     // Emergency Stop, and driving again needs Start. (While editing the
     // page sends nothing, not even keepalives.)
-    if (!_editMode && _controlStarted) unawaited(_stopControl());
+    if (!editMode && controlStarted) unawaited(stopControl());
     setState(() {
-      _editMode = !_editMode;
-      if (_editMode && _panelSize != null) {
+      editMode = !editMode;
+      if (editMode && _panelSize != null) {
         final defaults = _defaultLayout(_panelSize!, _activeIds);
         // Edit what the pad shows, already fitted to this screen.
         _layout = Map<String, GamepadButtonLayout>.from(
@@ -1213,7 +1176,8 @@ class _JoystickPageState extends State<JoystickPage> {
     } catch (_) {}
   }
 
-  Future<void> _showPresetSheet() => showControlPresetSheet(
+  @override
+  Future<void> showPresetSheet() => showControlPresetSheet(
     context: context,
     presetKey: _presetKey,
     onSave: (slot, name) => _savePreset(slot, name: name),
@@ -1402,7 +1366,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Widget _buildGridOverlay() {
-    if (!_editMode || !_showGrid) return const SizedBox.shrink();
+    if (!editMode || !_showGrid) return const SizedBox.shrink();
     // Over exactly the joystick pad, so the grid lines up with snapping.
     return Positioned.fill(
       top: _editorTopInset,
@@ -1418,7 +1382,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _onButtonChanged(String id, bool down) {
-    if (_editMode) return;
+    if (editMode) return;
     if (id == kBtnTriangleId) _triangle = down;
     if (id == kBtnCrossId) _cross = down;
     if (id == kBtnSquareId) _square = down;
@@ -1473,7 +1437,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Widget _buildAlignmentGuides() {
-    if (!_editMode || _dragCount == 0 || (!_showVGuide && !_showHGuide)) {
+    if (!editMode || _dragCount == 0 || (!_showVGuide && !_showHGuide)) {
       return const SizedBox.shrink();
     }
     final theme = Theme.of(context);
@@ -1505,8 +1469,8 @@ class _JoystickPageState extends State<JoystickPage> {
   }) {
     return [
       ConnectionStatusBadge(
-        autoPromptPairing: !_editMode,
-        pairingPromptEnabled: !_editMode,
+        autoPromptPairing: !editMode,
+        pairingPromptEnabled: !editMode,
         appBarMetrics: appBarMetrics,
         iconAsset: AppAssets.controlBle,
         subdued: true,
@@ -1578,7 +1542,7 @@ class _JoystickPageState extends State<JoystickPage> {
       textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
       children: [
         _buildAppBarBackButton(appBarMetrics),
-        _buildToolbarStartStop(),
+        buildToolbarStartStop(),
         ...telemetry,
         ..._buildAppBarActions(
           appBarMetrics: appBarMetrics,
@@ -1599,7 +1563,7 @@ class _JoystickPageState extends State<JoystickPage> {
       canUndo: _history.canUndo,
       canRedo: _history.canRedo,
       buzzOnTap: true,
-      onDone: _toggleEdit,
+      onDone: toggleEdit,
       onButtons: _openButtonsMenu,
       onToggleLock: _toggleSelectedLock,
       onChangeSize: _adjustSelectedSize,
@@ -1632,12 +1596,12 @@ class _JoystickPageState extends State<JoystickPage> {
       '@ble',
       '',
     ], leadingCount: 2);
-    final controlLayout = _editMode ? null : playLayout;
+    final controlLayout = editMode ? null : playLayout;
     final width = MediaQuery.of(context).size.width;
     final appBarMetrics = GamepadAppBarMetrics.forWidth(width);
     final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
     // The editor's pad matches the driving pad's size exactly.
-    _editorTopInset = _editMode
+    _editorTopInset = editMode
         ? gamepadEditorTopInset(
             playLayout: playLayout,
             viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
@@ -1661,12 +1625,12 @@ class _JoystickPageState extends State<JoystickPage> {
               controlLayout: controlLayout,
               textScaleFactor: textScaleFactor,
               viewportWidth: width - MediaQuery.paddingOf(context).horizontal,
-              toolbarItemCount: _editMode ? 10 : 7,
-              singleRowToolbar: _editMode,
+              toolbarItemCount: editMode ? 10 : 7,
+              singleRowToolbar: editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,
               toolbarPadding: const EdgeInsets.symmetric(horizontal: 12),
-              toolbarContent: _editMode
+              toolbarContent: editMode
                   ? _buildCenteredEditAppBar()
                   : _buildAppBarToolbarRow(
                       appBarMetrics: appBarMetrics,
@@ -1683,7 +1647,7 @@ class _JoystickPageState extends State<JoystickPage> {
                     clipBehavior: Clip.none,
                     children: [
                       _buildGridOverlay(),
-                      if (_editMode)
+                      if (editMode)
                         GamepadEditHint(hasSelection: _selectedId != null),
                       _buildAlignmentGuides(),
                       Padding(
@@ -1795,12 +1759,12 @@ class _JoystickPageState extends State<JoystickPage> {
                               );
                             }
                             return ControlInputGate(
-                              started: _controlStarted,
-                              editing: _editMode,
+                              started: controlStarted,
+                              editing: editMode,
                               suspended: BleManager
                                   .instance
                                   .controlSuspendedListenable,
-                              onLockedTap: _showStartFirstNotice,
+                              onLockedTap: showStartFirstNotice,
                               child: Stack(children: widgets),
                             );
                           },
@@ -1848,7 +1812,7 @@ class _JoystickPageState extends State<JoystickPage> {
             : joystickTheme.rightKnobImage,
         resetSignal: _inputResetSignal,
         onChanged: (x, y) {
-          if (_editMode) return;
+          if (editMode) return;
           // Each touch event sets where the stick should go and takes one
           // smoothing step; the 25 ms tick keeps stepping (see _stepSticks)
           // so a finger held still still reaches its value.
@@ -1872,7 +1836,7 @@ class _JoystickPageState extends State<JoystickPage> {
         },
       ),
     );
-    if (!_editMode) {
+    if (!editMode) {
       return Positioned(left: cx - half, top: cy - half, child: joyWidget);
     }
     return _EditableJoystick(
@@ -1937,7 +1901,7 @@ class _JoystickPageState extends State<JoystickPage> {
         onPressChanged: (down) => _onButtonChanged(id, down),
       ),
     );
-    if (!_editMode) {
+    if (!editMode) {
       return Positioned(left: cx - half, top: cy - half, child: btnWidget);
     }
     return _EditableButtonItem(
