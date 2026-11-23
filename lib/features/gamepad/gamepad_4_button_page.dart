@@ -28,6 +28,7 @@ import '../../core/ble/joystick_packet.dart';
 import '../../core/ble/control_timing.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
+import '../../core/widgets/gamepad_edit_notices.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
 import '../../core/widgets/gamepad_telemetry_chip.dart';
 import '../../core/widgets/pairing_code_dialog.dart';
@@ -332,8 +333,10 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   String? _editWarningId;
   Size? _panelSize;
   Timer? _editWarningTimer;
-  int _lastOverlapWarningMs = 0;
-  int _lastBoundaryWarningMs = 0;
+  final _editNotices = GamepadEditNotices(
+    maxSizeMessage: 'Maximum size is 80%.',
+    minSizeMessage: 'Minimum size reached.',
+  );
   final _history = GamepadEditHistory<_EditSnapshot>();
   Timer? _tick;
   int _lastSendMs = 0;
@@ -403,7 +406,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       _layoutAll = _decodeLayout(layoutRaw);
     }
     if (activeRaw != null && activeRaw.isNotEmpty) {
-      _activeIds = _decodeIdList(
+      _activeIds = decodeGamepadIdList(
         activeRaw,
       ).intersection(_supportedFourButtonIds);
     }
@@ -424,7 +427,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     Map<String, GamepadButtonLayout> layout,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
+    await prefs.setString(key, jsonEncode(encodeGamepadLayout(layout)));
   }
 
   Future<void> _saveActive(String key, Set<String> ids) async {
@@ -432,51 +435,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     await prefs.setString(key, jsonEncode(ids.toList()));
   }
 
-  Map<String, GamepadButtonLayout> _decodeLayout(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return {};
-      final out = <String, GamepadButtonLayout>{};
-      obj.forEach((k, v) {
-        final saved = GamepadEditMetrics.readSavedLayout(
-          v,
-          minSize: _minBtnSize,
-          maxSize: _maxBtnSize,
-          defaultSize: _defaultBtnSize,
-        );
-        if (saved != null) {
-          out[k.toString()] = GamepadButtonLayout(
-            saved.cx,
-            saved.cy,
-            saved.size,
-          );
-        }
-      });
-      return out;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Map<String, Map<String, double>> _encodeLayout(
-    Map<String, GamepadButtonLayout> layout,
-  ) {
-    final out = <String, Map<String, double>>{};
-    layout.forEach((k, v) {
-      out[k] = v.toJson();
-    });
-    return out;
-  }
-
-  Set<String> _decodeIdList(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! List) return {};
-      return obj.map((e) => e.toString()).toSet();
-    } catch (_) {
-      return {};
-    }
-  }
+  Map<String, GamepadButtonLayout> _decodeLayout(String raw) =>
+      decodeGamepadLayout(
+        raw,
+        minSize: (_) => _minBtnSize,
+        maxSize: (_) => _maxBtnSize,
+        defaultSize: _defaultBtnSize,
+      );
 
   void _toggleEdit() {
     setState(() {
@@ -743,15 +708,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     });
   }
 
-  void _showSizeLimit(bool atMax) {
-    final msg = atMax ? 'Maximum size is 80%.' : 'Minimum size reached.';
-    showGamepadTopNotice(
-      context,
-      message: msg,
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showSizeLimit(bool atMax) =>
+      _editNotices.showSizeLimit(context, atMax: atMax);
 
   void _flashEditWarning(String id) {
     _editWarningTimer?.cancel();
@@ -841,7 +799,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'layout': _encodeLayout(_layoutAll),
+      'layout': encodeGamepadLayout(_layoutAll),
       'active': _activeIds.toList(),
       'speed': _speedLabel,
     };
@@ -898,29 +856,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     onLoad: _loadPreset,
   );
 
-  void _showOverlapWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastOverlapWarningMs < 900) return;
-    _lastOverlapWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons cannot overlap.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showOverlapWarning() => _editNotices.showOverlapWarning(context);
 
-  void _showBoundaryWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastBoundaryWarningMs < 900) return;
-    _lastBoundaryWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons must stay inside the safe zone.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showBoundaryWarning() => _editNotices.showBoundaryWarning(context);
 
   void _sendBinary({bool force = false}) {
     if (!_controlStarted ||

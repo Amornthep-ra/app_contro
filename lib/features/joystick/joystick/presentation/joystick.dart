@@ -33,6 +33,7 @@ import '../../../../core/widgets/gamepad_app_bar.dart';
 import '../../../../core/widgets/gamepad_appbar_controls.dart';
 import '../../../../core/widgets/control_preset_slots.dart';
 import '../../../../core/widgets/gamepad_telemetry_chip.dart';
+import '../../../../core/widgets/gamepad_edit_notices.dart';
 import '../../../../core/widgets/gamepad_edit_shared.dart';
 import '../../../../core/widgets/pairing_code_dialog.dart';
 import '../../../gamepad/control_mode_settings_page.dart';
@@ -197,8 +198,7 @@ class _JoystickPageState extends State<JoystickPage> {
   double? _guideH;
   String? _editWarningId;
   Timer? _editWarningTimer;
-  int _lastBoundaryWarningMs = 0;
-  int _lastOverlapWarningMs = 0;
+  final _editNotices = GamepadEditNotices();
   bool _triangle = false;
   bool _cross = false;
   bool _square = false;
@@ -831,7 +831,7 @@ class _JoystickPageState extends State<JoystickPage> {
       _layout = _decodeLayout(raw);
     }
     if (activeRaw != null && activeRaw.isNotEmpty) {
-      _activeIds = sanitizeJoyActiveIds(_decodeIdList(activeRaw));
+      _activeIds = sanitizeJoyActiveIds(decodeGamepadIdList(activeRaw));
     } else {
       _activeIds = {kJoyLeftId, kJoyRightId};
     }
@@ -842,7 +842,10 @@ class _JoystickPageState extends State<JoystickPage> {
 
   Future<void> _saveLayout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsLayout, jsonEncode(_encodeLayout(_layout)));
+    await prefs.setString(
+      _prefsLayout,
+      jsonEncode(encodeGamepadLayout(_layout)),
+    );
   }
 
   Future<void> _saveActive() async {
@@ -850,49 +853,13 @@ class _JoystickPageState extends State<JoystickPage> {
     await prefs.setString(_prefsActive, jsonEncode(_activeIds.toList()));
   }
 
-  Map<String, GamepadButtonLayout> _decodeLayout(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return {};
-      final out = <String, GamepadButtonLayout>{};
-      obj.forEach((k, v) {
-        final id = k.toString();
-        final isButton = _isButtonId(id);
-        final saved = GamepadEditMetrics.readSavedLayout(
-          v,
-          minSize: isButton ? kJoyBtnMinSize : kJoyMinSize,
-          maxSize: isButton ? kJoyBtnMaxSize : kJoyMaxSize,
-          defaultSize: 1.0,
-        );
-        if (saved != null) {
-          out[id] = GamepadButtonLayout(saved.cx, saved.cy, saved.size);
-        }
-      });
-      return out;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Map<String, Map<String, double>> _encodeLayout(
-    Map<String, GamepadButtonLayout> layout,
-  ) {
-    final out = <String, Map<String, double>>{};
-    layout.forEach((k, v) {
-      out[k] = v.toJson();
-    });
-    return out;
-  }
-
-  Set<String> _decodeIdList(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! List) return {};
-      return obj.map((e) => e.toString()).toSet();
-    } catch (_) {
-      return {};
-    }
-  }
+  Map<String, GamepadButtonLayout> _decodeLayout(String raw) =>
+      decodeGamepadLayout(
+        raw,
+        minSize: (id) => _isButtonId(id) ? kJoyBtnMinSize : kJoyMinSize,
+        maxSize: (id) => _isButtonId(id) ? kJoyBtnMaxSize : kJoyMaxSize,
+        defaultSize: 1.0,
+      );
 
   void _toggleEdit() {
     // The editor is not for driving: entering it stops the robot like
@@ -1221,7 +1188,7 @@ class _JoystickPageState extends State<JoystickPage> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'layout': _encodeLayout(_layout),
+      'layout': encodeGamepadLayout(_layout),
       'active': _activeIds.toList(),
     };
     final trimmed = (name ?? '').trim();
@@ -1339,15 +1306,8 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
-  void _showSizeLimit(bool atMax) {
-    final msg = atMax ? 'Max size reached' : 'Min size reached';
-    showGamepadTopNotice(
-      context,
-      message: msg,
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showSizeLimit(bool atMax) =>
+      _editNotices.showSizeLimit(context, atMax: atMax);
 
   void _showSizeEdgeWarning() {
     const msg = 'Buttons must stay inside the safe zone.';
@@ -1359,29 +1319,9 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  void _showBoundaryWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastBoundaryWarningMs < 900) return;
-    _lastBoundaryWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons must stay inside the safe zone.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showBoundaryWarning() => _editNotices.showBoundaryWarning(context);
 
-  void _showOverlapWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastOverlapWarningMs < 900) return;
-    _lastOverlapWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons cannot overlap.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showOverlapWarning() => _editNotices.showOverlapWarning(context);
 
   void _flashEditWarning(String id) {
     _editWarningTimer?.cancel();

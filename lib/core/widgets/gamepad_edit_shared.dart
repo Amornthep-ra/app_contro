@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+
+import '../ui/gamepad_edit_metrics.dart';
 
 class GamepadButtonLayout {
   final double cx;
@@ -14,6 +17,59 @@ class GamepadButtonLayout {
   }
 
   Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
+}
+
+/// The layout as stored in SharedPreferences and presets.
+Map<String, Map<String, double>> encodeGamepadLayout(
+  Map<String, GamepadButtonLayout> layout,
+) {
+  final out = <String, Map<String, double>>{};
+  layout.forEach((k, v) {
+    out[k] = v.toJson();
+  });
+  return out;
+}
+
+/// Reads a stored layout (JSON text of [encodeGamepadLayout]). Entries that
+/// cannot be read are skipped; sizes are kept inside the limits the page
+/// gives for each control id. Bad JSON gives an empty layout.
+Map<String, GamepadButtonLayout> decodeGamepadLayout(
+  String raw, {
+  required double Function(String id) minSize,
+  required double Function(String id) maxSize,
+  required double defaultSize,
+}) {
+  try {
+    final obj = jsonDecode(raw);
+    if (obj is! Map) return {};
+    final out = <String, GamepadButtonLayout>{};
+    obj.forEach((k, v) {
+      final id = k.toString();
+      final saved = GamepadEditMetrics.readSavedLayout(
+        v,
+        minSize: minSize(id),
+        maxSize: maxSize(id),
+        defaultSize: defaultSize,
+      );
+      if (saved != null) {
+        out[id] = GamepadButtonLayout(saved.cx, saved.cy, saved.size);
+      }
+    });
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+/// Reads a stored JSON list of control ids; anything else gives an empty set.
+Set<String> decodeGamepadIdList(String raw) {
+  try {
+    final obj = jsonDecode(raw);
+    if (obj is! List) return {};
+    return obj.map((e) => e.toString()).toSet();
+  } catch (_) {
+    return {};
+  }
 }
 
 /// A copy of [src] with fresh layout objects, for undo snapshots.

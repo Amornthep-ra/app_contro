@@ -29,6 +29,7 @@ import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
+import '../../core/widgets/gamepad_edit_notices.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
 import '../../core/widgets/gamepad_telemetry_chip.dart';
 import '../../core/widgets/pairing_code_dialog.dart';
@@ -226,8 +227,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   DateTime _lastRejectHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _selectedId;
   String? _editWarningId;
-  int _lastBoundaryWarningMs = 0;
-  int _lastOverlapWarningMs = 0;
+  final _editNotices = GamepadEditNotices();
   Size? _panelSize;
   Timer? _editWarningTimer;
   final _history = GamepadEditHistory<_EditSnapshot>();
@@ -654,7 +654,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
-      'layout': _encodeLayout(_layoutAll),
+      'layout': encodeGamepadLayout(_layoutAll),
       'leftActive': _leftActive.toList(),
       'rightActive': _rightActive.toList(),
       'drive': _driveSpeed,
@@ -781,12 +781,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       }
     }
     if (leftActiveRaw != null && leftActiveRaw.isNotEmpty) {
-      _leftActive = _decodeIdList(leftActiveRaw);
+      _leftActive = decodeGamepadIdList(leftActiveRaw);
     } else {
       _leftActive = Set<String>.from(_defaultLeftActiveIds);
     }
     if (rightActiveRaw != null && rightActiveRaw.isNotEmpty) {
-      _rightActive = _decodeIdList(rightActiveRaw);
+      _rightActive = decodeGamepadIdList(rightActiveRaw);
     } else {
       _rightActive = Set<String>.from(_defaultRightActiveIds);
     }
@@ -826,7 +826,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     Map<String, GamepadButtonLayout> layout,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
+    await prefs.setString(key, jsonEncode(encodeGamepadLayout(layout)));
   }
 
   Future<void> _saveActive(String key, Set<String> ids) async {
@@ -846,51 +846,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return out;
   }
 
-  Map<String, GamepadButtonLayout> _decodeLayout(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return {};
-      final out = <String, GamepadButtonLayout>{};
-      obj.forEach((k, v) {
-        final saved = GamepadEditMetrics.readSavedLayout(
-          v,
-          minSize: _minBtnSize,
-          maxSize: _maxBtnSize,
-          defaultSize: _defaultBtnSize,
-        );
-        if (saved != null) {
-          out[k.toString()] = GamepadButtonLayout(
-            saved.cx,
-            saved.cy,
-            saved.size,
-          );
-        }
-      });
-      return out;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Map<String, Map<String, double>> _encodeLayout(
-    Map<String, GamepadButtonLayout> layout,
-  ) {
-    final out = <String, Map<String, double>>{};
-    layout.forEach((k, v) {
-      out[k] = v.toJson();
-    });
-    return out;
-  }
-
-  Set<String> _decodeIdList(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! List) return {};
-      return obj.map((e) => e.toString()).toSet();
-    } catch (_) {
-      return {};
-    }
-  }
+  Map<String, GamepadButtonLayout> _decodeLayout(String raw) =>
+      decodeGamepadLayout(
+        raw,
+        minSize: (_) => _minBtnSize,
+        maxSize: (_) => _maxBtnSize,
+        defaultSize: _defaultBtnSize,
+      );
 
   void _toggleEdit() {
     setState(() {
@@ -1056,15 +1018,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     });
   }
 
-  void _showSizeLimit(bool atMax) {
-    final msg = atMax ? 'Max size reached' : 'Min size reached';
-    showGamepadTopNotice(
-      context,
-      message: msg,
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showSizeLimit(bool atMax) =>
+      _editNotices.showSizeLimit(context, atMax: atMax);
 
   void _flashEditWarning(String id) {
     _editWarningTimer?.cancel();
@@ -1308,29 +1263,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  void _showBoundaryWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastBoundaryWarningMs < 900) return;
-    _lastBoundaryWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons must stay inside the safe zone.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showBoundaryWarning() => _editNotices.showBoundaryWarning(context);
 
-  void _showOverlapWarning() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastOverlapWarningMs < 900) return;
-    _lastOverlapWarningMs = now;
-    showGamepadTopNotice(
-      context,
-      message: 'Buttons cannot overlap.',
-      duration: const Duration(milliseconds: 900),
-      style: GamepadNoticeStyle.warning,
-    );
-  }
+  void _showOverlapWarning() => _editNotices.showOverlapWarning(context);
 
   Widget _appBarBadge(String label, String value) {
     IconData icon;
