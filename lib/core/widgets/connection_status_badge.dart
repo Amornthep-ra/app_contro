@@ -9,8 +9,8 @@ import '../ui/language_controller.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_presentation_state.dart';
-import '../../features/bluetooth/widgets/pairing_code_dialog.dart';
 import 'ble_connection_sheet.dart';
+import 'pairing_code_dialog.dart';
 import 'ble_presentation_icon.dart';
 import 'gamepad_app_bar.dart';
 

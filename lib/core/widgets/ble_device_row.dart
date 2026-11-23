@@ -1,9 +1,9 @@
-// lib/features/bluetooth/widgets/ble_device_row.dart
+// lib/core/widgets/ble_device_row.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import '../../../core/ui/lavender_glass.dart';
-import '../../../core/widgets/signal_bars.dart';
+import '../ui/lavender_glass.dart';
+import 'signal_bars.dart';
 
 /// Display name for a scan result: platform name, then advertised name,
 /// then the device id.

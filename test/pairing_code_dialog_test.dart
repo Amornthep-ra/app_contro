@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pb_controller/core/widgets/connection_status_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_connection_coordinator.dart';
-import 'package:pb_controller/features/bluetooth/widgets/pairing_code_dialog.dart';
+import 'package:pb_controller/core/widgets/pairing_code_dialog.dart';
 
 void main() {
   for (final readyAfterReconnect in [false, true]) {

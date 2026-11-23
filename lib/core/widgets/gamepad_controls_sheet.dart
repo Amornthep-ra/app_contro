@@ -1,10 +1,10 @@
-// lib/features/gamepad/widgets/gamepad_controls_sheet.dart
+// lib/core/widgets/gamepad_controls_sheet.dart
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/ui/lavender_glass.dart';
-import '../../../core/widgets/cat_glass_popup.dart';
+import '../ui/lavender_glass.dart';
+import 'cat_glass_popup.dart';
 
 /// One control the layout editor can show or hide on the pad.
 class GamepadControlChoice {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../../core/widgets/gamepad_control_toolbar.dart';
 
-import '../../../core/widgets/gamepad_app_bar.dart';
+import 'gamepad_app_bar.dart';
+import 'gamepad_control_toolbar.dart';
 
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());

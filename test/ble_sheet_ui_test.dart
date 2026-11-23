@@ -10,7 +10,7 @@ import 'package:pb_controller/core/ble/ble_presentation_state.dart';
 import 'package:pb_controller/core/ui/lavender_glass.dart';
 import 'package:pb_controller/core/widgets/ble_connection_sheet.dart';
 import 'package:pb_controller/core/widgets/connection_status_badge.dart';
-import 'package:pb_controller/features/bluetooth/widgets/ble_device_row.dart';
+import 'package:pb_controller/core/widgets/ble_device_row.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _NoopPlatform implements BleConnectionPlatform {

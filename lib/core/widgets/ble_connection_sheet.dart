@@ -7,13 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import '../../features/bluetooth/widgets/ble_connection_status.dart';
-import '../../features/bluetooth/widgets/ble_device_row.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_presentation_state.dart';
 import '../ui/ambient_motion.dart';
 import '../ui/lavender_glass.dart';
+import 'ble_connection_status.dart';
+import 'ble_device_row.dart';
 import 'ble_status_orb.dart';
 import 'cat_glass_popup.dart';
 

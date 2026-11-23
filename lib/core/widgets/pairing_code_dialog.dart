@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/ble/ble_connection_coordinator.dart';
-import '../../../core/ble/ble_pairing_store.dart';
+import '../ble/ble_connection_coordinator.dart';
+import '../ble/ble_pairing_store.dart';
 
 typedef BlePairingPromptLauncher =
     Future<bool?> Function({

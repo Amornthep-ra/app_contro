@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ui/gamepad_assets.dart';
 import 'package:pb_controller/core/ui/lavender_glass.dart';
-import 'package:pb_controller/features/gamepad/widgets/gamepad_controls_sheet.dart';
+import 'package:pb_controller/core/widgets/gamepad_controls_sheet.dart';
 
 const _groups = [
   GamepadControlGroup(

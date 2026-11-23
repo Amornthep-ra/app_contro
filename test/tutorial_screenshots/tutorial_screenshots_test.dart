@@ -27,7 +27,7 @@ import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/connection_status_badge.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
 import 'package:pb_controller/features/bluetooth/bluetooth_ble_page.dart';
-import 'package:pb_controller/features/bluetooth/widgets/pairing_code_dialog.dart';
+import 'package:pb_controller/core/widgets/pairing_code_dialog.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/home/home_page.dart';

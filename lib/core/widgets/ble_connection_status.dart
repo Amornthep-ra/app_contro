@@ -1,8 +1,8 @@
-// lib/features/bluetooth/widgets/ble_connection_status.dart
+// lib/core/widgets/ble_connection_status.dart
 import 'package:flutter/material.dart';
 
-import '../../../core/ble/ble_connection_coordinator.dart';
-import '../../../core/ui/lavender_glass.dart';
+import '../ble/ble_connection_coordinator.dart';
+import '../ui/lavender_glass.dart';
 
 /// Name shown for the connected robot: its name, then its id, then the
 /// remembered last-device name.

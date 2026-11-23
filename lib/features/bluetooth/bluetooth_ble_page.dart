@@ -13,15 +13,17 @@ import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/language_controller.dart';
 import '../../core/ui/lavender_glass.dart';
+import '../../core/widgets/ble_connection_status.dart';
+import '../../core/widgets/ble_device_row.dart';
 import '../../core/widgets/ble_status_orb.dart';
 import '../../core/widgets/cat_back_button.dart';
+import '../../core/widgets/pairing_code_dialog.dart';
 import '../../core/widgets/portrait_background.dart';
-import 'widgets/ble_connection_status.dart';
-import 'widgets/ble_device_row.dart';
-import 'widgets/pairing_code_dialog.dart';
 
-export 'widgets/ble_connection_status.dart' show resolveBleConnectedDeviceName;
-export 'widgets/ble_device_row.dart' show bleScanResultName, sortBleScanResults;
+export '../../core/widgets/ble_connection_status.dart'
+    show resolveBleConnectedDeviceName;
+export '../../core/widgets/ble_device_row.dart'
+    show bleScanResultName, sortBleScanResults;
 
 @visibleForTesting
 bool isCurrentBleDeviceId({

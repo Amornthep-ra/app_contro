@@ -7,7 +7,7 @@ import 'package:pb_controller/core/widgets/gamepad_app_bar.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
-import 'package:pb_controller/features/gamepad/widgets/gamepad_telemetry_chip.dart';
+import 'package:pb_controller/core/widgets/gamepad_telemetry_chip.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

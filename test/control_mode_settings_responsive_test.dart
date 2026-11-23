@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pb_controller/core/ui/control_mode.dart';
 import 'package:pb_controller/features/gamepad/control_mode_settings_page.dart';
 
 void main() {

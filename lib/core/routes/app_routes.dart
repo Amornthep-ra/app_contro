@@ -5,8 +5,8 @@ import '../../features/linesonic/linesonic_page.dart';
 import '../../features/bluetooth/bluetooth_ble_page.dart';
 import '../../features/gamepad/gamepad_4_button_page.dart';
 import '../../features/gamepad/gamepad_mode_edit.dart';
-import '../../features/gamepad/control_mode_settings_page.dart';
 import '../../features/joystick/joystick/presentation/joystick.dart';
+import '../ui/control_mode.dart';
 
 /// Lets pages react when a route above them is popped (see [RouteAware]).
 final RouteObserver<ModalRoute<void>> appRouteObserver =
