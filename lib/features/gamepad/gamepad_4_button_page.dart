@@ -335,9 +335,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   Timer? _editWarningTimer;
   int _lastOverlapWarningMs = 0;
   int _lastBoundaryWarningMs = 0;
-  final List<_EditSnapshot> _undoStack = [];
-  final List<_EditSnapshot> _redoStack = [];
-  static const int _maxHistory = 30;
+  final _history = GamepadEditHistory<_EditSnapshot>();
   Timer? _tick;
   int _lastSendMs = 0;
   StreamSubscription<bool>? _bleConnSub;
@@ -658,19 +656,12 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
   }
 
-  void _pushHistory() {
-    _undoStack.add(_captureSnapshot());
-    if (_undoStack.length > _maxHistory) {
-      _undoStack.removeAt(0);
-    }
-    _redoStack.clear();
-  }
+  void _pushHistory() => _history.push(_captureSnapshot());
 
   void _undo() {
-    if (_undoStack.isEmpty) return;
+    if (!_history.canUndo) return;
     setState(() {
-      _redoStack.add(_captureSnapshot());
-      _applySnapshot(_undoStack.removeLast());
+      _applySnapshot(_history.undo(_captureSnapshot()));
       _editWarningId = null;
     });
     _saveActive(_prefsActiveAll, _activeIds);
@@ -678,10 +669,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   void _redo() {
-    if (_redoStack.isEmpty) return;
+    if (!_history.canRedo) return;
     setState(() {
-      _undoStack.add(_captureSnapshot());
-      _applySnapshot(_redoStack.removeLast());
+      _applySnapshot(_history.redo(_captureSnapshot()));
       _editWarningId = null;
     });
     _saveActive(_prefsActiveAll, _activeIds);
@@ -1757,13 +1747,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           icon: Icons.undo_rounded,
           label: 'Undo',
           accent: const Color(0xFFA78BFA),
-          onTap: _undoStack.isNotEmpty ? _undo : null,
+          onTap: _history.canUndo ? _undo : null,
         ),
         _toolIconPill(
           icon: Icons.redo_rounded,
           label: 'Redo',
           accent: const Color(0xFFA78BFA),
-          onTap: _redoStack.isNotEmpty ? _redo : null,
+          onTap: _history.canRedo ? _redo : null,
         ),
         _toolIconPill(
           icon: Icons.restart_alt,

@@ -189,9 +189,7 @@ class _JoystickPageState extends State<JoystickPage> {
   Map<String, _JoyLayout> _layout = {};
   Set<String> _activeIds = {kJoyLeftId, kJoyRightId};
   final Set<String> _lockedIds = {};
-  final List<_EditSnapshot> _undoStack = [];
-  final List<_EditSnapshot> _redoStack = [];
-  static const int _maxHistory = 30;
+  final _history = GamepadEditHistory<_EditSnapshot>();
   int _dragCount = 0;
   bool _showVGuide = false;
   bool _showHGuide = false;
@@ -1010,29 +1008,21 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
-  void _pushHistory() {
-    _undoStack.add(_captureSnapshot());
-    if (_undoStack.length > _maxHistory) {
-      _undoStack.removeAt(0);
-    }
-    _redoStack.clear();
-  }
+  void _pushHistory() => _history.push(_captureSnapshot());
 
   void _undo() {
-    if (_undoStack.isEmpty) return;
+    if (!_history.canUndo) return;
     setState(() {
-      _redoStack.add(_captureSnapshot());
-      _applySnapshot(_undoStack.removeLast());
+      _applySnapshot(_history.undo(_captureSnapshot()));
     });
     _saveLayout();
     _saveActive();
   }
 
   void _redo() {
-    if (_redoStack.isEmpty) return;
+    if (!_history.canRedo) return;
     setState(() {
-      _undoStack.add(_captureSnapshot());
-      _applySnapshot(_redoStack.removeLast());
+      _applySnapshot(_history.redo(_captureSnapshot()));
     });
     _saveLayout();
     _saveActive();
@@ -1817,13 +1807,13 @@ class _JoystickPageState extends State<JoystickPage> {
           icon: Icons.undo_rounded,
           label: 'Undo',
           accent: const Color(0xFFA78BFA),
-          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
+          onTap: _history.canUndo ? withBuzz(_undo) : null,
         ),
         _toolIconPill(
           icon: Icons.redo_rounded,
           label: 'Redo',
           accent: const Color(0xFFA78BFA),
-          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
+          onTap: _history.canRedo ? withBuzz(_redo) : null,
         ),
         _toolIconPill(
           icon: Icons.restart_alt,

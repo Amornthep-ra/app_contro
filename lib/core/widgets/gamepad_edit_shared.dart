@@ -16,6 +16,42 @@ class GamepadButtonLayout {
   Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
 }
 
+/// Undo/redo stacks of the layout editor. [T] is the page's own snapshot of
+/// what an edit can change; the page captures and applies it.
+class GamepadEditHistory<T> {
+  final int maxEntries;
+  final List<T> _undoStack = [];
+  final List<T> _redoStack = [];
+
+  GamepadEditHistory({this.maxEntries = 30});
+
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  /// Records [snapshot] (the state before an edit) and drops the redo list.
+  void push(T snapshot) {
+    _undoStack.add(snapshot);
+    if (_undoStack.length > maxEntries) {
+      _undoStack.removeAt(0);
+    }
+    _redoStack.clear();
+  }
+
+  /// Stores [current] for redo and returns the state to restore.
+  /// Call only when [canUndo].
+  T undo(T current) {
+    _redoStack.add(current);
+    return _undoStack.removeLast();
+  }
+
+  /// Stores [current] for undo and returns the state to restore.
+  /// Call only when [canRedo].
+  T redo(T current) {
+    _undoStack.add(current);
+    return _redoStack.removeLast();
+  }
+}
+
 class GamepadEditSpec<TVisual> {
   final String label;
   final String sendValue;
