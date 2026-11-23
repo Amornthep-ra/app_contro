@@ -9,6 +9,7 @@ class JoystickWidget extends StatelessWidget {
   final String? knobImage;
   final String? baseImage;
   final JoystickAxisLock axisLock;
+  final Listenable? resetSignal;
 
   const JoystickWidget({
     super.key,
@@ -18,6 +19,7 @@ class JoystickWidget extends StatelessWidget {
     this.knobImage,
     this.baseImage,
     this.axisLock = JoystickAxisLock.none,
+    this.resetSignal,
   });
 
   @override
@@ -29,6 +31,7 @@ class JoystickWidget extends StatelessWidget {
       knobImage: knobImage,
       baseImage: baseImage,
       axisLock: axisLock,
+      resetSignal: resetSignal,
     );
   }
 }

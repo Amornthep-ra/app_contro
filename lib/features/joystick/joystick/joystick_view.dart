@@ -14,6 +14,11 @@ class JoystickView extends StatefulWidget {
   final String? baseImage;
   final JoystickAxisLock axisLock;
 
+  /// Fires when the page cleared its input (Stop, reconnect, app paused).
+  /// The knob springs back to the centre and a finger still on the stick
+  /// is ignored until it lifts, so the screen matches what the robot got.
+  final Listenable? resetSignal;
+
   const JoystickView({
     super.key,
     required this.controller,
@@ -22,6 +27,7 @@ class JoystickView extends StatefulWidget {
     this.knobImage,
     this.baseImage,
     this.axisLock = JoystickAxisLock.none,
+    this.resetSignal,
   });
 
   @override
@@ -33,6 +39,13 @@ class _JoystickViewState extends State<JoystickView>
   Offset _knob = Offset.zero;
   Offset _resetStart = Offset.zero;
   late AnimationController _resetCtrl;
+
+  /// A finger is on the stick.
+  bool _dragging = false;
+
+  /// Input was reset while a finger was on the stick: ignore that finger
+  /// until it lifts.
+  bool _ignoreUntilLift = false;
 
   Size _lastSize = Size.zero;
 
@@ -88,12 +101,32 @@ class _JoystickViewState extends State<JoystickView>
         )!;
       });
     });
+    widget.resetSignal?.addListener(_onInputReset);
+  }
+
+  @override
+  void didUpdateWidget(JoystickView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetSignal != widget.resetSignal) {
+      oldWidget.resetSignal?.removeListener(_onInputReset);
+      widget.resetSignal?.addListener(_onInputReset);
+    }
   }
 
   @override
   void dispose() {
+    widget.resetSignal?.removeListener(_onInputReset);
     _resetCtrl.dispose();
     super.dispose();
+  }
+
+  /// The page already zeroed the values; only the knob and the held finger
+  /// need handling here (no onChanged, nothing is sent).
+  void _onInputReset() {
+    if (_dragging) _ignoreUntilLift = true;
+    if (_knob == Offset.zero) return;
+    _resetStart = _knob;
+    _resetCtrl.forward(from: 0);
   }
 
   void _onPanStart(DragStartDetails d) => _onDrag(d.localPosition);
@@ -101,6 +134,8 @@ class _JoystickViewState extends State<JoystickView>
   void _onPanEnd(DragEndDetails d) => _onRelease();
 
   void _onDrag(Offset localPos) {
+    _dragging = true;
+    if (_ignoreUntilLift) return;
     _resetCtrl.stop();
     if (_lastSize.width <= 0 || _lastSize.height <= 0) return;
 
@@ -131,6 +166,12 @@ class _JoystickViewState extends State<JoystickView>
   }
 
   void _onRelease() {
+    _dragging = false;
+    if (_ignoreUntilLift) {
+      // The reset already zeroed the values and sent the knob home.
+      _ignoreUntilLift = false;
+      return;
+    }
     _resetStart = _knob;
     // Control stops immediately; the return animation is visual only.
     if (widget.isLeft) {

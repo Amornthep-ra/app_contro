@@ -2,8 +2,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:ui';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/control_input_gate.dart';
 import '../../../../core/widgets/control_background.dart';
@@ -238,7 +236,17 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _leavingControlPage = false;
   bool _controlStarted = false;
   bool _modeSwitchInProgress = false;
+
+  /// Tells the sticks and face buttons that input was cleared, so they
+  /// stop showing a held position and ignore fingers still down (J-4).
+  final _inputResetSignal = ValueNotifier<int>(0);
+
+  void _signalInputReset() {
+    if (mounted) _inputResetSignal.value++;
+  }
+
   void _resetInputState() {
+    _signalInputReset();
     void apply() {
       _clearStickTargets();
       _smoothLX = 0;
@@ -441,6 +449,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _sendZeroAndClear({bool updateUi = true, int? owner}) {
+    _signalInputReset();
     _clearStickTargets();
     _smoothLX = 0;
     _smoothLY = 0;
@@ -717,6 +726,7 @@ class _JoystickPageState extends State<JoystickPage> {
     LanguageController.isThai.removeListener(_langListener);
     _leftDebug.dispose();
     _rightDebug.dispose();
+    _inputResetSignal.dispose();
     super.dispose();
   }
 
@@ -1195,81 +1205,6 @@ class _JoystickPageState extends State<JoystickPage> {
     });
   }
 
-  Widget _buildEditMenu({bool compact = false}) {
-    final isThai = LanguageController.isThai.value;
-    final accent = const Color(0xFF34D399);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor =
-        Color.lerp(
-          accent,
-          isDark ? Colors.white : theme.colorScheme.onSurface,
-          0.4,
-        ) ??
-        Colors.white;
-    final horizontalPadding = compact ? 10.0 : 12.0;
-    final fontSize = compact ? 10.0 : 11.0;
-    Widget content() {
-      return GamepadGlassTopPill(
-        pillKey: null,
-        onTap: Platform.isIOS
-            ? null
-            : () {
-                gamepadBuzz();
-                _openButtonsMenu();
-              },
-        padding: EdgeInsets.symmetric(
-          horizontal: horizontalPadding,
-          vertical: 0,
-        ),
-        child: Center(
-          child: Text(
-            isThai ? 'Buttons' : 'Buttons',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w800,
-              color: textColor,
-              height: 1.0,
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (Platform.isIOS) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          gamepadBuzz();
-          _openButtonsMenu();
-        },
-        child: content(),
-      );
-    }
-    return content();
-  }
-
-  Widget _actionPill({
-    required String label,
-    required IconData icon,
-    required Color accent,
-    required VoidCallback? onTap,
-    Key? key,
-    bool iconOnly = false,
-    bool compact = false,
-  }) {
-    return GamepadActionPill(
-      pillKey: key,
-      label: label,
-      icon: icon,
-      accent: accent,
-      onTap: onTap,
-      iconOnly: iconOnly,
-      compact: compact,
-    );
-  }
-
   Widget _toolIconPill({
     required IconData icon,
     required String label,
@@ -1285,26 +1220,6 @@ class _JoystickPageState extends State<JoystickPage> {
       accent: accent,
       onTap: onTap,
       active: active,
-    );
-  }
-
-  Widget _sizeToolPill({
-    required bool isThai,
-    required bool enabled,
-    Key? key,
-  }) {
-    return GamepadSizeToolPill(
-      pillKey: key,
-      isThai: isThai,
-      enabled: enabled,
-      onDecrease: () {
-        gamepadBuzz();
-        _adjustSelectedSize(-0.05);
-      },
-      onIncrease: () {
-        gamepadBuzz();
-        _adjustSelectedSize(0.05);
-      },
     );
   }
 
@@ -1759,29 +1674,6 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
-  // ignore: unused_element
-  GamepadAppBarMetrics _metricsWithOverrides(
-    GamepadAppBarMetrics base, {
-    double? labelButtonWidth,
-    double? telemetryValueMaxWidth,
-  }) {
-    return GamepadAppBarMetrics(
-      controlHeight: base.controlHeight,
-      iconButtonExtent: base.iconButtonExtent,
-      labelButtonWidth: labelButtonWidth ?? base.labelButtonWidth,
-      controlGap: base.controlGap,
-      sectionGap: base.sectionGap,
-      contentPadding: base.contentPadding,
-      iconSize: base.iconSize,
-      borderRadius: base.borderRadius,
-      labelIconGap: base.labelIconGap,
-      telemetryLabelFontSize: base.telemetryLabelFontSize,
-      telemetryValueFontSize: base.telemetryValueFontSize,
-      telemetryValueMaxWidth:
-          telemetryValueMaxWidth ?? base.telemetryValueMaxWidth,
-    );
-  }
-
   Widget _buildAlignmentGuides() {
     if (!_editMode || _dragCount == 0 || (!_showVGuide && !_showHGuide)) {
       return const SizedBox.shrink();
@@ -1988,314 +1880,6 @@ class _JoystickPageState extends State<JoystickPage> {
           onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
       ],
-    );
-  }
-
-  // ignore: unused_element
-  PreferredSizeWidget _buildEditModeAppBar(bool isThai) {
-    final media = MediaQuery.of(context);
-    if (media.size.width >= 1000 && media.textScaler.scale(1) <= 1.3) {
-      return _buildExpandedEditModeAppBar(isThai);
-    }
-    final metrics = GamepadAppBarMetrics.forWidth(media.size.width);
-    final hasSelection = _selectedId != null;
-    final selectedLocked =
-        _selectedId != null && _lockedIds.contains(_selectedId);
-    final sizeEnabled = hasSelection && !selectedLocked;
-
-    VoidCallback withBuzz(VoidCallback action) {
-      return () {
-        gamepadBuzz();
-        action();
-      };
-    }
-
-    Widget compactAction({
-      required String label,
-      required IconData icon,
-      required VoidCallback? onTap,
-    }) {
-      return Tooltip(
-        message: label,
-        child: _actionPill(
-          label: label,
-          icon: icon,
-          accent: const Color(0xFFA78BFA),
-          iconOnly: true,
-          compact: true,
-          onTap: onTap,
-        ),
-      );
-    }
-
-    final more = GamepadEditMoreButton(
-      actions: [
-        GamepadOverflowAction(
-          label: isThai ? 'ลบ' : 'Delete',
-          icon: Icons.delete_outline,
-          accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
-        ),
-        GamepadOverflowAction(
-          label: 'Reset',
-          icon: Icons.restart_alt,
-          accent: const Color(0xFFF59E0B),
-          onTap: withBuzz(_resetLayout),
-        ),
-        GamepadOverflowAction(
-          label: 'Grid',
-          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-          accent: const Color(0xFF38BDF8),
-          active: _showGrid,
-          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
-        ),
-        GamepadOverflowAction(
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
-          icon: Icons.remove,
-          accent: const Color(0xFF38BDF8),
-          onTap: sizeEnabled
-              ? withBuzz(() => _adjustSelectedSize(-0.05))
-              : null,
-        ),
-        GamepadOverflowAction(
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
-          icon: Icons.add,
-          accent: const Color(0xFF38BDF8),
-          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
-        ),
-        GamepadOverflowAction(
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
-          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          accent: const Color(0xFFFBBF24),
-          active: selectedLocked,
-          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
-        ),
-      ],
-    );
-    final history = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        compactAction(
-          label: 'Undo',
-          icon: Icons.undo_rounded,
-          onTap: _undoStack.isNotEmpty ? withBuzz(_undo) : null,
-        ),
-        SizedBox(width: metrics.controlGap),
-        compactAction(
-          label: 'Redo',
-          icon: Icons.redo_rounded,
-          onTap: _redoStack.isNotEmpty ? withBuzz(_redo) : null,
-        ),
-        SizedBox(width: metrics.controlGap),
-        more,
-      ],
-    );
-    final done = _actionPill(
-      label: 'Done',
-      icon: Icons.edit,
-      accent: const Color(0xFF60A5FA),
-      compact: true,
-      onTap: withBuzz(_toggleEdit),
-    );
-    return GamepadUnifiedAppBar(
-      textScaleFactor: media.textScaler.scale(1),
-      useGlassBackground: false,
-      glassOpacity: 0.18,
-      toolbarContent: SizedBox(
-        width: math.max(0, media.size.width - 24),
-        height: metrics.tapTargetExtent,
-        child: Row(
-          children: [
-            _buildEditMenu(compact: true),
-            SizedBox(width: metrics.sectionGap),
-            Expanded(child: Center(child: history)),
-            SizedBox(width: metrics.sectionGap),
-            done,
-          ],
-        ),
-      ),
-    );
-  }
-
-  PreferredSizeWidget _buildExpandedEditModeAppBar(bool isThai) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final metrics = GamepadAppBarMetrics.forWidth(
-      MediaQuery.of(context).size.width,
-    );
-    final baseColor = isDark
-        ? _opacity(const Color(0xFF111827), 0.30)
-        : _opacity(
-            Color.lerp(const Color(0xFFF8FAFC), cs.surface, 0.55) ?? cs.surface,
-            0.18,
-          );
-    final border = _opacity(
-      isDark ? const Color(0xFF38BDF8) : cs.outline,
-      isDark ? 0.28 : 0.16,
-    );
-    final topLine = _opacity(Colors.white, isDark ? 0.1 : 0.45);
-    final bottomLine = _opacity(
-      isDark ? const Color(0xFF38BDF8) : cs.outline,
-      isDark ? 0.32 : 0.18,
-    );
-    final middleChildren = <Widget>[
-      _actionPill(
-        label: isThai ? 'Delete' : 'Delete',
-        icon: Icons.delete_outline,
-        accent: const Color(0xFFF87171),
-        compact: true,
-        onTap: _selectedId == null
-            ? null
-            : () {
-                gamepadBuzz();
-                _removeSelected();
-              },
-      ),
-      _actionPill(
-        label: isThai ? 'Reset' : 'Reset',
-        icon: Icons.restart_alt,
-        accent: const Color(0xFFF59E0B),
-        compact: true,
-        onTap: () {
-          gamepadBuzz();
-          _resetLayout();
-        },
-      ),
-      _toolIconPill(
-        icon: Icons.undo_rounded,
-        label: isThai ? 'Undo' : 'Undo',
-        accent: const Color(0xFFA78BFA),
-        onTap: _undoStack.isNotEmpty
-            ? () {
-                gamepadBuzz();
-                _undo();
-              }
-            : null,
-      ),
-      _toolIconPill(
-        icon: Icons.redo_rounded,
-        label: isThai ? 'Redo' : 'Redo',
-        accent: const Color(0xFFA78BFA),
-        onTap: _redoStack.isNotEmpty
-            ? () {
-                gamepadBuzz();
-                _redo();
-              }
-            : null,
-      ),
-      _toolIconPill(
-        icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'Grid' : 'Grid',
-        accent: const Color(0xFF38BDF8),
-        active: _showGrid,
-        onTap: () {
-          gamepadBuzz();
-          setState(() => _showGrid = !_showGrid);
-        },
-      ),
-      _sizeToolPill(
-        isThai: isThai,
-        enabled: _selectedId != null && !_lockedIds.contains(_selectedId),
-      ),
-      _toolIconPill(
-        icon: _selectedId != null && _lockedIds.contains(_selectedId)
-            ? Icons.lock_rounded
-            : Icons.lock_open_rounded,
-        label: gamepadEditLockLabel(
-          isThai: isThai,
-          locked: _selectedId != null && _lockedIds.contains(_selectedId),
-        ),
-        accent: const Color(0xFFFBBF24),
-        active: _selectedId != null && _lockedIds.contains(_selectedId),
-        onTap: _selectedId != null
-            ? () {
-                gamepadBuzz();
-                _toggleSelectedLock();
-              }
-            : null,
-      ),
-    ];
-    final allChildren = <Widget>[
-      _buildEditMenu(compact: true),
-      ...middleChildren,
-      _actionPill(
-        label: isThai ? 'Done' : 'Done',
-        icon: Icons.edit,
-        accent: const Color(0xFF60A5FA),
-        compact: true,
-        onTap: () {
-          gamepadBuzz();
-          _toggleEdit();
-        },
-      ),
-    ];
-    return AppBar(
-      automaticallyImplyLeading: false,
-      toolbarHeight: GamepadAppBarMetrics.toolbarHeight,
-      elevation: 0,
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      foregroundColor: cs.onSurface,
-      titleSpacing: 0,
-      flexibleSpace: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
-            decoration: BoxDecoration(
-              color: baseColor,
-              border: Border(
-                top: BorderSide(color: topLine, width: 0.8),
-                bottom: BorderSide(color: border, width: 0.9),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _opacity(Colors.black, isDark ? 0.24 : 0.08),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: Container(height: 1, color: bottomLine),
-            ),
-          ),
-        ),
-      ),
-      title: SizedBox(
-        height: metrics.tapTargetExtent,
-        child: Padding(
-          padding: metrics.contentPadding,
-          child: Row(
-            children: [
-              allChildren.first,
-              SizedBox(width: metrics.sectionGap),
-              Expanded(
-                child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (
-                        int index = 1;
-                        index < allChildren.length - 1;
-                        index++
-                      ) ...[
-                        allChildren[index],
-                        if (index < allChildren.length - 2)
-                          SizedBox(width: metrics.controlGap),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(width: metrics.sectionGap),
-              allChildren.last,
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -2536,6 +2120,7 @@ class _JoystickPageState extends State<JoystickPage> {
         knobImage: isLeft
             ? joystickTheme.leftKnobImage
             : joystickTheme.rightKnobImage,
+        resetSignal: _inputResetSignal,
         onChanged: (x, y) {
           if (_editMode) return;
           // Each touch event sets where the stick should go and takes one
@@ -2622,6 +2207,7 @@ class _JoystickPageState extends State<JoystickPage> {
         label: label,
         asset: asset,
         diameter: btnSize,
+        resetSignal: _inputResetSignal,
         onPressChanged: (down) => _onButtonChanged(id, down),
       ),
     );
@@ -2693,11 +2279,18 @@ class _JoyImagePressHoldButton extends StatefulWidget {
   final String asset;
   final double diameter;
   final ValueChanged<bool>? onPressChanged;
+
+  /// Input was cleared by the page: drop the pressed look without
+  /// reporting a release. A finger still down stays ignored until every
+  /// finger on the button lifts (CircularHoldDetector reports no new
+  /// press while one is held).
+  final Listenable? resetSignal;
   const _JoyImagePressHoldButton({
     required this.label,
     required this.asset,
     this.diameter = 120,
     this.onPressChanged,
+    this.resetSignal,
   });
   @override
   State<_JoyImagePressHoldButton> createState() =>
@@ -2708,6 +2301,32 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
   bool _pressed = false;
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
+
+  @override
+  void initState() {
+    super.initState();
+    widget.resetSignal?.addListener(_onInputReset);
+  }
+
+  @override
+  void didUpdateWidget(_JoyImagePressHoldButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetSignal != widget.resetSignal) {
+      oldWidget.resetSignal?.removeListener(_onInputReset);
+      widget.resetSignal?.addListener(_onInputReset);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.resetSignal?.removeListener(_onInputReset);
+    super.dispose();
+  }
+
+  void _onInputReset() {
+    if (_pressed) setState(() => _pressed = false);
+  }
+
   void _onDown() {
     if (_pressed) return;
     setState(() => _pressed = true);

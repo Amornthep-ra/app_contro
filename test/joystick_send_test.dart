@@ -134,4 +134,91 @@ void main() {
     expect(tester.takeException(), isNull);
     await unmount(tester);
   });
+
+  Future<void> stopThenStart(WidgetTester tester) async {
+    await tester.tap(find.bySemanticsLabel('Emergency Stop'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ControlStartStopButton));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Emergency Stop'), findsOneWidget);
+    sent.clear();
+  }
+
+  testWidgets('after Stop, a finger still on the stick is ignored until '
+      'it lifts', (tester) async {
+    await mountAndStart(tester);
+    final stick = tester.getRect(find.byType(JoystickView));
+    final rim = stick.center + Offset(stick.width * 0.45, 0);
+    final held = await tester.startGesture(rim);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 25));
+    }
+    expect(sent.last.packet.lx, greaterThanOrEqualTo(0.99));
+
+    await stopThenStart(tester);
+    // The knob went back to the centre of the base.
+    final knob = find.descendant(
+      of: find.byType(JoystickView),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).gradient is RadialGradient,
+      ),
+    );
+    expect(
+      (tester.getCenter(knob.first) - stick.center).distance,
+      lessThan(1),
+    );
+    // The same finger keeps moving: the robot must not drive again.
+    await held.moveTo(rim + const Offset(0, 4));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 25));
+    }
+    expect(sent.every((s) => s.packet.lx == 0 && s.packet.ly == 0), isTrue);
+
+    // Lift and touch again: driving works.
+    await held.up();
+    await tester.pump(const Duration(milliseconds: 25));
+    final again = await tester.startGesture(rim);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 25));
+    }
+    expect(sent.last.packet.lx, greaterThanOrEqualTo(0.99));
+    await again.up();
+    await tester.pump(const Duration(milliseconds: 25));
+    await unmount(tester);
+  });
+
+  testWidgets('after Stop, a held face button is released and stays '
+      'released until the finger lifts', (tester) async {
+    await mountAndStart(tester);
+    final triangle = find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_JoyImagePressHoldButton',
+    );
+    double pressScale() => tester
+        .widget<AnimatedScale>(
+          find.descendant(of: triangle, matching: find.byType(AnimatedScale)),
+        )
+        .scale;
+    final held = await tester.startGesture(tester.getRect(triangle).center);
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(sent.any((s) => s.buttons.contains(kBleBtnTriangle)), isTrue);
+    expect(pressScale(), lessThan(1.0), reason: 'drawn pressed');
+
+    await stopThenStart(tester);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(sent.every((s) => s.buttons.isEmpty), isTrue);
+    expect(pressScale(), 1.0, reason: 'no longer drawn pressed');
+
+    await held.up();
+    await tester.pump(const Duration(milliseconds: 25));
+    sent.clear();
+    final again = await tester.startGesture(tester.getRect(triangle).center);
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(sent.any((s) => s.buttons.contains(kBleBtnTriangle)), isTrue);
+    await again.up();
+    await tester.pump(const Duration(milliseconds: 25));
+    await unmount(tester);
+  });
 }
