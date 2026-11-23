@@ -2475,7 +2475,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
     }
   }
 
-  void _handleGuideChanged(_GuideState guide) {
+  void _handleGuideChanged(GamepadEditGuideState guide) {
     final nextShowX = guide.showVertical;
     final nextShowY = guide.showHorizontal;
     final nextSnap = guide.snap && (nextShowX || nextShowY);
@@ -2582,11 +2582,11 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
-                  painter: _EditGuidePainter(
+                  painter: GamepadEditAlignmentGuidesPainter(
                     showVertical: _showGuideX,
                     showHorizontal: _showGuideY,
-                    verticalXFactor: _guideX,
-                    horizontalYFactor: _guideY,
+                    verticalX: _guideX,
+                    horizontalY: _guideY,
                     color: _guideSnapActive
                         ? _opacity(const Color(0xFFFACC15), 0.95)
                         : _opacity(const Color(0xFFFACC15), 0.60),
@@ -2675,7 +2675,7 @@ class _EditableButton extends StatefulWidget {
   final bool locked;
   final bool snapToGrid;
   final ValueChanged<_ButtonLayout> onChanged;
-  final ValueChanged<_GuideState>? onGuideChanged;
+  final ValueChanged<GamepadEditGuideState>? onGuideChanged;
   final VoidCallback onEnd;
   final VoidCallback onTap;
   final VoidCallback? onStart;
@@ -2732,7 +2732,7 @@ class _EditableButtonState extends State<_EditableButton> {
     _startLayout = widget.layout;
     _dragging = false;
     _nearEdgeWarning = false;
-    widget.onGuideChanged?.call(const _GuideState.hidden());
+    widget.onGuideChanged?.call(const GamepadEditGuideState.hidden());
     widget.onStart?.call();
   }
 
@@ -2771,7 +2771,7 @@ class _EditableButtonState extends State<_EditableButton> {
     if (snapX) cx = centerX;
     if (snapY) cy = centerY;
     widget.onGuideChanged?.call(
-      _GuideState(
+      GamepadEditGuideState(
         showVertical: snapX,
         showHorizontal: snapY,
         verticalX: snapX ? 0.5 : null,
@@ -2892,7 +2892,9 @@ class _EditableButtonState extends State<_EditableButton> {
                 final began = _gestureActive;
                 _gestureActive = false;
                 if (!began) return;
-                widget.onGuideChanged?.call(const _GuideState.hidden());
+                widget.onGuideChanged?.call(
+                  const GamepadEditGuideState.hidden(),
+                );
                 if (_colliding || _dragging || _nearEdgeWarning) {
                   setState(() {
                     _colliding = false;
@@ -2910,66 +2912,5 @@ class _EditableButtonState extends State<_EditableButton> {
 
   bool _isButtonEditId(String id) {
     return id.startsWith('L:') || id.startsWith('R:');
-  }
-}
-
-class _GuideState {
-  final bool showVertical;
-  final bool showHorizontal;
-  final double? verticalX;
-  final double? horizontalY;
-  final bool snap;
-  const _GuideState({
-    required this.showVertical,
-    required this.showHorizontal,
-    required this.verticalX,
-    required this.horizontalY,
-    required this.snap,
-  });
-  const _GuideState.hidden()
-    : showVertical = false,
-      showHorizontal = false,
-      verticalX = null,
-      horizontalY = null,
-      snap = false;
-}
-
-class _EditGuidePainter extends CustomPainter {
-  final bool showVertical;
-  final bool showHorizontal;
-  final double? verticalXFactor;
-  final double? horizontalYFactor;
-  final Color color;
-  const _EditGuidePainter({
-    required this.showVertical,
-    required this.showHorizontal,
-    required this.verticalXFactor,
-    required this.horizontalYFactor,
-    required this.color,
-  });
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (!showVertical && !showHorizontal) return;
-    final p = Paint()
-      ..color = color
-      ..strokeWidth = 1.2
-      ..style = PaintingStyle.stroke;
-    if (showVertical && verticalXFactor != null) {
-      final x = (verticalXFactor!.clamp(0.0, 1.0)) * size.width;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
-    }
-    if (showHorizontal && horizontalYFactor != null) {
-      final y = (horizontalYFactor!.clamp(0.0, 1.0)) * size.height;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _EditGuidePainter oldDelegate) {
-    return oldDelegate.showVertical != showVertical ||
-        oldDelegate.showHorizontal != showHorizontal ||
-        oldDelegate.verticalXFactor != verticalXFactor ||
-        oldDelegate.horizontalYFactor != horizontalYFactor ||
-        oldDelegate.color != color;
   }
 }

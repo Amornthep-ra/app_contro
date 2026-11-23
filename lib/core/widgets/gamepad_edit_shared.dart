@@ -263,6 +263,29 @@ class GamepadTouchAreaOutline extends StatelessWidget {
   );
 }
 
+/// Where the snap guides are drawn while a control is dragged in the
+/// layout editor (factors 0..1 of the editor box), and whether it snapped.
+class GamepadEditGuideState {
+  final bool showVertical;
+  final bool showHorizontal;
+  final double? verticalX;
+  final double? horizontalY;
+  final bool snap;
+  const GamepadEditGuideState({
+    required this.showVertical,
+    required this.showHorizontal,
+    required this.verticalX,
+    required this.horizontalY,
+    required this.snap,
+  });
+  const GamepadEditGuideState.hidden()
+    : showVertical = false,
+      showHorizontal = false,
+      verticalX = null,
+      horizontalY = null,
+      snap = false;
+}
+
 class GamepadEditAlignmentGuidesPainter extends CustomPainter {
   final Color color;
   final bool showVertical;

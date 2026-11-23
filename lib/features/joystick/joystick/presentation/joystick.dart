@@ -2209,27 +2209,6 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 }
 
-class _GuideState {
-  final bool showVertical;
-  final bool showHorizontal;
-  final double? verticalX;
-  final double? horizontalY;
-  final bool snap;
-  const _GuideState({
-    required this.showVertical,
-    required this.showHorizontal,
-    required this.verticalX,
-    required this.horizontalY,
-    required this.snap,
-  });
-  const _GuideState.hidden()
-    : showVertical = false,
-      showHorizontal = false,
-      verticalX = null,
-      horizontalY = null,
-      snap = false;
-}
-
 class _JoyImagePressHoldButton extends StatefulWidget {
   final String label;
   final String asset;
@@ -2448,7 +2427,7 @@ class _EditableJoystick extends StatefulWidget {
   final ValueChanged<_JoyLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback? onStart;
-  final ValueChanged<_GuideState>? onGuideChanged;
+  final ValueChanged<GamepadEditGuideState>? onGuideChanged;
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
@@ -2503,7 +2482,7 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     _startLayout = widget.layout;
     _dragging = false;
     _nearEdgeWarning = false;
-    widget.onGuideChanged?.call(const _GuideState.hidden());
+    widget.onGuideChanged?.call(const GamepadEditGuideState.hidden());
     widget.onStart?.call();
   }
 
@@ -2544,7 +2523,7 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     if (snapV) cx = w * 0.5;
     if (snapH) cy = h * 0.5;
     widget.onGuideChanged?.call(
-      _GuideState(
+      GamepadEditGuideState(
         showVertical: showV,
         showHorizontal: showH,
         verticalX: 0.5,
@@ -2634,7 +2613,9 @@ class _EditableJoystickState extends State<_EditableJoystick> {
                 final began = _gestureActive;
                 _gestureActive = false;
                 if (!began) return;
-                widget.onGuideChanged?.call(const _GuideState.hidden());
+                widget.onGuideChanged?.call(
+                  const GamepadEditGuideState.hidden(),
+                );
                 if (_colliding || _dragging || _nearEdgeWarning) {
                   setState(() {
                     _colliding = false;
@@ -2682,7 +2663,7 @@ class _EditableButtonItem extends StatefulWidget {
   final ValueChanged<_JoyLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback? onStart;
-  final ValueChanged<_GuideState>? onGuideChanged;
+  final ValueChanged<GamepadEditGuideState>? onGuideChanged;
   final VoidCallback? onCollision;
   final VoidCallback? onBoundaryWarning;
   final bool externalWarning;
@@ -2737,7 +2718,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     _startLayout = widget.layout;
     _dragging = false;
     _nearEdgeWarning = false;
-    widget.onGuideChanged?.call(const _GuideState.hidden());
+    widget.onGuideChanged?.call(const GamepadEditGuideState.hidden());
     widget.onStart?.call();
   }
 
@@ -2803,7 +2784,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     if (snapX != null) cx = snapX;
     if (snapY != null) cy = snapY;
     widget.onGuideChanged?.call(
-      _GuideState(
+      GamepadEditGuideState(
         showVertical: snapX != null,
         showHorizontal: snapY != null,
         verticalX: snapX != null ? snapX / w : null,
@@ -2911,7 +2892,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
         final began = _gestureActive;
         _gestureActive = false;
         if (!began) return;
-        widget.onGuideChanged?.call(const _GuideState.hidden());
+        widget.onGuideChanged?.call(const GamepadEditGuideState.hidden());
         if (_colliding || _dragging || _nearEdgeWarning) {
           setState(() {
             _colliding = false;
