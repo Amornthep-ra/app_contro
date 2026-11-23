@@ -23,8 +23,7 @@ import '../../core/widgets/gamepad_edit_grid.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/gamepad_appbar_controls.dart';
-import '../../core/widgets/control_preset_dialog.dart';
-import '../../core/widgets/cat_glass_popup.dart';
+import '../../core/widgets/control_preset_slots.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
@@ -652,44 +651,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     }
   }
 
-  String _defaultPresetName(int slot) => 'Preset $slot';
-  static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
-  static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
-  String? _validatePresetName(String raw) {
-    final value = raw.trim();
-    if (value.isEmpty) {
-      return 'Enter a preset name using letters or numbers.';
-    }
-    if (!_presetAllowedPattern.hasMatch(value)) {
-      return 'Only letters, numbers, spaces, - and _ are allowed.';
-    }
-    if (!_presetRequiredChars.hasMatch(value)) {
-      return 'Use at least one letter or number. Symbols alone are not allowed.';
-    }
-    return null;
-  }
-
-  String? _readPresetName(String raw) {
-    try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return null;
-      final name = obj['name'];
-      if (name is String && name.trim().isNotEmpty) return name.trim();
-    } catch (_) {}
-    return null;
-  }
-
-  Future<String?> _promptPresetName({
-    required BuildContext context,
-    String? currentName,
-  }) {
-    return showCatPresetNameDialog(
-      context: context,
-      currentName: currentName,
-      validator: _validatePresetName,
-    );
-  }
-
   Future<void> _savePreset(int slot, {String? name}) async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
@@ -745,54 +706,12 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     } catch (_) {}
   }
 
-  Future<void> _showPresetSheet() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    ControlPresetSlot makeSlot(int slot) {
-      final raw = prefs.getString(_presetKey(slot)) ?? '';
-      return ControlPresetSlot(
-        slot: slot,
-        name: _readPresetName(raw) ?? _defaultPresetName(slot),
-        hasData: raw.isNotEmpty,
-      );
-    }
-
-    await showControlPresetDialog(
-      context: context,
-      slots: List<ControlPresetSlot>.generate(
-        controlPresetSlotCount,
-        (index) => makeSlot(index + 1),
-      ),
-      onSave: (slot) async {
-        gamepadBuzz();
-        final name = await _promptPresetName(
-          context: context,
-          currentName: slot.hasData ? slot.name : null,
-        );
-        if (name == null) return null;
-        await _savePreset(slot.slot, name: name);
-        final trimmed = name.trim();
-        return ControlPresetSlot(
-          slot: slot.slot,
-          name: trimmed.isEmpty ? _defaultPresetName(slot.slot) : trimmed,
-          hasData: true,
-        );
-      },
-      onLoad: (slot) async {
-        gamepadBuzz();
-        await _loadPreset(slot.slot);
-      },
-      onClear: (slot) async {
-        gamepadBuzz();
-        await prefs.remove(_presetKey(slot.slot));
-        return ControlPresetSlot(
-          slot: slot.slot,
-          name: _defaultPresetName(slot.slot),
-          hasData: false,
-        );
-      },
-    );
-  }
+  Future<void> _showPresetSheet() => showControlPresetSheet(
+    context: context,
+    presetKey: _presetKey,
+    onSave: (slot, name) => _savePreset(slot, name: name),
+    onLoad: _loadPreset,
+  );
 
   String _computeMoveCmd() {
     final bool up = _up && !_down;
