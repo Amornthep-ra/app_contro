@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ble/ble_presentation_state.dart';
 import 'package:pb_controller/core/ui/ambient_motion.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
@@ -38,7 +37,6 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     OrientationUtils.resetForTesting();
-    LanguageController.isThai.value = false;
     BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
   });
 

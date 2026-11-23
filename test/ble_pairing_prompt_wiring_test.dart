@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_connection_coordinator.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/widgets/connection_status_badge.dart';
 import 'package:pb_controller/features/bluetooth/bluetooth_ble_page.dart';
 
@@ -72,7 +71,7 @@ void main() {
                   isControlSessionActive: () => false,
                   enableBlePlatformBindings: false,
                   pairingPromptLauncher:
-                      ({required context, required isThai, coordinator}) async {
+                      ({required context, coordinator}) async {
                         calls++;
                         return true;
                       },
@@ -128,7 +127,7 @@ void main() {
             isBleConnected: () => true,
             enableBlePlatformBindings: false,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   calls++;
                   return true;
                 },
@@ -164,7 +163,7 @@ void main() {
             isControlSessionActive: () => false,
             enableBlePlatformBindings: false,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   calls++;
                   return true;
                 },
@@ -203,7 +202,7 @@ void main() {
             isBleConnected: () => true,
             enableBlePlatformBindings: false,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   calls++;
                   return true;
                 },
@@ -246,7 +245,7 @@ void main() {
                 isBleConnected: () => true,
                 enableBlePlatformBindings: false,
                 pairingPromptLauncher:
-                    ({required context, required isThai, coordinator}) async {
+                    ({required context, coordinator}) async {
                       calls++;
                       return true;
                     },
@@ -268,10 +267,6 @@ void main() {
     );
   }
 
-  setUp(() {
-    LanguageController.isThai.value = false;
-  });
-
   testWidgets(
     'BLE Connection presents one automatic pairing prompt per connection',
     (tester) async {
@@ -286,7 +281,7 @@ void main() {
             isBleConnected: () => true,
             enableBlePlatformBindings: false,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   promptCalls++;
                   return null;
                 },
@@ -320,7 +315,7 @@ void main() {
             isBleConnected: () => true,
             enableBlePlatformBindings: false,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   promptCalls++;
                   return null;
                 },
@@ -358,7 +353,7 @@ void main() {
               enableBlePlatformBindings: false,
               pairingTransitionDelay: Duration.zero,
               pairingPromptLauncher:
-                  ({required context, required isThai, coordinator}) async {
+                  ({required context, coordinator}) async {
                     promptCalls++;
                     return null;
                   },
@@ -399,7 +394,7 @@ void main() {
               enableBlePlatformBindings: false,
               pairingTransitionDelay: Duration.zero,
               pairingPromptLauncher:
-                  ({required context, required isThai, coordinator}) async {
+                  ({required context, coordinator}) async {
                     promptCalls++;
                     return null;
                   },
@@ -439,7 +434,7 @@ void main() {
           isBleConnected: () => true,
           enableBlePlatformBindings: false,
           pairingPromptLauncher:
-              ({required context, required isThai, coordinator}) async {
+              ({required context, coordinator}) async {
                 promptCalls++;
                 return null;
               },
@@ -465,7 +460,7 @@ void main() {
             enableBlePlatformBindings: false,
             pairingTransitionDelay: Duration.zero,
             pairingPromptLauncher:
-                ({required context, required isThai, coordinator}) async {
+                ({required context, coordinator}) async {
                   promptCalls++;
                   return null;
                 },
@@ -505,7 +500,7 @@ void main() {
               pairingTransitionDelay: const Duration(milliseconds: 200),
               enableBlePlatformBindings: false,
               pairingPromptLauncher:
-                  ({required context, required isThai, coordinator}) async {
+                  ({required context, coordinator}) async {
                     promptCalls++;
                     return null;
                   },

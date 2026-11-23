@@ -515,10 +515,8 @@ class GamepadEditSelectionVisual extends StatelessWidget {
   }
 }
 
-String gamepadEditLockLabel({required bool isThai, required bool locked}) {
-  if (locked) return isThai ? 'Unlock' : 'Unlock';
-  return isThai ? 'Lock' : 'Lock';
-}
+String gamepadEditLockLabel({required bool locked}) =>
+    locked ? 'Unlock' : 'Lock';
 
 class GamepadEditButtonShell extends StatelessWidget {
   final double left;

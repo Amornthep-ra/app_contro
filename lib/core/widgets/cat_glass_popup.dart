@@ -50,23 +50,17 @@ class CatGlassModalSurface extends StatelessWidget {
 
 Future<String?> showCatPresetNameDialog({
   required BuildContext context,
-  required bool isThai,
   required String? Function(String value) validator,
   String? currentName,
 }) async {
   return showGeneralDialog<String>(
     context: context,
     barrierDismissible: false,
-    barrierLabel: isThai
-        ? 'Close rename preset dialog'
-        : 'Close rename preset dialog',
+    barrierLabel: 'Close rename preset dialog',
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (dialogContext, _, __) => _CatPresetNameDialog(
-      isThai: isThai,
-      currentName: currentName,
-      validator: validator,
-    ),
+    pageBuilder: (dialogContext, _, __) =>
+        _CatPresetNameDialog(currentName: currentName, validator: validator),
     transitionBuilder: (context, animation, _, child) => FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
       child: ScaleTransition(
@@ -81,12 +75,10 @@ Future<String?> showCatPresetNameDialog({
 
 class _CatPresetNameDialog extends StatefulWidget {
   const _CatPresetNameDialog({
-    required this.isThai,
     required this.currentName,
     required this.validator,
   });
 
-  final bool isThai;
   final String? currentName;
   final String? Function(String value) validator;
 
@@ -134,11 +126,9 @@ class _CatPresetNameDialogState extends State<_CatPresetNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.isThai ? 'Rename Preset' : 'Rename Preset';
-    final hint = widget.isThai ? 'Preset name' : 'Preset name';
-    final helper = widget.isThai
-        ? 'Letters, numbers, spaces, - and _ only'
-        : 'Letters, numbers, spaces, - and _ only';
+    const title = 'Rename Preset';
+    const hint = 'Preset name';
+    const helper = 'Letters, numbers, spaces, - and _ only';
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -226,7 +216,7 @@ class _CatPresetNameDialogState extends State<_CatPresetNameDialog> {
                               onPressed: _closing
                                   ? null
                                   : () => Navigator.of(context).pop(),
-                              child: Text(widget.isThai ? 'Cancel' : 'Cancel'),
+                              child: const Text('Cancel'),
                             ),
                             const SizedBox(width: 8),
                             DecoratedBox(
@@ -249,7 +239,7 @@ class _CatPresetNameDialogState extends State<_CatPresetNameDialog> {
                                 onPressed: _errorText != null || _closing
                                     ? null
                                     : _submit,
-                                child: Text(widget.isThai ? 'Save' : 'Save'),
+                                child: const Text('Save'),
                               ),
                             ),
                           ],

@@ -29,7 +29,6 @@ import '../../core/widgets/cat_glass_popup.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
@@ -218,8 +217,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   /// Position of the Speed button in the control toolbar items.
   static const int _speedSlotIndex = 2;
-  bool _isThai = true;
-  late final VoidCallback _langListener;
   bool _editMode = false;
   bool _showGrid = false;
   final Set<String> _lockedIds = {};
@@ -371,10 +368,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       if (requiresBlePairingCode(
         BleConnectionCoordinator.instance.state.securityState,
       )) {
-        final paired = await promptForBlePairingCode(
-          context: context,
-          isThai: LanguageController.isThai.value,
-        );
+        final paired = await promptForBlePairingCode(context: context);
         if (paired == true && mounted) {
           await _startControl();
         }
@@ -416,14 +410,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _handleControlSuspended,
     );
     unawaited(OrientationUtils.request(AppOrientation.landscape));
-    _isThai = LanguageController.isThai.value;
-    _langListener = () {
-      final next = LanguageController.isThai.value;
-      if (next != _isThai) {
-        setState(() => _isThai = next);
-      }
-    };
-    LanguageController.isThai.addListener(_langListener);
     unawaited(_loadSpeedPrefs());
     final layoutsLoaded = _loadLayouts();
     final open = widget.openOnArrival;
@@ -590,7 +576,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     BleManager.instance.controlSuspendedListenable.removeListener(
       _handleControlSuspended,
     );
-    LanguageController.isThai.removeListener(_langListener);
     unawaited(_releaseTrafficOwnershipForExit());
     super.dispose();
   }
@@ -670,26 +655,19 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     }
   }
 
-  String _defaultPresetName(int slot, bool isThai) =>
-      isThai ? 'Preset $slot' : 'Preset $slot';
+  String _defaultPresetName(int slot) => 'Preset $slot';
   static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
   static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
-  String? _validatePresetName(String raw, bool isThai) {
+  String? _validatePresetName(String raw) {
     final value = raw.trim();
     if (value.isEmpty) {
-      return isThai
-          ? 'Enter a preset name using letters or numbers.'
-          : 'Enter a preset name using letters or numbers.';
+      return 'Enter a preset name using letters or numbers.';
     }
     if (!_presetAllowedPattern.hasMatch(value)) {
-      return isThai
-          ? 'Only letters, numbers, spaces, - and _ are allowed.'
-          : 'Only letters, numbers, spaces, - and _ are allowed.';
+      return 'Only letters, numbers, spaces, - and _ are allowed.';
     }
     if (!_presetRequiredChars.hasMatch(value)) {
-      return isThai
-          ? 'Use at least one letter or number. Symbols alone are not allowed.'
-          : 'Use at least one letter or number. Symbols alone are not allowed.';
+      return 'Use at least one letter or number. Symbols alone are not allowed.';
     }
     return null;
   }
@@ -708,12 +686,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     required BuildContext context,
     String? currentName,
   }) {
-    final isThai = LanguageController.isThai.value;
     return showCatPresetNameDialog(
       context: context,
-      isThai: isThai,
       currentName: currentName,
-      validator: (value) => _validatePresetName(value, isThai),
+      validator: _validatePresetName,
     );
   }
 
@@ -773,21 +749,19 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Future<void> _showPresetSheet() async {
-    final isThai = LanguageController.isThai.value;
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     ControlPresetSlot makeSlot(int slot) {
       final raw = prefs.getString(_presetKey(slot)) ?? '';
       return ControlPresetSlot(
         slot: slot,
-        name: _readPresetName(raw) ?? _defaultPresetName(slot, isThai),
+        name: _readPresetName(raw) ?? _defaultPresetName(slot),
         hasData: raw.isNotEmpty,
       );
     }
 
     await showControlPresetDialog(
       context: context,
-      isThai: isThai,
       slots: List<ControlPresetSlot>.generate(
         controlPresetSlotCount,
         (index) => makeSlot(index + 1),
@@ -803,9 +777,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         final trimmed = name.trim();
         return ControlPresetSlot(
           slot: slot.slot,
-          name: trimmed.isEmpty
-              ? _defaultPresetName(slot.slot, isThai)
-              : trimmed,
+          name: trimmed.isEmpty ? _defaultPresetName(slot.slot) : trimmed,
           hasData: true,
         );
       },
@@ -818,7 +790,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         await prefs.remove(_presetKey(slot.slot));
         return ControlPresetSlot(
           slot: slot.slot,
-          name: _defaultPresetName(slot.slot, isThai),
+          name: _defaultPresetName(slot.slot),
           hasData: false,
         );
       },
@@ -1330,7 +1302,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Widget _buildEditMenu({bool compact = false}) {
-    final isThai = LanguageController.isThai.value;
     final accent = const Color(0xFF34D399);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -1351,7 +1322,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 0),
       child: Center(
         child: Text(
-          isThai ? 'Buttons' : 'Buttons',
+          'Buttons',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: fontSize,
@@ -1488,12 +1459,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastBoundaryWarningMs < 900) return;
     _lastBoundaryWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai
-          ? 'Buttons must stay inside the safe zone.'
-          : 'Buttons must stay inside the safe zone.',
+      message: 'Buttons must stay inside the safe zone.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1503,10 +1471,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastOverlapWarningMs < 900) return;
     _lastOverlapWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai ? 'Buttons cannot overlap.' : 'Buttons cannot overlap.',
+      message: 'Buttons cannot overlap.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1596,14 +1563,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  Widget _sizeToolPill({
-    required bool isThai,
-    required bool enabled,
-    Key? key,
-  }) {
+  Widget _sizeToolPill({required bool enabled, Key? key}) {
     return GamepadSizeToolPill(
       pillKey: key,
-      isThai: isThai,
       enabled: enabled,
       onDecrease: () {
         gamepadBuzz();
@@ -1616,17 +1578,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  double _editAppBarGap({
-    required bool isThai,
-    required GamepadAppBarMetrics metrics,
-  }) {
+  double _editAppBarGap({required GamepadAppBarMetrics metrics}) {
     final width = MediaQuery.of(context).size.width;
-    final estimatedButtonsWidth = isThai ? 126.0 : 82.0;
-    final estimatedDoneWidth = isThai ? 78.0 : 70.0;
-    final estimatedDeleteWidth = isThai ? 58.0 : 76.0;
-    final estimatedResetWidth = isThai ? 72.0 : 70.0;
+    const estimatedButtonsWidth = 82.0;
+    const estimatedDoneWidth = 70.0;
+    const estimatedDeleteWidth = 76.0;
+    const estimatedResetWidth = 70.0;
     const estimatedToolWidth = 62.0;
-    final estimatedSizeWidth = isThai ? 78.0 : 70.0;
+    const estimatedSizeWidth = 70.0;
     final estimatedContentWidth =
         estimatedButtonsWidth +
         estimatedDoneWidth +
@@ -1642,10 +1601,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     return (remaining / 8).clamp(4.0, 10.0);
   }
 
-  Widget _buildEditAppBarRow(bool isThai, double gap) {
+  Widget _buildEditAppBarRow(double gap) {
     final media = MediaQuery.of(context);
     if (media.size.width >= 1000 && media.textScaler.scale(1) <= 1.3) {
-      return _buildExpandedEditAppBarRow(isThai, gap);
+      return _buildExpandedEditAppBarRow(gap);
     }
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
@@ -1682,7 +1641,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final more = GamepadEditMoreButton(
       actions: [
         GamepadOverflowAction(
-          label: isThai ? 'ลบ' : 'Delete',
+          label: 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
           onTap: hasSelection ? withBuzz(_removeSelected) : null,
@@ -1701,7 +1660,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
         ),
         GamepadOverflowAction(
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          label: 'Decrease size',
           icon: Icons.remove,
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled
@@ -1709,13 +1668,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               : null,
         ),
         GamepadOverflowAction(
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          label: 'Increase size',
           icon: Icons.add,
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
         ),
         GamepadOverflowAction(
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          label: gamepadEditLockLabel(locked: selectedLocked),
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
@@ -1763,7 +1722,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  Widget _buildExpandedEditAppBarRow(bool isThai, double gap) {
+  Widget _buildExpandedEditAppBarRow(double gap) {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -1774,7 +1733,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     final children = <Widget>[
       _buildEditMenu(compact: true),
       _actionPill(
-        label: isThai ? 'Done' : 'Done',
+        label: 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -1784,7 +1743,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _actionPill(
-        label: isThai ? 'ź' : 'Delete',
+        label: 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
@@ -1796,7 +1755,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               },
       ),
       _actionPill(
-        label: isThai ? 'Reset' : 'Reset',
+        label: 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -1807,7 +1766,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: Icons.undo_rounded,
-        label: isThai ? 'Undo' : 'Undo',
+        label: 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: canUndo
             ? () {
@@ -1818,7 +1777,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: Icons.redo_rounded,
-        label: isThai ? 'Redo' : 'Redo',
+        label: 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: canRedo
             ? () {
@@ -1829,7 +1788,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'Grid' : 'Grid',
+        label: 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () {
@@ -1837,10 +1796,10 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           setState(() => _showGrid = !_showGrid);
         },
       ),
-      _sizeToolPill(isThai: isThai, enabled: sizeEnabled),
+      _sizeToolPill(enabled: sizeEnabled),
       _toolIconPill(
         icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-        label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+        label: gamepadEditLockLabel(locked: selectedLocked),
         accent: const Color(0xFFFBBF24),
         active: selectedLocked,
         onTap: hasSelection
@@ -1863,7 +1822,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   // ignore: unused_element
-  PreferredSizeWidget _buildEditModeAppBar(bool isThai) {
+  PreferredSizeWidget _buildEditModeAppBar() {
     final media = MediaQuery.of(context);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -1874,10 +1833,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         textScaleFactor: media.textScaler.scale(1),
         useGlassBackground: false,
         glassOpacity: 0.18,
-        toolbarContent: _buildEditAppBarRow(
-          isThai,
-          _editAppBarGap(isThai: isThai, metrics: metrics),
-        ),
+        toolbarContent: _buildEditAppBarRow(_editAppBarGap(metrics: metrics)),
       );
     }
     final baseColor = isDark
@@ -1897,7 +1853,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
     final middleChildren = <Widget>[
       _actionPill(
-        label: isThai ? 'ź' : 'Delete',
+        label: 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
@@ -1909,7 +1865,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               },
       ),
       _actionPill(
-        label: isThai ? 'Reset' : 'Reset',
+        label: 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -1920,7 +1876,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: Icons.undo_rounded,
-        label: isThai ? 'Undo' : 'Undo',
+        label: 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: _undoStack.isNotEmpty
             ? () {
@@ -1931,7 +1887,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: Icons.redo_rounded,
-        label: isThai ? 'Redo' : 'Redo',
+        label: 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: _redoStack.isNotEmpty
             ? () {
@@ -1942,7 +1898,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       ),
       _toolIconPill(
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'Grid' : 'Grid',
+        label: 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () {
@@ -1951,7 +1907,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         },
       ),
       _sizeToolPill(
-        isThai: isThai,
         enabled: _selectedId != null && !_lockedIds.contains(_selectedId),
       ),
       _toolIconPill(
@@ -1959,7 +1914,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
             ? Icons.lock_rounded
             : Icons.lock_open_rounded,
         label: gamepadEditLockLabel(
-          isThai: isThai,
           locked: _selectedId != null && _lockedIds.contains(_selectedId),
         ),
         accent: const Color(0xFFFBBF24),
@@ -1976,7 +1930,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       _buildEditMenu(compact: true),
       ...middleChildren,
       _actionPill(
-        label: isThai ? 'Done' : 'Done',
+        label: 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -2055,7 +2009,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  Widget _buildCenteredEditAppBar(bool isThai) {
+  Widget _buildCenteredEditAppBar() {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -2089,14 +2043,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          label: gamepadEditLockLabel(locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
           onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          label: 'Decrease size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled
               ? withBuzz(() => _adjustSelectedSize(-0.05))
@@ -2104,7 +2058,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ),
         _toolIconPill(
           icon: Icons.add,
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          label: 'Increase size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
         ),
@@ -2135,7 +2089,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
         ),
         _toolIconPill(
           icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
+          label: 'Delete',
           accent: const Color(0xFFF87171),
           onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
@@ -2584,7 +2538,6 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
       '',
     ], leadingCount: 2);
     final controlLayout = _editMode ? null : playLayout;
-    final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
     final textScaleFactor = media.textScaler.scale(1);
@@ -2613,9 +2566,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
               singleRowToolbar: _editMode,
               useGlassBackground: false,
               glassOpacity: 0.18,
-              toolbarContent: _editMode
-                  ? _buildCenteredEditAppBar(isThai)
-                  : null,
+              toolbarContent: _editMode ? _buildCenteredEditAppBar() : null,
               leading: _editMode ? null : _buildAppBarBackButton(),
               startStop: _editMode ? null : _buildToolbarStartStop(),
               speedToggle: _editMode ? null : _speedToggle(),
@@ -2636,9 +2587,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                       subdued: true,
                       onManagementBlocked: () => showGamepadTopNotice(
                         context,
-                        message: isThai
-                            ? 'Use Emergency Stop before managing BLE.'
-                            : 'Use Emergency Stop before managing BLE.',
+                        message: 'Use Emergency Stop before managing BLE.',
                         style: GamepadNoticeStyle.ble,
                       ),
                     ),
@@ -2649,7 +2598,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
                         gap: gap,
                         items: [
                           GamepadAppBarActionItem(
-                            label: isThai ? 'Settings' : 'Settings',
+                            label: 'Settings',
                             icon: Icons.settings_outlined,
                             iconAsset: AppAssets.controlSettings,
                             accent: _barAccent('SETTINGS'),

@@ -22,7 +22,6 @@ import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_connection_coordinator.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/connection_status_badge.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
@@ -312,7 +311,6 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    LanguageController.isThai.value = false;
     OrientationUtils.resetForTesting();
     _present(BleConnectionStatus.disconnected);
   });
@@ -353,7 +351,7 @@ void main() {
           isBleConnected: () => false,
           enableBlePlatformBindings: false,
           pairingPromptLauncher:
-              ({required context, required isThai, coordinator}) async => null,
+              ({required context, coordinator}) async => null,
         ),
       );
       await _shot(tester, '02_ble_page_robots_found');
@@ -379,7 +377,7 @@ void main() {
           isBleConnected: () => true,
           enableBlePlatformBindings: false,
           pairingPromptLauncher:
-              ({required context, required isThai, coordinator}) async => null,
+              ({required context, coordinator}) async => null,
         ),
       );
       await _shot(tester, '04_ble_page_connected');
@@ -438,7 +436,6 @@ void main() {
         showDialog<Object?>(
           context: context,
           builder: (_) => PairingCodeDialog(
-            isThai: false,
             onPair: (_) async => const BlePairingAttemptResult(
               ready: false,
               failure: BlePairingFailure.codeRejected,

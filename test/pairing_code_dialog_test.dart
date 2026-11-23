@@ -88,7 +88,6 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () => promptForBlePairingCode(
                   context: context,
-                  isThai: false,
                   coordinator: coordinator,
                 ),
                 child: const Text('Open'),
@@ -165,7 +164,6 @@ void main() {
               onPressed: () => showDialog<bool>(
                 context: context,
                 builder: (_) => PairingCodeDialog(
-                  isThai: false,
                   onPair: (_) async => const BlePairingAttemptResult(
                     ready: false,
                     failure: BlePairingFailure.storageError,
@@ -313,7 +311,7 @@ class _DialogHostState extends State<_DialogHost> {
   Future<void> _open() async {
     final result = await showDialog<String>(
       context: context,
-      builder: (_) => const PairingCodeDialog(isThai: false),
+      builder: (_) => const PairingCodeDialog(),
     );
     if (!mounted) return;
     setState(() {

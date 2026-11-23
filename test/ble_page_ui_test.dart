@@ -101,7 +101,7 @@ void main() {
           isBleConnected: () => connected,
           enableBlePlatformBindings: false,
           pairingPromptLauncher:
-              ({required context, required isThai, coordinator}) async => null,
+              ({required context, coordinator}) async => null,
         ),
       ),
     );

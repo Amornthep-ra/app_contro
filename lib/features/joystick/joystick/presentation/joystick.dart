@@ -33,7 +33,6 @@ import '../../../../core/widgets/gamepad_app_bar.dart';
 import '../../../../core/widgets/gamepad_appbar_controls.dart';
 import '../../../../core/widgets/control_preset_dialog.dart';
 import '../../../../core/widgets/cat_glass_popup.dart';
-import '../../../../core/ui/language_controller.dart';
 import '../../../../core/widgets/gamepad_telemetry_chip.dart';
 import '../../../../core/widgets/gamepad_edit_shared.dart';
 import '../../../../core/widgets/pairing_code_dialog.dart';
@@ -226,9 +225,7 @@ class _JoystickPageState extends State<JoystickPage> {
   final _leftDebug = ValueNotifier<String>("X:0.00 Y:0.00");
   final _rightDebug = ValueNotifier<String>("X:0.00 Y:0.00");
   String _debugValue(double x, double y) => "X:${_fmt(x)} Y:${_fmt(y)}";
-  bool _isThai = true;
   bool _showGrid = false;
-  late final VoidCallback _langListener;
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
   StreamSubscription<bool>? _bleConnSub;
@@ -410,10 +407,7 @@ class _JoystickPageState extends State<JoystickPage> {
       if (requiresBlePairingCode(
         BleConnectionCoordinator.instance.state.securityState,
       )) {
-        final paired = await promptForBlePairingCode(
-          context: context,
-          isThai: LanguageController.isThai.value,
-        );
+        final paired = await promptForBlePairingCode(context: context);
         if (paired == true && mounted) {
           await _startControl();
         }
@@ -488,14 +482,6 @@ class _JoystickPageState extends State<JoystickPage> {
       _handleControlSuspended,
     );
     unawaited(OrientationUtils.request(AppOrientation.landscape));
-    _isThai = LanguageController.isThai.value;
-    _langListener = () {
-      final next = LanguageController.isThai.value;
-      if (next != _isThai) {
-        setState(() => _isThai = next);
-      }
-    };
-    LanguageController.isThai.addListener(_langListener);
     final layoutLoaded = _loadLayout();
     final open = widget.openOnArrival;
     if (open != null) unawaited(_openAfterLoad(layoutLoaded, open));
@@ -724,7 +710,6 @@ class _JoystickPageState extends State<JoystickPage> {
       _handleControlSuspended,
     );
     unawaited(_releaseTrafficOwnershipForExit());
-    LanguageController.isThai.removeListener(_langListener);
     _leftDebug.dispose();
     _rightDebug.dispose();
     _inputResetSignal.dispose();
@@ -1241,26 +1226,19 @@ class _JoystickPageState extends State<JoystickPage> {
     }
   }
 
-  String _defaultPresetName(int slot, bool isThai) =>
-      isThai ? 'Preset $slot' : 'Preset $slot';
+  String _defaultPresetName(int slot) => 'Preset $slot';
   static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
   static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
-  String? _validatePresetName(String raw, bool isThai) {
+  String? _validatePresetName(String raw) {
     final value = raw.trim();
     if (value.isEmpty) {
-      return isThai
-          ? 'Enter a preset name using letters or numbers.'
-          : 'Enter a preset name using letters or numbers.';
+      return 'Enter a preset name using letters or numbers.';
     }
     if (!_presetAllowedPattern.hasMatch(value)) {
-      return isThai
-          ? 'Only letters, numbers, spaces, - and _ are allowed.'
-          : 'Only letters, numbers, spaces, - and _ are allowed.';
+      return 'Only letters, numbers, spaces, - and _ are allowed.';
     }
     if (!_presetRequiredChars.hasMatch(value)) {
-      return isThai
-          ? 'Use at least one letter or number. Symbols alone are not allowed.'
-          : 'Use at least one letter or number. Symbols alone are not allowed.';
+      return 'Use at least one letter or number. Symbols alone are not allowed.';
     }
     return null;
   }
@@ -1279,12 +1257,10 @@ class _JoystickPageState extends State<JoystickPage> {
     required BuildContext context,
     String? currentName,
   }) {
-    final isThai = LanguageController.isThai.value;
     return showCatPresetNameDialog(
       context: context,
-      isThai: isThai,
       currentName: currentName,
-      validator: (value) => _validatePresetName(value, isThai),
+      validator: _validatePresetName,
     );
   }
 
@@ -1334,21 +1310,19 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _showPresetSheet() async {
-    final isThai = LanguageController.isThai.value;
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     ControlPresetSlot makeSlot(int slot) {
       final raw = prefs.getString(_presetKey(slot)) ?? '';
       return ControlPresetSlot(
         slot: slot,
-        name: _readPresetName(raw) ?? _defaultPresetName(slot, isThai),
+        name: _readPresetName(raw) ?? _defaultPresetName(slot),
         hasData: raw.isNotEmpty,
       );
     }
 
     await showControlPresetDialog(
       context: context,
-      isThai: isThai,
       slots: List<ControlPresetSlot>.generate(
         controlPresetSlotCount,
         (index) => makeSlot(index + 1),
@@ -1364,9 +1338,7 @@ class _JoystickPageState extends State<JoystickPage> {
         final trimmed = name.trim();
         return ControlPresetSlot(
           slot: slot.slot,
-          name: trimmed.isEmpty
-              ? _defaultPresetName(slot.slot, isThai)
-              : trimmed,
+          name: trimmed.isEmpty ? _defaultPresetName(slot.slot) : trimmed,
           hasData: true,
         );
       },
@@ -1379,7 +1351,7 @@ class _JoystickPageState extends State<JoystickPage> {
         await prefs.remove(_presetKey(slot.slot));
         return ControlPresetSlot(
           slot: slot.slot,
-          name: _defaultPresetName(slot.slot, isThai),
+          name: _defaultPresetName(slot.slot),
           hasData: false,
         );
       },
@@ -1456,10 +1428,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _showSizeLimit(bool atMax) {
-    final isThai = LanguageController.isThai.value;
-    final msg = atMax
-        ? (isThai ? 'Max size reached' : 'Max size reached')
-        : (isThai ? 'Min size reached' : 'Min size reached');
+    final msg = atMax ? 'Max size reached' : 'Min size reached';
     showGamepadTopNotice(
       context,
       message: msg,
@@ -1469,10 +1438,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _showSizeEdgeWarning() {
-    final isThai = LanguageController.isThai.value;
-    final msg = isThai
-        ? 'Buttons must stay inside the safe zone.'
-        : 'Buttons must stay inside the safe zone.';
+    const msg = 'Buttons must stay inside the safe zone.';
     showGamepadTopNotice(
       context,
       message: msg,
@@ -1485,12 +1451,9 @@ class _JoystickPageState extends State<JoystickPage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastBoundaryWarningMs < 900) return;
     _lastBoundaryWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai
-          ? 'Buttons must stay inside the safe zone.'
-          : 'Buttons must stay inside the safe zone.',
+      message: 'Buttons must stay inside the safe zone.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1500,10 +1463,9 @@ class _JoystickPageState extends State<JoystickPage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastOverlapWarningMs < 900) return;
     _lastOverlapWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai ? 'Buttons cannot overlap.' : 'Buttons cannot overlap.',
+      message: 'Buttons cannot overlap.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1703,7 +1665,6 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   List<Widget> _buildAppBarActions({
-    required bool isThai,
     required GamepadAppBarMetrics appBarMetrics,
     required double actionGap,
   }) {
@@ -1716,9 +1677,7 @@ class _JoystickPageState extends State<JoystickPage> {
         subdued: true,
         onManagementBlocked: () => showGamepadTopNotice(
           context,
-          message: _isThai
-              ? 'Use Emergency Stop before managing BLE.'
-              : 'Use Emergency Stop before managing BLE.',
+          message: 'Use Emergency Stop before managing BLE.',
           style: GamepadNoticeStyle.ble,
         ),
       ),
@@ -1726,7 +1685,7 @@ class _JoystickPageState extends State<JoystickPage> {
         gap: actionGap,
         items: [
           GamepadAppBarActionItem(
-            label: isThai ? 'Settings' : 'Settings',
+            label: 'Settings',
             icon: Icons.settings_outlined,
             iconAsset: AppAssets.controlSettings,
             accent: const Color(0xFF94A3B8),
@@ -1740,7 +1699,6 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Widget _buildAppBarToolbarRow({
-    required bool isThai,
     required GamepadAppBarMetrics appBarMetrics,
     required GamepadAppBarMetrics cmdMetrics,
     required GamepadAppBarMetrics axisMetrics,
@@ -1788,7 +1746,6 @@ class _JoystickPageState extends State<JoystickPage> {
         _buildToolbarStartStop(),
         ...telemetry,
         ..._buildAppBarActions(
-          isThai: isThai,
           appBarMetrics: appBarMetrics,
           actionGap: uniformGap,
         ),
@@ -1796,7 +1753,7 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  Widget _buildCenteredEditAppBar(bool isThai) {
+  Widget _buildCenteredEditAppBar() {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -1830,14 +1787,14 @@ class _JoystickPageState extends State<JoystickPage> {
         ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          label: gamepadEditLockLabel(locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
           onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          label: 'Decrease size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled
               ? withBuzz(() => _adjustSelectedSize(-0.05))
@@ -1845,7 +1802,7 @@ class _JoystickPageState extends State<JoystickPage> {
         ),
         _toolIconPill(
           icon: Icons.add,
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          label: 'Increase size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
         ),
@@ -1876,7 +1833,7 @@ class _JoystickPageState extends State<JoystickPage> {
         ),
         _toolIconPill(
           icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
+          label: 'Delete',
           accent: const Color(0xFFF87171),
           onTap: hasSelection ? withBuzz(_removeSelected) : null,
         ),
@@ -1919,7 +1876,6 @@ class _JoystickPageState extends State<JoystickPage> {
         : 0.0;
     final cmdMetrics = appBarMetrics;
     final axisMetrics = appBarMetrics;
-    final isThai = LanguageController.isThai.value;
     const uniformGap = GamepadAppBarMetrics.uniformGap;
     return PopScope(
       canPop: false,
@@ -1941,9 +1897,8 @@ class _JoystickPageState extends State<JoystickPage> {
               glassOpacity: 0.18,
               toolbarPadding: const EdgeInsets.symmetric(horizontal: 12),
               toolbarContent: _editMode
-                  ? _buildCenteredEditAppBar(isThai)
+                  ? _buildCenteredEditAppBar()
                   : _buildAppBarToolbarRow(
-                      isThai: isThai,
                       appBarMetrics: appBarMetrics,
                       cmdMetrics: cmdMetrics,
                       axisMetrics: axisMetrics,

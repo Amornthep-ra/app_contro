@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/routes/app_routes.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
@@ -27,7 +26,6 @@ void main() {
       buildSignature: '',
     );
     OrientationUtils.resetForTesting();
-    LanguageController.isThai.value = false;
     BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
     orientationCalls = [];
     final messenger =

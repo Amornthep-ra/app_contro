@@ -8,7 +8,6 @@ import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode.dart';
 import '../../core/ui/lavender_glass.dart';
 import '../../core/ui/control_mode_preference.dart';
-import '../../core/ui/language_controller.dart';
 
 PageRouteBuilder<ControlModeSettingsResult> controlModeSettingsRoute({
   required ControlMode mode,
@@ -57,166 +56,150 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _closeSettings(context);
       },
-      child: ValueListenableBuilder<bool>(
-        valueListenable: LanguageController.isThai,
-        builder: (context, isThai, _) {
-          final labels = _SettingsLabels(isThai);
-          return Scaffold(
-            backgroundColor: const Color(0xFFF5EDFF),
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.asset(
-                  AppAssets.controlBackground,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const ColoredBox(color: Color(0xFFF5EDFF)),
-                ),
-                const _SettingsBackdropDecoration(),
-                SafeArea(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final compact =
-                          constraints.maxHeight < 650 ||
-                          constraints.maxWidth < 900;
-                      final horizontalPadding = compact ? 12.0 : 18.0;
-                      final safeContentWidth =
-                          constraints.maxWidth - (horizontalPadding * 2);
-                      final textScale = MediaQuery.textScalerOf(
-                        context,
-                      ).scale(1);
-                      final twoColumn =
-                          safeContentWidth >= 600 && textScale <= 1.3;
-                      final layoutFirst =
-                          !twoColumn &&
-                          (textScale > 1.3 ||
-                              constraints.maxWidth > constraints.maxHeight);
-                      return Column(
-                        children: [
-                          _SettingsHeader(
-                            title: labels.settings,
-                            backLabel: labels.back,
-                            onBack: () => _closeSettings(context),
-                            compact: compact,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5EDFF),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset(
+              AppAssets.controlBackground,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  const ColoredBox(color: Color(0xFFF5EDFF)),
+            ),
+            const _SettingsBackdropDecoration(),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact =
+                      constraints.maxHeight < 650 || constraints.maxWidth < 900;
+                  final horizontalPadding = compact ? 12.0 : 18.0;
+                  final safeContentWidth =
+                      constraints.maxWidth - (horizontalPadding * 2);
+                  final textScale = MediaQuery.textScalerOf(context).scale(1);
+                  final twoColumn = safeContentWidth >= 600 && textScale <= 1.3;
+                  final layoutFirst =
+                      !twoColumn &&
+                      (textScale > 1.3 ||
+                          constraints.maxWidth > constraints.maxHeight);
+                  return Column(
+                    children: [
+                      _SettingsHeader(
+                        title: _SettingsLabels.settings,
+                        backLabel: _SettingsLabels.back,
+                        onBack: () => _closeSettings(context),
+                        compact: compact,
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.fromLTRB(
+                            horizontalPadding,
+                            compact ? 8 : 12,
+                            horizontalPadding,
+                            compact ? 16 : 20,
                           ),
-                          Expanded(
-                            child: SingleChildScrollView(
-                              padding: EdgeInsets.fromLTRB(
-                                horizontalPadding,
-                                compact ? 8 : 12,
-                                horizontalPadding,
-                                compact ? 16 : 20,
-                              ),
-                              child: Center(
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 960,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 960),
+                              child: _ResponsiveSettingsSections(
+                                twoColumn: twoColumn,
+                                layoutFirst: layoutFirst,
+                                gap: compact ? 12 : 14,
+                                sections: [
+                                  _SettingsSection(
+                                    key: const ValueKey('control-mode-section'),
+                                    title: _SettingsLabels.controlMode,
+                                    compact: compact,
+                                    child: Column(
+                                      children: [
+                                        _CatSettingsTile.mode(
+                                          asset:
+                                              AppAssets.settingsModeFourButton,
+                                          title: '4 BTN',
+                                          selected:
+                                              _selectedMode ==
+                                              ControlMode.fourButton,
+                                          selectedLabel:
+                                              _SettingsLabels.selected,
+                                          compact: compact,
+                                          onTap: () => _selectMode(
+                                            ControlMode.fourButton,
+                                          ),
+                                        ),
+                                        SizedBox(height: compact ? 5 : 7),
+                                        _CatSettingsTile.mode(
+                                          asset:
+                                              AppAssets.settingsModeEightButton,
+                                          title: '8 BTN',
+                                          selected:
+                                              _selectedMode ==
+                                              ControlMode.eightButton,
+                                          selectedLabel:
+                                              _SettingsLabels.selected,
+                                          compact: compact,
+                                          onTap: () => _selectMode(
+                                            ControlMode.eightButton,
+                                          ),
+                                        ),
+                                        SizedBox(height: compact ? 5 : 7),
+                                        _CatSettingsTile.mode(
+                                          asset: AppAssets.settingsModeJoystick,
+                                          title: _SettingsLabels.joystick,
+                                          selected:
+                                              _selectedMode ==
+                                              ControlMode.joystick,
+                                          selectedLabel:
+                                              _SettingsLabels.selected,
+                                          compact: compact,
+                                          onTap: () =>
+                                              _selectMode(ControlMode.joystick),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  child: _ResponsiveSettingsSections(
-                                    twoColumn: twoColumn,
-                                    layoutFirst: layoutFirst,
-                                    gap: compact ? 12 : 14,
-                                    sections: [
-                                      _SettingsSection(
-                                        key: const ValueKey(
-                                          'control-mode-section',
+                                  SizedBox(height: compact ? 12 : 14),
+                                  _SettingsSection(
+                                    key: const ValueKey('layout-section'),
+                                    // Edit layout and Saved layouts act
+                                    // on the mode picked above.
+                                    title:
+                                        '${_SettingsLabels.layout} · '
+                                        '${controlModeName(_selectedMode)}',
+                                    compact: compact,
+                                    child: Column(
+                                      children: [
+                                        _CatSettingsTile.action(
+                                          asset: AppAssets.settingsEditLayout,
+                                          title: _SettingsLabels.editLayout,
+                                          trailingLabel: _SettingsLabels.open,
+                                          compact: compact,
+                                          onTap: () => _openEditLayout(context),
                                         ),
-                                        title: labels.controlMode,
-                                        compact: compact,
-                                        child: Column(
-                                          children: [
-                                            _CatSettingsTile.mode(
-                                              asset: AppAssets
-                                                  .settingsModeFourButton,
-                                              title: '4 BTN',
-                                              selected:
-                                                  _selectedMode ==
-                                                  ControlMode.fourButton,
-                                              selectedLabel: labels.selected,
-                                              compact: compact,
-                                              onTap: () => _selectMode(
-                                                ControlMode.fourButton,
-                                              ),
-                                            ),
-                                            SizedBox(height: compact ? 5 : 7),
-                                            _CatSettingsTile.mode(
-                                              asset: AppAssets
-                                                  .settingsModeEightButton,
-                                              title: '8 BTN',
-                                              selected:
-                                                  _selectedMode ==
-                                                  ControlMode.eightButton,
-                                              selectedLabel: labels.selected,
-                                              compact: compact,
-                                              onTap: () => _selectMode(
-                                                ControlMode.eightButton,
-                                              ),
-                                            ),
-                                            SizedBox(height: compact ? 5 : 7),
-                                            _CatSettingsTile.mode(
-                                              asset: AppAssets
-                                                  .settingsModeJoystick,
-                                              title: labels.joystick,
-                                              selected:
-                                                  _selectedMode ==
-                                                  ControlMode.joystick,
-                                              selectedLabel: labels.selected,
-                                              compact: compact,
-                                              onTap: () => _selectMode(
-                                                ControlMode.joystick,
-                                              ),
-                                            ),
-                                          ],
+                                        SizedBox(height: compact ? 5 : 7),
+                                        _CatSettingsTile.action(
+                                          asset: AppAssets.settingsSavedLayouts,
+                                          title: _SettingsLabels.savedLayouts,
+                                          trailingLabel: _SettingsLabels.open,
+                                          compact: compact,
+                                          onTap: () =>
+                                              _openSavedLayouts(context),
                                         ),
-                                      ),
-                                      SizedBox(height: compact ? 12 : 14),
-                                      _SettingsSection(
-                                        key: const ValueKey('layout-section'),
-                                        // Edit layout and Saved layouts act
-                                        // on the mode picked above.
-                                        title:
-                                            '${labels.layout} · '
-                                            '${controlModeName(_selectedMode)}',
-                                        compact: compact,
-                                        child: Column(
-                                          children: [
-                                            _CatSettingsTile.action(
-                                              asset:
-                                                  AppAssets.settingsEditLayout,
-                                              title: labels.editLayout,
-                                              trailingLabel: labels.open,
-                                              compact: compact,
-                                              onTap: () =>
-                                                  _openEditLayout(context),
-                                            ),
-                                            SizedBox(height: compact ? 5 : 7),
-                                            _CatSettingsTile.action(
-                                              asset: AppAssets
-                                                  .settingsSavedLayouts,
-                                              title: labels.savedLayouts,
-                                              trailingLabel: labels.open,
-                                              compact: compact,
-                                              onTap: () =>
-                                                  _openSavedLayouts(context),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
+                                ],
                               ),
                             ),
                           ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
@@ -694,18 +677,14 @@ class _PawDecoration extends StatelessWidget {
   }
 }
 
-class _SettingsLabels {
-  const _SettingsLabels(this.isThai);
-
-  final bool isThai;
-
-  String get settings => isThai ? 'Settings' : 'Settings';
-  String get back => isThai ? 'Back' : 'Back';
-  String get controlMode => isThai ? 'Control mode' : 'Control mode';
-  String get layout => isThai ? 'Layout' : 'Layout';
-  String get joystick => isThai ? 'Joystick' : 'Joystick';
-  String get editLayout => isThai ? 'Edit layout' : 'Edit layout';
-  String get savedLayouts => isThai ? 'Saved layouts' : 'Saved layouts';
-  String get selected => isThai ? 'selected' : 'selected';
-  String get open => isThai ? 'Open' : 'Open';
+abstract final class _SettingsLabels {
+  static const settings = 'Settings';
+  static const back = 'Back';
+  static const controlMode = 'Control mode';
+  static const layout = 'Layout';
+  static const joystick = 'Joystick';
+  static const editLayout = 'Edit layout';
+  static const savedLayouts = 'Saved layouts';
+  static const selected = 'selected';
+  static const open = 'Open';
 }

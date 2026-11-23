@@ -137,7 +137,7 @@ void main() {
               enableBlePlatformBindings: false,
               presentationState: ValueNotifier(BlePresentationState(badge)),
               pairingPromptLauncher:
-                  ({required context, required isThai, coordinator}) async =>
+                  ({required context, coordinator}) async =>
                       null,
             ),
           ),

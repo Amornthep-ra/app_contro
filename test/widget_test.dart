@@ -6,7 +6,6 @@ import 'package:pb_controller/core/ui/app_assets.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ui/control_mode.dart';
 import 'package:pb_controller/core/ui/control_mode_preference.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/portrait_background.dart';
 import 'package:pb_controller/features/bluetooth/bluetooth_ble_page.dart';
@@ -235,7 +234,6 @@ void main() {
         null,
       ),
     );
-    LanguageController.isThai.value = false;
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'PB Controller',
@@ -271,7 +269,6 @@ void main() {
   testWidgets('Home page opens the saved control mode directly', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
     SharedPreferences.setMockInitialValues({'last_control_mode': 'joystick'});
     PackageInfo.setMockInitialValues(
       appName: 'PB Controller',
@@ -318,7 +315,6 @@ void main() {
   testWidgets(
     'Home page is English-only and removes language and theme controls',
     (WidgetTester tester) async {
-      LanguageController.isThai.value = false;
       SharedPreferences.setMockInitialValues({'app_theme_mode': 'dark'});
       PackageInfo.setMockInitialValues(
         appName: 'PB Controller',
@@ -350,7 +346,6 @@ void main() {
   testWidgets(
     'Home page keeps Contact compact and discoverable across layouts',
     (WidgetTester tester) async {
-      LanguageController.isThai.value = false;
       SharedPreferences.setMockInitialValues({});
       PackageInfo.setMockInitialValues(
         appName: 'PB Controller',
@@ -428,7 +423,6 @@ void main() {
   testWidgets('Home Guide opens the GitHub guide externally', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'PB Controller',
@@ -471,7 +465,6 @@ void main() {
   testWidgets('Home page keeps Scan devices as the BLE navigation action', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'PB Controller',
@@ -511,7 +504,6 @@ void main() {
   testWidgets('LineSonic uses Cat Glass navigation and the shared back asset', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -619,7 +611,6 @@ void main() {
   testWidgets('Control settings opens edit layout and returns mode actions', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
     ControlModeSettingsResult? result;
     var presetCalls = 0;
 
@@ -722,7 +713,6 @@ void main() {
   testWidgets('Start control uses a fixed-size action with loading state', (
     WidgetTester tester,
   ) async {
-    LanguageController.isThai.value = false;
     var startCalls = 0;
     await tester.pumpWidget(
       MaterialApp(
@@ -856,7 +846,6 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => showControlPresetDialog(
                 context: context,
-                isThai: false,
                 slots: slots,
                 onSave: (slot) => ControlPresetSlot(
                   slot: slot.slot,
@@ -935,7 +924,6 @@ void main() {
               onPressed: () async {
                 savedName = await showCatPresetNameDialog(
                   context: context,
-                  isThai: false,
                   currentName: 'Preset 1',
                   validator: (value) =>
                       value.trim().isEmpty ? 'Required' : null,
@@ -1086,10 +1074,8 @@ void main() {
     );
   });
 
-  test('Edit lock labels remain English for the legacy language flag', () {
-    expect(gamepadEditLockLabel(isThai: false, locked: false), 'Lock');
-    expect(gamepadEditLockLabel(isThai: false, locked: true), 'Unlock');
-    expect(gamepadEditLockLabel(isThai: true, locked: false), 'Lock');
-    expect(gamepadEditLockLabel(isThai: true, locked: true), 'Unlock');
+  test('Edit lock label names the action the button performs', () {
+    expect(gamepadEditLockLabel(locked: false), 'Lock');
+    expect(gamepadEditLockLabel(locked: true), 'Unlock');
   });
 }

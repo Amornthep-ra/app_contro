@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/ble/joystick_packet.dart';
-import 'package:pb_controller/core/ui/language_controller.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
 import 'package:pb_controller/features/joystick/joystick/joystick_view.dart';
@@ -39,7 +38,6 @@ void main() {
       }),
     });
     OrientationUtils.resetForTesting();
-    LanguageController.isThai.value = false;
     BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
     sent.clear();
   });

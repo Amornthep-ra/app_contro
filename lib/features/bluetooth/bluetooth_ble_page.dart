@@ -11,7 +11,6 @@ import '../../core/ble/ble_adapter_observation.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/ble_presentation_state.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/ui/lavender_glass.dart';
 import '../../core/widgets/ble_connection_status.dart';
 import '../../core/widgets/ble_device_row.dart';
@@ -362,7 +361,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     try {
       await widget.pairingPromptLauncher(
         context: context,
-        isThai: LanguageController.isThai.value,
         coordinator: _bleCoordinator,
       );
     } catch (error, stackTrace) {

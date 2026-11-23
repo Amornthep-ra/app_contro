@@ -4,7 +4,6 @@ import 'gamepad_control_toolbar.dart';
 import 'app_back_button.dart';
 import 'gamepad_app_bar.dart';
 import '../ui/app_assets.dart';
-import '../ui/language_controller.dart';
 
 Color _opacity(Color color, double opacity) =>
     color.withAlpha((opacity * 255).round());
@@ -290,15 +289,12 @@ class GamepadStartStopControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isThai = LanguageController.isThai.value;
     final label = isBusy
-        ? (isThai ? 'Starting control' : 'Starting control')
+        ? 'Starting control'
         : isStarted
-        ? (isThai ? 'Stop control' : 'Stop control')
-        : (isThai ? 'Start control' : 'Start control');
-    final actionLabel = isStarted
-        ? (isThai ? 'Emergency Stop' : 'Emergency Stop')
-        : label;
+        ? 'Stop control'
+        : 'Start control';
+    final actionLabel = isStarted ? 'Emergency Stop' : label;
     return _buildButton(
       faceOffset: faceOffset(diameter, started: isStarted),
       label: actionLabel,
@@ -934,7 +930,6 @@ class GamepadToolIconPill extends StatelessWidget {
 
 class GamepadSizeToolPill extends StatelessWidget {
   final Key? pillKey;
-  final bool isThai;
   final bool enabled;
   final VoidCallback? onDecrease;
   final VoidCallback? onIncrease;
@@ -942,7 +937,6 @@ class GamepadSizeToolPill extends StatelessWidget {
   const GamepadSizeToolPill({
     super.key,
     this.pillKey,
-    required this.isThai,
     required this.enabled,
     this.onDecrease,
     this.onIncrease,
@@ -974,7 +968,7 @@ class GamepadSizeToolPill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              isThai ? 'Size' : 'Size',
+              'Size',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,

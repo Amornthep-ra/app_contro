@@ -27,7 +27,6 @@ import '../../core/widgets/gamepad_appbar_controls.dart';
 import '../../core/utils/orientation_utils.dart';
 import '../../core/ble/joystick_packet.dart';
 import '../../core/ble/control_timing.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
@@ -321,8 +320,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   String _command = '0';
   String _speedLabel = 'Lo';
   String _lastPacketKey = '';
-  bool _isThai = true;
-  late final VoidCallback _langListener;
   bool _editMode = false;
   bool _showGrid = false;
   bool _speedMenuOpen = false;
@@ -762,10 +759,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   void _showSizeLimit(bool atMax) {
-    final isThai = LanguageController.isThai.value;
-    final msg = atMax
-        ? (isThai ? 'Maximum size is 80%.' : 'Maximum size is 80%.')
-        : (isThai ? 'Minimum size reached.' : 'Minimum size reached.');
+    final msg = atMax ? 'Maximum size is 80%.' : 'Minimum size reached.';
     showGamepadTopNotice(
       context,
       message: msg,
@@ -859,26 +853,19 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     }
   }
 
-  String _defaultPresetName(int slot, bool isThai) =>
-      isThai ? 'Preset $slot' : 'Preset $slot';
+  String _defaultPresetName(int slot) => 'Preset $slot';
   static final RegExp _presetAllowedPattern = RegExp(r'^[A-Za-z0-9 _-]+$');
   static final RegExp _presetRequiredChars = RegExp(r'[A-Za-z0-9]');
-  String? _validatePresetName(String raw, bool isThai) {
+  String? _validatePresetName(String raw) {
     final value = raw.trim();
     if (value.isEmpty) {
-      return isThai
-          ? 'Enter a preset name using letters or numbers.'
-          : 'Enter a preset name using letters or numbers.';
+      return 'Enter a preset name using letters or numbers.';
     }
     if (!_presetAllowedPattern.hasMatch(value)) {
-      return isThai
-          ? 'Only letters, numbers, spaces, - and _ are allowed.'
-          : 'Only letters, numbers, spaces, - and _ are allowed.';
+      return 'Only letters, numbers, spaces, - and _ are allowed.';
     }
     if (!_presetRequiredChars.hasMatch(value)) {
-      return isThai
-          ? 'Use at least one letter or number. Symbols alone are not allowed.'
-          : 'Use at least one letter or number. Symbols alone are not allowed.';
+      return 'Use at least one letter or number. Symbols alone are not allowed.';
     }
     return null;
   }
@@ -897,12 +884,10 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     required BuildContext context,
     String? currentName,
   }) {
-    final isThai = LanguageController.isThai.value;
     return showCatPresetNameDialog(
       context: context,
-      isThai: isThai,
       currentName: currentName,
-      validator: (value) => _validatePresetName(value, isThai),
+      validator: _validatePresetName,
     );
   }
 
@@ -960,21 +945,19 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   Future<void> _showPresetSheet() async {
-    final isThai = LanguageController.isThai.value;
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     ControlPresetSlot makeSlot(int slot) {
       final raw = prefs.getString(_presetKey(slot)) ?? '';
       return ControlPresetSlot(
         slot: slot,
-        name: _readPresetName(raw) ?? _defaultPresetName(slot, isThai),
+        name: _readPresetName(raw) ?? _defaultPresetName(slot),
         hasData: raw.isNotEmpty,
       );
     }
 
     await showControlPresetDialog(
       context: context,
-      isThai: isThai,
       slots: List<ControlPresetSlot>.generate(
         controlPresetSlotCount,
         (index) => makeSlot(index + 1),
@@ -990,9 +973,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         final trimmed = name.trim();
         return ControlPresetSlot(
           slot: slot.slot,
-          name: trimmed.isEmpty
-              ? _defaultPresetName(slot.slot, isThai)
-              : trimmed,
+          name: trimmed.isEmpty ? _defaultPresetName(slot.slot) : trimmed,
           hasData: true,
         );
       },
@@ -1005,7 +986,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         await prefs.remove(_presetKey(slot.slot));
         return ControlPresetSlot(
           slot: slot.slot,
-          name: _defaultPresetName(slot.slot, isThai),
+          name: _defaultPresetName(slot.slot),
           hasData: false,
         );
       },
@@ -1016,10 +997,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastOverlapWarningMs < 900) return;
     _lastOverlapWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai ? 'Buttons cannot overlap.' : 'Buttons cannot overlap.',
+      message: 'Buttons cannot overlap.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1029,12 +1009,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastBoundaryWarningMs < 900) return;
     _lastBoundaryWarningMs = now;
-    final isThai = LanguageController.isThai.value;
     showGamepadTopNotice(
       context,
-      message: isThai
-          ? 'Buttons must stay inside the safe zone.'
-          : 'Buttons must stay inside the safe zone.',
+      message: 'Buttons must stay inside the safe zone.',
       duration: const Duration(milliseconds: 900),
       style: GamepadNoticeStyle.warning,
     );
@@ -1116,10 +1093,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       if (requiresBlePairingCode(
         BleConnectionCoordinator.instance.state.securityState,
       )) {
-        final paired = await promptForBlePairingCode(
-          context: context,
-          isThai: LanguageController.isThai.value,
-        );
+        final paired = await promptForBlePairingCode(context: context);
         if (paired == true && mounted) {
           await _startControl();
         }
@@ -1161,14 +1135,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       _handleControlSuspended,
     );
     unawaited(OrientationUtils.request(AppOrientation.landscape));
-    _isThai = LanguageController.isThai.value;
-    _langListener = () {
-      final next = LanguageController.isThai.value;
-      if (next != _isThai) {
-        setState(() => _isThai = next);
-      }
-    };
-    LanguageController.isThai.addListener(_langListener);
     _sendSpeed('Med');
     final layoutsLoaded = _loadLayouts();
     final open = widget.openOnArrival;
@@ -1336,7 +1302,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     BleManager.instance.controlSuspendedListenable.removeListener(
       _handleControlSuspended,
     );
-    LanguageController.isThai.removeListener(_langListener);
     unawaited(_releaseTrafficOwnershipForExit());
     super.dispose();
   }
@@ -1757,7 +1722,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   Widget _sizeToolPill({required bool enabled, Key? key}) {
     return GamepadSizeToolPill(
       pillKey: key,
-      isThai: LanguageController.isThai.value,
       enabled: enabled,
       onDecrease: enabled ? () => _changeSelectedSize(-0.05) : null,
       onIncrease: enabled ? () => _changeSelectedSize(0.05) : null,
@@ -1766,17 +1730,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
 
   // Kept temporarily for compatibility with the previous toolbar composition.
   // ignore: unused_element
-  double _editAppBarGap({
-    required bool isThai,
-    required GamepadAppBarMetrics metrics,
-  }) {
+  double _editAppBarGap({required GamepadAppBarMetrics metrics}) {
     final width = MediaQuery.of(context).size.width;
-    final estimatedButtonsWidth = isThai ? 126.0 : 82.0;
-    final estimatedDoneWidth = isThai ? 78.0 : 70.0;
-    final estimatedDeleteWidth = isThai ? 58.0 : 76.0;
-    final estimatedResetWidth = isThai ? 72.0 : 70.0;
+    const estimatedButtonsWidth = 82.0;
+    const estimatedDoneWidth = 70.0;
+    const estimatedDeleteWidth = 76.0;
+    const estimatedResetWidth = 70.0;
     const estimatedToolWidth = 62.0;
-    final estimatedSizeWidth = isThai ? 78.0 : 70.0;
+    const estimatedSizeWidth = 70.0;
     final estimatedContentWidth =
         estimatedButtonsWidth +
         estimatedDoneWidth +
@@ -1793,10 +1754,10 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
   }
 
   // ignore: unused_element
-  Widget _buildEditAppBarRow(bool isThai, double gap) {
+  Widget _buildEditAppBarRow(double gap) {
     final media = MediaQuery.of(context);
     if (media.size.width >= 1000 && media.textScaler.scale(1) <= 1.3) {
-      return _buildExpandedEditAppBarRow(isThai, gap);
+      return _buildExpandedEditAppBarRow(gap);
     }
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
@@ -1826,7 +1787,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final more = GamepadEditMoreButton(
       actions: [
         GamepadOverflowAction(
-          label: isThai ? 'ลบ' : 'Delete',
+          label: 'Delete',
           icon: Icons.delete_outline,
           accent: const Color(0xFFF87171),
           onTap: hasSelection ? _removeSelected : null,
@@ -1845,19 +1806,19 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
           onTap: () => setState(() => _showGrid = !_showGrid),
         ),
         GamepadOverflowAction(
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          label: 'Decrease size',
           icon: Icons.remove,
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? () => _changeSelectedSize(-0.05) : null,
         ),
         GamepadOverflowAction(
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          label: 'Increase size',
           icon: Icons.add,
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? () => _changeSelectedSize(0.05) : null,
         ),
         GamepadOverflowAction(
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          label: gamepadEditLockLabel(locked: selectedLocked),
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
@@ -1903,7 +1864,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     );
   }
 
-  Widget _buildExpandedEditAppBarRow(bool isThai, double gap) {
+  Widget _buildExpandedEditAppBarRow(double gap) {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -1913,14 +1874,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     final canRedo = _redoStack.isNotEmpty;
     final children = <Widget>[
       _actionPill(
-        label: isThai ? 'ź' : 'Delete',
+        label: 'Delete',
         icon: Icons.delete_outline,
         accent: const Color(0xFFF87171),
         compact: true,
         onTap: hasSelection ? _removeSelected : null,
       ),
       _actionPill(
-        label: isThai ? 'Reset' : 'Reset',
+        label: 'Reset',
         icon: Icons.restart_alt,
         accent: const Color(0xFFF59E0B),
         compact: true,
@@ -1928,19 +1889,19 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       ),
       _toolIconPill(
         icon: Icons.undo_rounded,
-        label: isThai ? 'Undo' : 'Undo',
+        label: 'Undo',
         accent: const Color(0xFFA78BFA),
         onTap: canUndo ? _undo : null,
       ),
       _toolIconPill(
         icon: Icons.redo_rounded,
-        label: isThai ? 'Redo' : 'Redo',
+        label: 'Redo',
         accent: const Color(0xFFA78BFA),
         onTap: canRedo ? _redo : null,
       ),
       _toolIconPill(
         icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-        label: isThai ? 'Grid' : 'Grid',
+        label: 'Grid',
         accent: const Color(0xFF38BDF8),
         active: _showGrid,
         onTap: () => setState(() => _showGrid = !_showGrid),
@@ -1948,13 +1909,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       _sizeToolPill(enabled: sizeEnabled),
       _toolIconPill(
         icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-        label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+        label: gamepadEditLockLabel(locked: selectedLocked),
         accent: const Color(0xFFFBBF24),
         active: selectedLocked,
         onTap: hasSelection ? _toggleSelectedLock : null,
       ),
       _actionPill(
-        label: isThai ? 'Done' : 'Done',
+        label: 'Done',
         icon: Icons.edit,
         accent: const Color(0xFF60A5FA),
         compact: true,
@@ -1987,7 +1948,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
     );
   }
 
-  Widget _buildCenteredEditAppBar(bool isThai) {
+  Widget _buildCenteredEditAppBar() {
     final selectedId = _selectedId;
     final hasSelection = selectedId != null;
     final selectedLocked =
@@ -2017,20 +1978,20 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         ),
         _toolIconPill(
           icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          label: gamepadEditLockLabel(isThai: isThai, locked: selectedLocked),
+          label: gamepadEditLockLabel(locked: selectedLocked),
           accent: const Color(0xFFFBBF24),
           active: selectedLocked,
           onTap: hasSelection ? _toggleSelectedLock : null,
         ),
         _toolIconPill(
           icon: Icons.remove,
-          label: isThai ? 'ลดขนาด' : 'Decrease size',
+          label: 'Decrease size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? () => _changeSelectedSize(-0.05) : null,
         ),
         _toolIconPill(
           icon: Icons.add,
-          label: isThai ? 'เพิ่มขนาด' : 'Increase size',
+          label: 'Increase size',
           accent: const Color(0xFF38BDF8),
           onTap: sizeEnabled ? () => _changeSelectedSize(0.05) : null,
         ),
@@ -2061,7 +2022,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
         ),
         _toolIconPill(
           icon: Icons.delete_outline,
-          label: isThai ? 'ลบ' : 'Delete',
+          label: 'Delete',
           accent: const Color(0xFFF87171),
           onTap: hasSelection ? _removeSelected : null,
         ),
@@ -2080,7 +2041,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
       '',
     ], leadingCount: 2);
     final controlLayout = _editMode ? null : playLayout;
-    final isThai = LanguageController.isThai.value;
     final media = MediaQuery.of(context);
     final appBarMetrics = GamepadAppBarMetrics.forWidth(media.size.width);
     final textScaleFactor = media.textScaler.scale(1);
@@ -2111,9 +2071,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
               glassOpacity: 0.18,
               leading: _editMode ? null : _buildAppBarBackButton(),
               startStop: _editMode ? null : _buildToolbarStartStop(),
-              toolbarContent: _editMode
-                  ? _buildCenteredEditAppBar(isThai)
-                  : null,
+              toolbarContent: _editMode ? _buildCenteredEditAppBar() : null,
               speedToggle: _editMode ? null : _speedPopupButton(),
               cmdChip: _editMode
                   ? null
@@ -2132,9 +2090,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                       subdued: true,
                       onManagementBlocked: () => showGamepadTopNotice(
                         context,
-                        message: isThai
-                            ? 'Use Emergency Stop before managing BLE.'
-                            : 'Use Emergency Stop before managing BLE.',
+                        message: 'Use Emergency Stop before managing BLE.',
                         style: GamepadNoticeStyle.ble,
                       ),
                     ),
@@ -2146,7 +2102,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage> {
                   gap: gap,
                   items: [
                     GamepadAppBarActionItem(
-                      label: isThai ? 'Settings' : 'Settings',
+                      label: 'Settings',
                       icon: Icons.settings_outlined,
                       iconAsset: AppAssets.controlSettings,
                       accent: _barAccent('SETTINGS'),

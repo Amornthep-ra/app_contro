@@ -8,7 +8,6 @@ import '../ble/ble_pairing_store.dart';
 typedef BlePairingPromptLauncher =
     Future<bool?> Function({
       required BuildContext context,
-      required bool isThai,
       BleConnectionCoordinator? coordinator,
     });
 
@@ -16,7 +15,6 @@ typedef BlePairingPromptLauncher =
 /// board. A `null` result means the user cancelled the dialog.
 Future<bool?> promptForBlePairingCode({
   required BuildContext context,
-  required bool isThai,
   BleConnectionCoordinator? coordinator,
 }) async {
   final target = coordinator ?? BleConnectionCoordinator.instance;
@@ -31,7 +29,6 @@ Future<bool?> promptForBlePairingCode({
           target.state.recoveryOutcome ==
               BleRecoveryOutcome.credentialMismatchSuspected ||
           target.state.recoveryOutcome == BleRecoveryOutcome.credentialRejected,
-      isThai: isThai,
       onPair: (code) async {
         if (generation != target.pairingConnectionGeneration) {
           return const BlePairingAttemptResult(
@@ -76,14 +73,12 @@ Future<bool?> promptForBlePairingCode({
 class PairingCodeDialog extends StatefulWidget {
   const PairingCodeDialog({
     super.key,
-    required this.isThai,
     this.onPair,
     this.replacingSavedCode = false,
   });
 
   final bool replacingSavedCode;
 
-  final bool isThai;
   final Future<BlePairingAttemptResult> Function(String code)? onPair;
 
   @override
@@ -136,21 +131,12 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
       _submitting = false;
       _pairingError = switch (result.failure) {
         BlePairingFailure.codeRejected =>
-          widget.isThai
-              ? 'This code does not match the board. Try again.'
-              : 'This code does not match the board. Try again.',
+          'This code does not match the board. Try again.',
         BlePairingFailure.timeout || BlePairingFailure.protocolError =>
-          widget.isThai
-              ? 'The board did not complete pairing. Check firmware and retry.'
-              : 'The board did not complete pairing. Check firmware and retry.',
+          'The board did not complete pairing. Check firmware and retry.',
         BlePairingFailure.storageError =>
-          widget.isThai
-              ? 'Connected, but the pairing code could not be saved. Try again.'
-              : 'Connected, but the pairing code could not be saved. Try again.',
-        _ =>
-          widget.isThai
-              ? 'Pairing failed. Try again.'
-              : 'Pairing failed. Try again.',
+          'Connected, but the pairing code could not be saved. Try again.',
+        _ => 'Pairing failed. Try again.',
       };
     });
   }
@@ -196,7 +182,6 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colors = Theme.of(context).colorScheme;
     final valid = _isValid;
-    final isThai = widget.isThai;
     return TextField(
       key: _fieldKey,
       focusNode: _focusNode,
@@ -220,12 +205,8 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
       decoration: InputDecoration(
         isDense: compact,
         hintText: compact ? 'Code set on your board' : 'Enter code',
-        labelText: isThai ? 'Pair Code' : 'Pair Code',
-        helperText: compact
-            ? null
-            : isThai
-            ? 'English/Number · 8–16'
-            : 'English/Number · 8–16',
+        labelText: 'Pair Code',
+        helperText: compact ? null : 'English/Number · 8–16',
         helperMaxLines: 2,
         // The 0/16 counter would add a line the compact row has no room for.
         counterText: compact ? '' : null,
@@ -233,9 +214,7 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
         errorText:
             _pairingError ??
             (_showValidationError && !valid
-                ? (isThai
-                      ? 'Enter a valid 8–16 character code.'
-                      : 'Enter a valid 8–16 character code.')
+                ? 'Enter a valid 8–16 character code.'
                 : null),
         prefixIcon: const Icon(Icons.key_rounded),
         filled: true,
@@ -253,7 +232,6 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
   }
 
   Widget _buildCancel() {
-    final isThai = widget.isThai;
     return TextButton(
       style: TextButton.styleFrom(
         foregroundColor: _purple,
@@ -261,7 +239,7 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-      child: Text(isThai ? 'Cancel' : 'Cancel'),
+      child: const Text('Cancel'),
     );
   }
 
@@ -329,7 +307,6 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
 
   Widget _buildFull(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final isThai = widget.isThai;
 
     return AlertDialog(
       scrollable: true,
@@ -368,8 +345,6 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
                 Text(
                   widget.replacingSavedCode
                       ? 'Saved Pair Code no longer works. Enter the current code.'
-                      : isThai
-                      ? 'Use the code set on your board.'
                       : 'Use the code set on your board.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colors.onSurfaceVariant,

@@ -5,7 +5,6 @@ import 'package:flutter/cupertino.dart' hide Text;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'gamepad_control_toolbar.dart';
-import '../ui/language_controller.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_presentation_state.dart';
@@ -219,7 +218,6 @@ class _ConnectionStatusBadgeState extends State<ConnectionStatusBadge>
     try {
       await widget.pairingPromptLauncher(
         context: context,
-        isThai: LanguageController.isThai.value,
         coordinator: request.coordinator,
       );
     } catch (error, stackTrace) {

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/routes/app_routes.dart';
 import 'core/ui/gamepad_skin.dart';
-import 'core/ui/language_controller.dart';
 import 'core/ble/ble_manager.dart';
 import 'core/ble/ble_connection_coordinator.dart';
 import 'core/utils/orientation_utils.dart';
@@ -40,7 +39,6 @@ void main() async {
   await OrientationUtils.request(AppOrientation.portrait);
   final preferences = await SharedPreferences.getInstance();
   await preferences.remove('app_theme_mode');
-  await LanguageController.init();
   await BleConnectionCoordinator.instance.initialize();
   runApp(const MyApp());
 }
@@ -80,53 +78,48 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       seedColor: seed,
       brightness: Brightness.light,
     );
-    return ValueListenableBuilder<bool>(
-      valueListenable: LanguageController.isThai,
-      builder: (context, _, __) {
-        final lightTextTheme = _applyFonts(
-          ThemeData.light().textTheme.apply(
-            bodyColor: lightScheme.onSurface,
-            displayColor: lightScheme.onSurface,
-          ),
-          fontFamily,
-          fontFallback,
-        );
+    final lightTextTheme = _applyFonts(
+      ThemeData.light().textTheme.apply(
+        bodyColor: lightScheme.onSurface,
+        displayColor: lightScheme.onSurface,
+      ),
+      fontFamily,
+      fontFallback,
+    );
 
-        return MaterialApp(
-          title: 'PrinceBot Controller',
-          debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            colorScheme: lightScheme,
-            useMaterial3: true,
-            extensions: const <ThemeExtension<dynamic>>[GamepadSkin.light()],
+    return MaterialApp(
+      title: 'PrinceBot Controller',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: lightScheme,
+        useMaterial3: true,
+        extensions: const <ThemeExtension<dynamic>>[GamepadSkin.light()],
+        fontFamily: fontFamily,
+        fontFamilyFallback: fontFallback,
+        textTheme: lightTextTheme,
+        iconTheme: IconThemeData(color: lightScheme.onSurface),
+        appBarTheme: AppBarTheme(
+          foregroundColor: lightScheme.onSurface,
+          iconTheme: IconThemeData(color: lightScheme.onSurface),
+          titleTextStyle: lightTextTheme.titleLarge?.copyWith(
+            color: lightScheme.onSurface,
             fontFamily: fontFamily,
             fontFamilyFallback: fontFallback,
-            textTheme: lightTextTheme,
-            iconTheme: IconThemeData(color: lightScheme.onSurface),
-            appBarTheme: AppBarTheme(
-              foregroundColor: lightScheme.onSurface,
-              iconTheme: IconThemeData(color: lightScheme.onSurface),
-              titleTextStyle: lightTextTheme.titleLarge?.copyWith(
-                color: lightScheme.onSurface,
-                fontFamily: fontFamily,
-                fontFamilyFallback: fontFallback,
-              ),
-            ),
-            pageTransitionsTheme: const PageTransitionsTheme(
-              builders: {
-                TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-                TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-                TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-                TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-              },
-            ),
           ),
-          initialRoute: AppRoutes.home,
-          onGenerateRoute: AppRoutes.onGenerateRoute,
-          navigatorObservers: [appRouteObserver],
-        );
-      },
+        ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+          },
+        ),
+      ),
+      initialRoute: AppRoutes.home,
+      onGenerateRoute: AppRoutes.onGenerateRoute,
+      navigatorObservers: [appRouteObserver],
     );
   }
 }

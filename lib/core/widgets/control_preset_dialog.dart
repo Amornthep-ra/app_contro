@@ -26,7 +26,6 @@ typedef ControlPresetClear =
 
 Future<void> showControlPresetDialog({
   required BuildContext context,
-  required bool isThai,
   required List<ControlPresetSlot> slots,
   required ControlPresetSave onSave,
   required ControlPresetLoad onLoad,
@@ -35,7 +34,7 @@ Future<void> showControlPresetDialog({
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: false,
-    barrierLabel: isThai ? 'Close preset dialog' : 'Close preset dialog',
+    barrierLabel: 'Close preset dialog',
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 180),
     // showGeneralDialog has no Material, so text would fall back to the
@@ -43,7 +42,6 @@ Future<void> showControlPresetDialog({
     pageBuilder: (context, _, __) => Material(
       type: MaterialType.transparency,
       child: _ControlPresetDialog(
-        isThai: isThai,
         slots: slots,
         onSave: onSave,
         onLoad: onLoad,
@@ -64,14 +62,12 @@ Future<void> showControlPresetDialog({
 
 class _ControlPresetDialog extends StatefulWidget {
   const _ControlPresetDialog({
-    required this.isThai,
     required this.slots,
     required this.onSave,
     required this.onLoad,
     required this.onClear,
   });
 
-  final bool isThai;
   final List<ControlPresetSlot> slots;
   final ControlPresetSave onSave;
   final ControlPresetLoad onLoad;
@@ -154,10 +150,7 @@ class _ControlPresetDialogState extends State<_ControlPresetDialog> {
                               ),
                               child: Column(
                                 children: [
-                                  _DialogHeader(
-                                    isThai: widget.isThai,
-                                    compact: compact,
-                                  ),
+                                  _DialogHeader(compact: compact),
                                   SizedBox(height: compact ? 4 : 14),
                                   Expanded(
                                     child: ListView.separated(
@@ -173,7 +166,6 @@ class _ControlPresetDialogState extends State<_ControlPresetDialog> {
                                         }
                                         return _PresetSlotCard(
                                           slot: slot,
-                                          isThai: widget.isThai,
                                           compact: compact,
                                           busy: _busySlots.contains(slot.slot),
                                           onSave: () => _save(slot),
@@ -188,7 +180,7 @@ class _ControlPresetDialogState extends State<_ControlPresetDialog> {
                                     alignment: Alignment.centerRight,
                                     child: _CloseButton(
                                       compact: compact,
-                                      label: widget.isThai ? 'Close' : 'Close',
+                                      label: 'Close',
                                       onPressed: () =>
                                           Navigator.of(context).pop(),
                                     ),
@@ -247,9 +239,8 @@ class _ControlPresetDialogState extends State<_ControlPresetDialog> {
 }
 
 class _DialogHeader extends StatelessWidget {
-  const _DialogHeader({required this.isThai, required this.compact});
+  const _DialogHeader({required this.compact});
 
-  final bool isThai;
   final bool compact;
 
   @override
@@ -282,7 +273,7 @@ class _DialogHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isThai ? 'Presets' : 'Presets',
+                'Presets',
                 style: TextStyle(
                   color: Color(0xFF3D217A),
                   fontSize: compact ? 19 : 26,
@@ -292,9 +283,7 @@ class _DialogHeader extends StatelessWidget {
               ),
               SizedBox(height: compact ? 0 : 2),
               Text(
-                isThai
-                    ? 'Save and load layouts with speed settings.'
-                    : 'Save and load layouts with speed settings.',
+                'Save and load layouts with speed settings.',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -315,7 +304,6 @@ class _DialogHeader extends StatelessWidget {
 class _PresetSlotCard extends StatelessWidget {
   const _PresetSlotCard({
     required this.slot,
-    required this.isThai,
     required this.compact,
     required this.busy,
     required this.onSave,
@@ -324,7 +312,6 @@ class _PresetSlotCard extends StatelessWidget {
   });
 
   final ControlPresetSlot slot;
-  final bool isThai;
   final bool compact;
   final bool busy;
   final VoidCallback onSave;
@@ -401,7 +388,7 @@ class _PresetSlotCard extends StatelessWidget {
                   children: [
                     if (saved)
                       _PresetActionButton(
-                        label: isThai ? 'Load' : 'Load',
+                        label: 'Load',
                         icon: Icons.download_rounded,
                         color: const Color(0xFF22A85A),
                         compact: compact,
@@ -416,7 +403,7 @@ class _PresetSlotCard extends StatelessWidget {
                     ),
                     if (saved)
                       _PresetActionButton(
-                        label: isThai ? 'Clear' : 'Clear',
+                        label: 'Clear',
                         icon: Icons.delete_outline_rounded,
                         color: const Color(0xFFE85D75),
                         compact: compact,
@@ -433,7 +420,7 @@ class _PresetSlotCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _StatusBadge(saved: saved, isThai: isThai, compact: compact),
+                _StatusBadge(saved: saved, compact: compact),
                 if (busy) ...[
                   const SizedBox(height: 8),
                   const SizedBox(
@@ -452,14 +439,9 @@ class _PresetSlotCard extends StatelessWidget {
 }
 
 class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({
-    required this.saved,
-    required this.isThai,
-    required this.compact,
-  });
+  const _StatusBadge({required this.saved, required this.compact});
 
   final bool saved;
-  final bool isThai;
   final bool compact;
 
   @override
@@ -476,7 +458,7 @@ class _StatusBadge extends StatelessWidget {
         border: Border.all(color: color.withAlpha(82)),
       ),
       child: Text(
-        saved ? (isThai ? 'Saved' : 'Saved') : (isThai ? 'Empty' : 'Empty'),
+        saved ? 'Saved' : 'Empty',
         textAlign: TextAlign.center,
         style: TextStyle(
           color: color,
