@@ -16,6 +16,17 @@ class GamepadButtonLayout {
   Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
 }
 
+/// A copy of [src] with fresh layout objects, for undo snapshots.
+Map<String, GamepadButtonLayout> cloneGamepadLayout(
+  Map<String, GamepadButtonLayout> src,
+) {
+  final out = <String, GamepadButtonLayout>{};
+  src.forEach((k, v) {
+    out[k] = GamepadButtonLayout(v.cx, v.cy, v.size);
+  });
+  return out;
+}
+
 /// Undo/redo stacks of the layout editor. [T] is the page's own snapshot of
 /// what an edit can change; the page captures and applies it.
 class GamepadEditHistory<T> {

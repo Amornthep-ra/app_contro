@@ -186,7 +186,7 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _menuOpen = false;
   String? _selectedId;
   Size? _panelSize;
-  Map<String, _JoyLayout> _layout = {};
+  Map<String, GamepadButtonLayout> _layout = {};
   Set<String> _activeIds = {kJoyLeftId, kJoyRightId};
   final Set<String> _lockedIds = {};
   final _history = GamepadEditHistory<_EditSnapshot>();
@@ -766,19 +766,22 @@ class _JoystickPageState extends State<JoystickPage> {
 
   String _cmdLabel() => _buttonsKey().toString();
   double _baseBtnSize(Size panel) => joyBasePx(panel, button: true);
-  Map<String, _JoyLayout> _defaultLayout(Size panel, Set<String> active) {
-    final out = <String, _JoyLayout>{};
+  Map<String, GamepadButtonLayout> _defaultLayout(
+    Size panel,
+    Set<String> active,
+  ) {
+    final out = <String, GamepadButtonLayout>{};
     if (active.contains(kJoyLeftId)) {
-      out[kJoyLeftId] = const _JoyLayout(0.25, 0.5, 1.0);
+      out[kJoyLeftId] = const GamepadButtonLayout(0.25, 0.5, 1.0);
     }
     if (active.contains(kJoyYOnlyId)) {
-      out[kJoyYOnlyId] = const _JoyLayout(0.25, 0.5, 1.0);
+      out[kJoyYOnlyId] = const GamepadButtonLayout(0.25, 0.5, 1.0);
     }
     if (active.contains(kJoyRightId)) {
-      out[kJoyRightId] = const _JoyLayout(0.75, 0.5, 1.0);
+      out[kJoyRightId] = const GamepadButtonLayout(0.75, 0.5, 1.0);
     }
     if (active.contains(kJoyXOnlyId)) {
-      out[kJoyXOnlyId] = const _JoyLayout(0.75, 0.5, 1.0);
+      out[kJoyXOnlyId] = const GamepadButtonLayout(0.75, 0.5, 1.0);
     }
     final buttonIds = <String>[
       if (active.contains(kBtnTriangleId)) 'R:triangle',
@@ -811,7 +814,11 @@ class _JoystickPageState extends State<JoystickPage> {
         final tightenedCy =
             actionClusterCenterY +
             ((layout.cy - actionClusterCenterY) * clusterTighten);
-        out[joyId] = _JoyLayout(tightenedCx, tightenedCy, joySizeScale);
+        out[joyId] = GamepadButtonLayout(
+          tightenedCx,
+          tightenedCy,
+          joySizeScale,
+        );
       });
     }
     return out;
@@ -844,11 +851,11 @@ class _JoystickPageState extends State<JoystickPage> {
     await prefs.setString(_prefsActive, jsonEncode(_activeIds.toList()));
   }
 
-  Map<String, _JoyLayout> _decodeLayout(String raw) {
+  Map<String, GamepadButtonLayout> _decodeLayout(String raw) {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return {};
-      final out = <String, _JoyLayout>{};
+      final out = <String, GamepadButtonLayout>{};
       obj.forEach((k, v) {
         final id = k.toString();
         final isButton = _isButtonId(id);
@@ -859,7 +866,7 @@ class _JoystickPageState extends State<JoystickPage> {
           defaultSize: 1.0,
         );
         if (saved != null) {
-          out[id] = _JoyLayout(saved.cx, saved.cy, saved.size);
+          out[id] = GamepadButtonLayout(saved.cx, saved.cy, saved.size);
         }
       });
       return out;
@@ -869,7 +876,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Map<String, Map<String, double>> _encodeLayout(
-    Map<String, _JoyLayout> layout,
+    Map<String, GamepadButtonLayout> layout,
   ) {
     final out = <String, Map<String, double>>{};
     layout.forEach((k, v) {
@@ -898,7 +905,7 @@ class _JoystickPageState extends State<JoystickPage> {
       if (_editMode && _panelSize != null) {
         final defaults = _defaultLayout(_panelSize!, _activeIds);
         // Edit what the pad shows, already fitted to this screen.
-        _layout = Map<String, _JoyLayout>.from(
+        _layout = Map<String, GamepadButtonLayout>.from(
           _fitToPanel(_panelSize!, {...defaults, ..._layout}, _layout),
         );
       }
@@ -923,10 +930,10 @@ class _JoystickPageState extends State<JoystickPage> {
   /// the pad's edge margin without overlapping (see
   /// [GamepadEditMetrics.fitLayout]). Returns [layout] itself when nothing
   /// had to move.
-  Map<String, _JoyLayout> _fitToPanel(
+  Map<String, GamepadButtonLayout> _fitToPanel(
     Size panel,
-    Map<String, _JoyLayout> layout,
-    Map<String, _JoyLayout> saved,
+    Map<String, GamepadButtonLayout> layout,
+    Map<String, GamepadButtonLayout> saved,
   ) {
     final w = panel.width;
     final h = panel.height;
@@ -937,7 +944,7 @@ class _JoystickPageState extends State<JoystickPage> {
       ))
         if (_activeIds.contains(id) && layout[id] != null) (id, layout[id]!),
     ];
-    double radius(String id, _JoyLayout l) =>
+    double radius(String id, GamepadButtonLayout l) =>
         joyControlDiameter(id, l.size, panel) / 2;
     final fitted = GamepadEditMetrics.fitLayout(
       panel: panel,
@@ -947,13 +954,13 @@ class _JoystickPageState extends State<JoystickPage> {
           (Offset(l.cx * w, l.cy * h), radius(id, l)),
       ],
     );
-    Map<String, _JoyLayout>? out;
+    Map<String, GamepadButtonLayout>? out;
     for (var i = 0; i < placed.length; i++) {
       final (id, l) = placed[i];
       final spot = fitted[i];
       if ((spot - Offset(l.cx * w, l.cy * h)).distance <= 0.5) continue;
-      out ??= Map<String, _JoyLayout>.from(layout);
-      out[id] = _JoyLayout(spot.dx / w, spot.dy / h, l.size);
+      out ??= Map<String, GamepadButtonLayout>.from(layout);
+      out[id] = GamepadButtonLayout(spot.dx / w, spot.dy / h, l.size);
     }
     return out ?? layout;
   }
@@ -977,17 +984,9 @@ class _JoystickPageState extends State<JoystickPage> {
     });
   }
 
-  Map<String, _JoyLayout> _cloneLayout(Map<String, _JoyLayout> src) {
-    final out = <String, _JoyLayout>{};
-    src.forEach((k, v) {
-      out[k] = _JoyLayout(v.cx, v.cy, v.size);
-    });
-    return out;
-  }
-
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
-      layout: _cloneLayout(_layout),
+      layout: cloneGamepadLayout(_layout),
       activeIds: Set<String>.from(_activeIds),
       lockedIds: Set<String>.from(_lockedIds),
       selectedId: _selectedId,
@@ -995,7 +994,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
-    _layout = _cloneLayout(snap.layout);
+    _layout = cloneGamepadLayout(snap.layout);
     _activeIds = Set<String>.from(snap.activeIds);
     _lockedIds
       ..clear()
@@ -1079,8 +1078,12 @@ class _JoystickPageState extends State<JoystickPage> {
 
   /// [def] moved to the nearest spot that does not crowd the controls
   /// already on the pad. New buttons used to land on the right joystick.
-  _JoyLayout _placeOnFreeSpot(String id, _JoyLayout def, Size panel) {
-    double radius(String key, _JoyLayout layout) =>
+  GamepadButtonLayout _placeOnFreeSpot(
+    String id,
+    GamepadButtonLayout def,
+    Size panel,
+  ) {
+    double radius(String key, GamepadButtonLayout layout) =>
         joyControlDiameter(key, layout.size, panel) / 2;
     // Same edge rule as dragging a control on this page.
     const edge = 16.0;
@@ -1100,7 +1103,7 @@ class _JoystickPageState extends State<JoystickPage> {
             ),
       ],
     );
-    return _JoyLayout(spot.dx / w, spot.dy / h, def.size);
+    return GamepadButtonLayout(spot.dx / w, spot.dy / h, def.size);
   }
 
   void _removeSelected() {
@@ -1114,7 +1117,7 @@ class _JoystickPageState extends State<JoystickPage> {
     final defaultActive = Set<String>.from(kJoyDefaultActiveIds);
     final defaultLayout = _panelSize != null
         ? _defaultLayout(_panelSize!, defaultActive)
-        : <String, _JoyLayout>{};
+        : <String, GamepadButtonLayout>{};
     setState(() {
       _layout = defaultLayout;
       _activeIds = defaultActive;
@@ -1545,8 +1548,8 @@ class _JoystickPageState extends State<JoystickPage> {
     }
     _pushHistory();
     setState(() {
-      final next = Map<String, _JoyLayout>.from(_layout);
-      next[id] = _JoyLayout(cx / w, cy / h, nextSize);
+      final next = Map<String, GamepadButtonLayout>.from(_layout);
+      next[id] = GamepadButtonLayout(cx / w, cy / h, nextSize);
       _layout = next;
       _editWarningId = null;
     });
@@ -2042,8 +2045,8 @@ class _JoystickPageState extends State<JoystickPage> {
   Widget _buildJoystick({
     required String id,
     required Size size,
-    required _JoyLayout layout,
-    required Map<String, _JoyLayout> allLayouts,
+    required GamepadButtonLayout layout,
+    required Map<String, GamepadButtonLayout> allLayouts,
     required bool isLeft,
     required JoystickAxisLock axisLock,
   }) {
@@ -2137,8 +2140,8 @@ class _JoystickPageState extends State<JoystickPage> {
     required String label,
     required String asset,
     required Size size,
-    required _JoyLayout layout,
-    required Map<String, _JoyLayout> allLayouts,
+    required GamepadButtonLayout layout,
+    required Map<String, GamepadButtonLayout> allLayouts,
   }) {
     final selected = _selectedId == id;
     final dimmed = _selectedId != null && _selectedId != id;
@@ -2380,7 +2383,7 @@ class _JoyImagePressHoldButtonState extends State<_JoyImagePressHoldButton> {
 }
 
 class _EditSnapshot {
-  final Map<String, _JoyLayout> layout;
+  final Map<String, GamepadButtonLayout> layout;
   final Set<String> activeIds;
   final Set<String> lockedIds;
   final String? selectedId;
@@ -2392,29 +2395,17 @@ class _EditSnapshot {
   });
 }
 
-class _JoyLayout {
-  final double cx;
-  final double cy;
-  final double size;
-  const _JoyLayout(this.cx, this.cy, this.size);
-  _JoyLayout copyWith({double? cx, double? cy, double? size}) {
-    return _JoyLayout(cx ?? this.cx, cy ?? this.cy, size ?? this.size);
-  }
-
-  Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
-}
-
 class _EditableJoystick extends StatefulWidget {
   final String id;
   final Size panelSize;
-  final _JoyLayout layout;
-  final Map<String, _JoyLayout> allLayouts;
+  final GamepadButtonLayout layout;
+  final Map<String, GamepadButtonLayout> allLayouts;
   final bool snapToGrid;
   final bool selected;
   final bool dimmed;
   final bool locked;
   final VoidCallback onSelect;
-  final ValueChanged<_JoyLayout> onChanged;
+  final ValueChanged<GamepadButtonLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback? onStart;
   final ValueChanged<GamepadEditGuideState>? onGuideChanged;
@@ -2447,7 +2438,7 @@ class _EditableJoystick extends StatefulWidget {
 
 class _EditableJoystickState extends State<_EditableJoystick> {
   Offset _startFocal = Offset.zero;
-  _JoyLayout _startLayout = const _JoyLayout(0, 0, 0);
+  GamepadButtonLayout _startLayout = const GamepadButtonLayout(0, 0, 0);
 
   /// True only while a drag that began on the already-selected control is
   /// running. A touch on an unselected control just selects it; the rest of
@@ -2571,7 +2562,7 @@ class _EditableJoystickState extends State<_EditableJoystick> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-    widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
+    widget.onChanged(GamepadButtonLayout(cx / w, cy / h, nextSize));
   }
 
   double _px(String id, double size) =>
@@ -2642,15 +2633,15 @@ class _EditableJoystickState extends State<_EditableJoystick> {
 class _EditableButtonItem extends StatefulWidget {
   final String id;
   final Size panelSize;
-  final _JoyLayout layout;
-  final Map<String, _JoyLayout> allLayouts;
+  final GamepadButtonLayout layout;
+  final Map<String, GamepadButtonLayout> allLayouts;
   final bool snapToGrid;
   final bool selected;
   final bool dimmed;
   final bool locked;
   final String asset;
   final VoidCallback onSelect;
-  final ValueChanged<_JoyLayout> onChanged;
+  final ValueChanged<GamepadButtonLayout> onChanged;
   final VoidCallback onEnd;
   final VoidCallback? onStart;
   final ValueChanged<GamepadEditGuideState>? onGuideChanged;
@@ -2684,7 +2675,7 @@ class _EditableButtonItem extends StatefulWidget {
 
 class _EditableButtonItemState extends State<_EditableButtonItem> {
   Offset _startFocal = Offset.zero;
-  _JoyLayout _startLayout = const _JoyLayout(0, 0, 0);
+  GamepadButtonLayout _startLayout = const GamepadButtonLayout(0, 0, 0);
 
   /// True only while a drag that began on the already-selected control is
   /// running. A touch on an unselected control just selects it; the rest of
@@ -2833,7 +2824,7 @@ class _EditableButtonItemState extends State<_EditableButtonItem> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-    widget.onChanged(_JoyLayout(cx / w, cy / h, nextSize));
+    widget.onChanged(GamepadButtonLayout(cx / w, cy / h, nextSize));
   }
 
   double _px(String id, double size) =>

@@ -220,7 +220,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   bool _showGrid = false;
   final Set<String> _lockedIds = {};
   bool _menuOpen = false;
-  Map<String, _ButtonLayout> _layoutAll = {};
+  Map<String, GamepadButtonLayout> _layoutAll = {};
   Set<String> _leftActive = Set<String>.from(_defaultLeftActiveIds);
   Set<String> _rightActive = Set<String>.from(_defaultRightActiveIds);
   final Set<String> _pressedIds = {};
@@ -904,7 +904,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
 
   Future<void> _saveLayout(
     String key,
-    Map<String, _ButtonLayout> layout,
+    Map<String, GamepadButtonLayout> layout,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(_encodeLayout(layout)));
@@ -915,23 +915,23 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     await prefs.setString(key, jsonEncode(ids.toList()));
   }
 
-  Map<String, _ButtonLayout> _remapLayout(
-    Map<String, _ButtonLayout> layout,
+  Map<String, GamepadButtonLayout> _remapLayout(
+    Map<String, GamepadButtonLayout> layout,
     double offsetX,
     double scaleX,
   ) {
-    final out = <String, _ButtonLayout>{};
+    final out = <String, GamepadButtonLayout>{};
     layout.forEach((k, v) {
-      out[k] = _ButtonLayout(offsetX + v.cx * scaleX, v.cy, v.size);
+      out[k] = GamepadButtonLayout(offsetX + v.cx * scaleX, v.cy, v.size);
     });
     return out;
   }
 
-  Map<String, _ButtonLayout> _decodeLayout(String raw) {
+  Map<String, GamepadButtonLayout> _decodeLayout(String raw) {
     try {
       final obj = jsonDecode(raw);
       if (obj is! Map) return {};
-      final out = <String, _ButtonLayout>{};
+      final out = <String, GamepadButtonLayout>{};
       obj.forEach((k, v) {
         final saved = GamepadEditMetrics.readSavedLayout(
           v,
@@ -940,7 +940,11 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
           defaultSize: _defaultBtnSize,
         );
         if (saved != null) {
-          out[k.toString()] = _ButtonLayout(saved.cx, saved.cy, saved.size);
+          out[k.toString()] = GamepadButtonLayout(
+            saved.cx,
+            saved.cy,
+            saved.size,
+          );
         }
       });
       return out;
@@ -950,7 +954,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   Map<String, Map<String, double>> _encodeLayout(
-    Map<String, _ButtonLayout> layout,
+    Map<String, GamepadButtonLayout> layout,
   ) {
     final out = <String, Map<String, double>>{};
     layout.forEach((k, v) {
@@ -983,17 +987,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     });
   }
 
-  Map<String, _ButtonLayout> _cloneLayout(Map<String, _ButtonLayout> src) {
-    final out = <String, _ButtonLayout>{};
-    src.forEach((k, v) {
-      out[k] = _ButtonLayout(v.cx, v.cy, v.size);
-    });
-    return out;
-  }
-
   _EditSnapshot _captureSnapshot() {
     return _EditSnapshot(
-      layoutAll: _cloneLayout(_layoutAll),
+      layoutAll: cloneGamepadLayout(_layoutAll),
       leftActive: Set<String>.from(_leftActive),
       rightActive: Set<String>.from(_rightActive),
       lockedIds: Set<String>.from(_lockedIds),
@@ -1002,7 +998,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
   }
 
   void _applySnapshot(_EditSnapshot snap) {
-    _layoutAll = _cloneLayout(snap.layoutAll);
+    _layoutAll = cloneGamepadLayout(snap.layoutAll);
     _leftActive = Set<String>.from(snap.leftActive);
     _rightActive = Set<String>.from(snap.rightActive);
     _lockedIds
@@ -1121,8 +1117,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     }
     _pushHistory();
     setState(() {
-      final nextLayout = Map<String, _ButtonLayout>.from(_layoutAll);
-      nextLayout[id] = _ButtonLayout(cx / w, cy / h, nextSize);
+      final nextLayout = Map<String, GamepadButtonLayout>.from(_layoutAll);
+      nextLayout[id] = GamepadButtonLayout(cx / w, cy / h, nextSize);
       _layoutAll = nextLayout;
       _editWarningId = null;
     });
@@ -1245,7 +1241,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     if (panel == null) return;
     final ids = _allActiveIds();
     final defaults = _defaultLayoutForIds(panel, ids);
-    final next = Map<String, _ButtonLayout>.from(_layoutAll);
+    final next = Map<String, GamepadButtonLayout>.from(_layoutAll);
     for (final id in ids) {
       final def = defaults[id];
       if (def != null) next.putIfAbsent(id, () => def);
@@ -1285,7 +1281,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
     _layoutAll = {
       ..._layoutAll,
-      id: _ButtonLayout(spot.dx / w, spot.dy / h, def.size),
+      id: GamepadButtonLayout(spot.dx / w, spot.dy / h, def.size),
     };
     _saveLayout(_prefsLayoutAll, _layoutAll);
   }
@@ -2253,7 +2249,10 @@ class _BtnSpec {
   const _BtnSpec(this.label, this.sendValue, this.asset);
 }
 
-Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
+Map<String, GamepadButtonLayout> _defaultLayoutForIds(
+  Size size,
+  List<String> ids,
+) {
   final w = size.width;
   final h = size.height;
   final s = GamepadEditMetrics.panelUnit(size);
@@ -2261,8 +2260,8 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
   final gap = s * 0.08;
   final frame = GamepadEditMetrics.defaultLayoutFrame(size);
   final cy = frame.center.dy;
-  _ButtonLayout make(double x, double y) {
-    return _ButtonLayout(x / w, y / h, btn / s);
+  GamepadButtonLayout make(double x, double y) {
+    return GamepadButtonLayout(x / w, y / h, btn / s);
   }
 
   final suffixMap = <String, String>{};
@@ -2271,7 +2270,7 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
     final key = parts.length > 1 ? parts[1] : id;
     suffixMap[key] = id;
   }
-  final out = <String, _ButtonLayout>{};
+  final out = <String, GamepadButtonLayout>{};
   final hasMove =
       suffixMap.containsKey('up') ||
       suffixMap.containsKey('down') ||
@@ -2319,10 +2318,10 @@ Map<String, _ButtonLayout> _defaultLayoutForIds(Size size, List<String> ids) {
 /// the pad's safe margins without overlapping (see
 /// [GamepadEditMetrics.fitLayout]). Returns [layout] itself when nothing
 /// had to move.
-Map<String, _ButtonLayout> _fitLayoutToPanel(
+Map<String, GamepadButtonLayout> _fitLayoutToPanel(
   Size panel,
   List<String> ids,
-  Map<String, _ButtonLayout> layout,
+  Map<String, GamepadButtonLayout> layout,
 ) {
   final w = panel.width;
   final h = panel.height;
@@ -2346,31 +2345,19 @@ Map<String, _ButtonLayout> _fitLayoutToPanel(
         ),
     ],
   );
-  Map<String, _ButtonLayout>? out;
+  Map<String, GamepadButtonLayout>? out;
   for (var i = 0; i < placed.length; i++) {
     final (id, l) = placed[i];
     final spot = fitted[i];
     if ((spot - Offset(l.cx * w, l.cy * h)).distance <= 0.5) continue;
-    out ??= Map<String, _ButtonLayout>.from(layout);
+    out ??= Map<String, GamepadButtonLayout>.from(layout);
     out[id] = l.copyWith(cx: spot.dx / w, cy: spot.dy / h);
   }
   return out ?? layout;
 }
 
-class _ButtonLayout {
-  final double cx;
-  final double cy;
-  final double size;
-  const _ButtonLayout(this.cx, this.cy, this.size);
-  _ButtonLayout copyWith({double? cx, double? cy, double? size}) {
-    return _ButtonLayout(cx ?? this.cx, cy ?? this.cy, size ?? this.size);
-  }
-
-  Map<String, double> toJson() => {'cx': cx, 'cy': cy, 'size': size};
-}
-
 class _EditSnapshot {
-  final Map<String, _ButtonLayout> layoutAll;
+  final Map<String, GamepadButtonLayout> layoutAll;
   final Set<String> leftActive;
   final Set<String> rightActive;
   final Set<String> lockedIds;
@@ -2387,8 +2374,8 @@ class _EditSnapshot {
 class _EditablePadPanel extends StatefulWidget {
   final List<String> ids;
   final Map<String, _BtnSpec> specs;
-  final Map<String, _ButtonLayout> layout;
-  final ValueChanged<Map<String, _ButtonLayout>> onLayoutChanged;
+  final Map<String, GamepadButtonLayout> layout;
+  final ValueChanged<Map<String, GamepadButtonLayout>> onLayoutChanged;
   final String? selectedId;
   final String? warningId;
   final Set<String> lockedIds;
@@ -2418,7 +2405,7 @@ class _EditablePadPanel extends StatefulWidget {
 }
 
 class _EditablePadPanelState extends State<_EditablePadPanel> {
-  late Map<String, _ButtonLayout> _layout;
+  late Map<String, GamepadButtonLayout> _layout;
   bool _initialized = false;
   bool _showGuideX = false;
   bool _showGuideY = false;
@@ -2428,14 +2415,14 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
   @override
   void initState() {
     super.initState();
-    _layout = Map<String, _ButtonLayout>.from(widget.layout);
+    _layout = Map<String, GamepadButtonLayout>.from(widget.layout);
   }
 
   @override
   void didUpdateWidget(covariant _EditablePadPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.layout, widget.layout)) {
-      _layout = Map<String, _ButtonLayout>.from(widget.layout);
+      _layout = Map<String, GamepadButtonLayout>.from(widget.layout);
     }
     if (oldWidget.selectedId != widget.selectedId) {
       _resetGuide(notify: false);
@@ -2594,7 +2581,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
 class _LayoutPadPanel extends StatelessWidget {
   final List<String> ids;
   final Map<String, _BtnSpec> specs;
-  final Map<String, _ButtonLayout> layout;
+  final Map<String, GamepadButtonLayout> layout;
   final void Function(String id, bool down) onPressChanged;
   const _LayoutPadPanel({
     required this.ids,
@@ -2655,16 +2642,16 @@ class _LayoutPadPanel extends StatelessWidget {
 
 class _EditableButton extends StatefulWidget {
   final String id;
-  final _ButtonLayout layout;
+  final GamepadButtonLayout layout;
   final Size panelSize;
   final String asset;
-  final Map<String, _ButtonLayout> allLayouts;
+  final Map<String, GamepadButtonLayout> allLayouts;
   final bool selected;
   final bool externalWarning;
   final bool dimmed;
   final bool locked;
   final bool snapToGrid;
-  final ValueChanged<_ButtonLayout> onChanged;
+  final ValueChanged<GamepadButtonLayout> onChanged;
   final ValueChanged<GamepadEditGuideState>? onGuideChanged;
   final VoidCallback onEnd;
   final VoidCallback onTap;
@@ -2696,7 +2683,7 @@ class _EditableButton extends StatefulWidget {
 
 class _EditableButtonState extends State<_EditableButton> {
   Offset _startFocal = Offset.zero;
-  _ButtonLayout _startLayout = const _ButtonLayout(0, 0, 0);
+  GamepadButtonLayout _startLayout = const GamepadButtonLayout(0, 0, 0);
 
   /// True only while a drag that began on the already-selected button is
   /// running. A touch on an unselected button just selects it; the rest of
@@ -2820,7 +2807,7 @@ class _EditableButtonState extends State<_EditableButton> {
     if (_colliding) {
       setState(() => _colliding = false);
     }
-    widget.onChanged(_ButtonLayout(cx / w, cy / h, size));
+    widget.onChanged(GamepadButtonLayout(cx / w, cy / h, size));
   }
 
   @override
