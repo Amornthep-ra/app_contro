@@ -140,10 +140,22 @@ Set<String> sanitizeJoyActiveIds(Iterable<String> ids) {
 }
 
 class JoystickPage extends StatefulWidget {
-  const JoystickPage({super.key, this.acquireControl, this.openOnArrival});
+  const JoystickPage({
+    super.key,
+    this.acquireControl,
+    this.openOnArrival,
+    this.sendControlPacket,
+  });
 
   // Optional transport seam for exercising delayed Start completion in tests.
   final Future<int?> Function()? acquireControl;
+
+  /// Test seam: receives each control packet the page sends (with its
+  /// pressed buttons and whether it bypasses BLE rate limiting) instead of
+  /// BleManager.
+  @visibleForTesting
+  final void Function(JoystickPacket packet, Set<int> buttons, bool force)?
+  sendControlPacket;
 
   /// Set when Settings switched to this mode to edit it or open its saved
   /// layouts (see [ControlPageArguments]).
@@ -199,6 +211,11 @@ class _JoystickPageState extends State<JoystickPage> {
   int _lastButtonsKey = 0;
   double _smoothLX = 0.0, _smoothLY = 0.0;
   double _smoothRX = 0.0, _smoothRY = 0.0;
+
+  /// Where each stick is held (after the dead zone); the sent values above
+  /// move toward these.
+  double _targetLX = 0.0, _targetLY = 0.0;
+  double _targetRX = 0.0, _targetRY = 0.0;
   double _lastLX = 0.0, _lastLY = 0.0;
   double _lastRX = 0.0, _lastRY = 0.0;
   static const double _deadZone = 0.05;
@@ -223,6 +240,7 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _modeSwitchInProgress = false;
   void _resetInputState() {
     void apply() {
+      _clearStickTargets();
       _smoothLX = 0;
       _smoothLY = 0;
       _smoothRX = 0;
@@ -285,6 +303,11 @@ class _JoystickPageState extends State<JoystickPage> {
     final owner = _bleTrafficOwner;
     if (owner == null) return;
     _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
+    final testSink = widget.sendControlPacket;
+    if (testSink != null) {
+      testSink(packet, buttons ?? const <int>{}, force);
+      return;
+    }
     unawaited(
       BleManager.instance.sendJoystickBinary(
         packet: packet,
@@ -295,7 +318,16 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
+  void _clearStickTargets() {
+    _targetLX = 0;
+    _targetLY = 0;
+    _targetRX = 0;
+    _targetRY = 0;
+  }
+
   void _resetLeftJoystick() {
+    _targetLX = 0;
+    _targetLY = 0;
     _smoothLX = 0;
     _smoothLY = 0;
     _lastLX = 0;
@@ -314,6 +346,8 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _resetRightJoystick() {
+    _targetRX = 0;
+    _targetRY = 0;
     _smoothRX = 0;
     _smoothRY = 0;
     _lastRX = 0;
@@ -354,10 +388,12 @@ class _JoystickPageState extends State<JoystickPage> {
             BleConnectionCoordinator.instance.acquireControlForStart(
               ownerName: 'joystick',
             ));
-    if (!mounted || _leavingControlPage || _modeSwitchInProgress) {
+    // Also give control back if the editor opened while Start was pending.
+    if (!mounted || _leavingControlPage || _modeSwitchInProgress || _editMode) {
       if (owner != null) {
         await BleManager.instance.stopAndReleaseControl(owner: owner);
       }
+      if (mounted) setState(() => _startInProgress = false);
       return;
     }
     if (owner == null) {
@@ -405,6 +441,7 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   Future<void> _sendZeroAndClear({bool updateUi = true, int? owner}) {
+    _clearStickTargets();
     _smoothLX = 0;
     _smoothLY = 0;
     _smoothRX = 0;
@@ -462,6 +499,7 @@ class _JoystickPageState extends State<JoystickPage> {
     });
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       if (!_controlStarted || _editMode) return;
+      _stepSticks();
       var packet = _controller.buildPacket();
       final buttonsKey = _buttonsKey();
       final buttonsChanged = buttonsKey != _lastButtonsKey;
@@ -682,15 +720,35 @@ class _JoystickPageState extends State<JoystickPage> {
     super.dispose();
   }
 
-  (double, double) _process(double rawX, double rawY, double sx, double sy) {
-    double x = (rawX.abs() < _deadZone) ? 0 : rawX;
-    double y = (rawY.abs() < _deadZone) ? 0 : rawY;
-    final fx = _lerp(sx, x, _smooth);
-    final fy = _lerp(sy, y, _smooth);
-    const eps = 0.01;
-    final snapX = (fx.abs() < eps) ? 0.0 : fx;
-    final snapY = (fy.abs() < eps) ? 0.0 : fy;
-    return (snapX, snapY);
+  double _deadZoned(double raw) => raw.abs() < _deadZone ? 0.0 : raw;
+
+  /// One smoothing step from [from] toward [to], landing exactly on [to]
+  /// once within 0.005 so a held stick sends its full value.
+  double _approach(double from, double to) {
+    final next = _lerp(from, to, _smooth);
+    return (next - to).abs() < 0.005 ? to : next;
+  }
+
+  void _stepLeft() {
+    _smoothLX = _approach(_smoothLX, _targetLX);
+    _smoothLY = _approach(_smoothLY, _targetLY);
+    _controller.setLeftJoystick(_smoothLX, _smoothLY);
+    _updateLeftDebug(_smoothLX, _smoothLY);
+  }
+
+  void _stepRight() {
+    _smoothRX = _approach(_smoothRX, _targetRX);
+    _smoothRY = _approach(_smoothRY, _targetRY);
+    _controller.setRightJoystick(_smoothRX, _smoothRY);
+    _updateRightDebug(_smoothRX, _smoothRY);
+  }
+
+  /// Moves each stick's sent value toward where the finger holds it. Touch
+  /// events stop while a finger is still, so without this a stick pushed
+  /// to the rim and held sent only ~85 %.
+  void _stepSticks() {
+    if (_smoothLX != _targetLX || _smoothLY != _targetLY) _stepLeft();
+    if (_smoothRX != _targetRX || _smoothRY != _targetRY) _stepRight();
   }
 
   Set<int> _pressedButtons() {
@@ -837,6 +895,10 @@ class _JoystickPageState extends State<JoystickPage> {
   }
 
   void _toggleEdit() {
+    // The editor is not for driving: entering it stops the robot like
+    // Emergency Stop, and driving again needs Start. (While editing the
+    // page sends nothing, not even keepalives.)
+    if (!_editMode && _controlStarted) unawaited(_stopControl());
     setState(() {
       _editMode = !_editMode;
       if (_editMode && _panelSize != null) {
@@ -1649,7 +1711,14 @@ class _JoystickPageState extends State<JoystickPage> {
     if (id == kBtnSquareId) _square = down;
     if (id == kBtnCircleId) _circle = down;
     _lastButtonsKey = _buttonsKey();
-    _sendBinary(_controller.buildPacket(), buttons: _pressedButtons());
+    // force: a press or release must not be dropped by the BLE rate
+    // limiter (a send within 20 ms of the last one), or a short tap could
+    // never reach the robot and a release could arrive 150 ms late.
+    _sendBinary(
+      _controller.buildPacket(),
+      buttons: _pressedButtons(),
+      force: true,
+    );
     if (mounted) {
       setState(() {});
     }
@@ -2469,26 +2538,25 @@ class _JoystickPageState extends State<JoystickPage> {
             : joystickTheme.rightKnobImage,
         onChanged: (x, y) {
           if (_editMode) return;
+          // Each touch event sets where the stick should go and takes one
+          // smoothing step; the 25 ms tick keeps stepping (see _stepSticks)
+          // so a finger held still still reaches its value.
           if (isLeft) {
-            final (sx, sy) = _process(x, y, _smoothLX, _smoothLY);
-            _smoothLX = sx;
-            _smoothLY = sy;
-            _controller.setLeftJoystick(sx, sy);
             if (x == 0 && y == 0) {
               _resetLeftJoystick();
               return;
             }
-            _updateLeftDebug(sx, sy);
+            _targetLX = _deadZoned(x);
+            _targetLY = _deadZoned(y);
+            _stepLeft();
           } else {
-            final (sx, sy) = _process(x, y, _smoothRX, _smoothRY);
-            _smoothRX = sx;
-            _smoothRY = sy;
-            _controller.setRightJoystick(sx, sy);
             if (x == 0 && y == 0) {
               _resetRightJoystick();
               return;
             }
-            _updateRightDebug(sx, sy);
+            _targetRX = _deadZoned(x);
+            _targetRY = _deadZoned(y);
+            _stepRight();
           }
         },
       ),
