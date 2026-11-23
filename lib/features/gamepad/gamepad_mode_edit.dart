@@ -31,6 +31,7 @@ import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
 import '../../core/widgets/gamepad_edit_notices.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
+import '../../core/widgets/gamepad_edit_toolbar.dart';
 import '../../core/widgets/gamepad_telemetry_chip.dart';
 import '../../core/widgets/pairing_code_dialog.dart';
 import 'control_mode_settings_page.dart';
@@ -1313,109 +1314,25 @@ class _GamepadModeEditState extends State<GamepadModeEdit> {
     );
   }
 
-  Widget _toolIconPill({
-    required IconData icon,
-    required String label,
-    required Color accent,
-    required VoidCallback? onTap,
-    Key? key,
-    bool active = false,
-  }) {
-    return GamepadToolIconPill(
-      pillKey: key,
-      icon: icon,
-      label: label,
-      accent: accent,
-      onTap: onTap,
-      active: active,
-    );
-  }
-
   Widget _buildCenteredEditAppBar() {
     final selectedId = _selectedId;
-    final hasSelection = selectedId != null;
-    final selectedLocked =
-        selectedId != null && _lockedIds.contains(selectedId);
-    final sizeEnabled = hasSelection && !selectedLocked;
-    VoidCallback withBuzz(VoidCallback action) {
-      return () {
-        gamepadBuzz();
-        action();
-      };
-    }
-
-    return GamepadCenteredToolbar(
-      textScaleFactor: MediaQuery.textScalerOf(context).scale(1),
-      singleRow: true,
-      children: [
-        _toolIconPill(
-          icon: Icons.done_rounded,
-          label: 'Done',
-          accent: const Color(0xFF60A5FA),
-          onTap: withBuzz(_toggleEdit),
-        ),
-        // Show or hide controls, e.g. bring back one that was deleted
-        // without resetting the whole layout.
-        _toolIconPill(
-          key: const ValueKey('gamepad-edit-controls'),
-          icon: Icons.videogame_asset_outlined,
-          label: 'Buttons',
-          accent: const Color(0xFF34D399),
-          onTap: withBuzz(_showEditMenuAndroid),
-        ),
-        _toolIconPill(
-          icon: selectedLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          label: gamepadEditLockLabel(locked: selectedLocked),
-          accent: const Color(0xFFFBBF24),
-          active: selectedLocked,
-          onTap: hasSelection ? withBuzz(_toggleSelectedLock) : null,
-        ),
-        _toolIconPill(
-          icon: Icons.remove,
-          label: 'Decrease size',
-          accent: const Color(0xFF38BDF8),
-          onTap: sizeEnabled
-              ? withBuzz(() => _adjustSelectedSize(-0.05))
-              : null,
-        ),
-        _toolIconPill(
-          icon: Icons.add,
-          label: 'Increase size',
-          accent: const Color(0xFF38BDF8),
-          onTap: sizeEnabled ? withBuzz(() => _adjustSelectedSize(0.05)) : null,
-        ),
-        _toolIconPill(
-          icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-          label: 'Grid',
-          accent: const Color(0xFF38BDF8),
-          active: _showGrid,
-          onTap: withBuzz(() => setState(() => _showGrid = !_showGrid)),
-        ),
-        _toolIconPill(
-          icon: Icons.undo_rounded,
-          label: 'Undo',
-          accent: const Color(0xFFA78BFA),
-          onTap: _history.canUndo ? withBuzz(_undo) : null,
-        ),
-        _toolIconPill(
-          icon: Icons.redo_rounded,
-          label: 'Redo',
-          accent: const Color(0xFFA78BFA),
-          onTap: _history.canRedo ? withBuzz(_redo) : null,
-        ),
-        _toolIconPill(
-          icon: Icons.restart_alt,
-          label: 'Reset',
-          accent: const Color(0xFFF59E0B),
-          onTap: withBuzz(_resetLayouts),
-        ),
-        _toolIconPill(
-          icon: Icons.delete_outline,
-          label: 'Delete',
-          accent: const Color(0xFFF87171),
-          onTap: hasSelection ? withBuzz(_removeSelected) : null,
-        ),
-      ],
+    return GamepadEditToolbar(
+      buttonsKey: const ValueKey('gamepad-edit-controls'),
+      hasSelection: selectedId != null,
+      selectedLocked: selectedId != null && _lockedIds.contains(selectedId),
+      showGrid: _showGrid,
+      canUndo: _history.canUndo,
+      canRedo: _history.canRedo,
+      buzzOnTap: true,
+      onDone: _toggleEdit,
+      onButtons: _showEditMenuAndroid,
+      onToggleLock: _toggleSelectedLock,
+      onChangeSize: _adjustSelectedSize,
+      onToggleGrid: () => setState(() => _showGrid = !_showGrid),
+      onUndo: _undo,
+      onRedo: _redo,
+      onReset: _resetLayouts,
+      onDelete: _removeSelected,
     );
   }
 
