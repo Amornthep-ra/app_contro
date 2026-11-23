@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/widgets/connection_status_badge.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/widgets/portrait_background.dart';
 
 class LineSonicSensorPage extends StatefulWidget {
@@ -28,8 +27,6 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   DateTime _lastRead = DateTime.fromMillisecondsSinceEpoch(0);
   bool _pendingForceRead = false;
   int? _bleTrafficOwner;
-
-  String _t(bool isThai, String th, String en) => isThai ? th : en;
 
   @override
   void initState() {
@@ -123,15 +120,9 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       if (!mounted) return;
       if (now.difference(_lastWarn) > const Duration(seconds: 2)) {
         _lastWarn = now;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              LanguageController.isThai.value
-                  ? '\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e40\u0e0a\u0e37\u0e48\u0e2d\u0e21\u0e15\u0e48\u0e2d BLE'
-                  : 'BLE not connected',
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('BLE not connected')));
       }
       return;
     }
@@ -167,15 +158,9 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       if (!mounted) return;
       if (now.difference(_lastWarn) > const Duration(seconds: 2)) {
         _lastWarn = now;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              LanguageController.isThai.value
-                  ? '\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e40\u0e0a\u0e37\u0e48\u0e2d\u0e21\u0e15\u0e48\u0e2d BLE'
-                  : 'BLE not connected',
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('BLE not connected')));
       }
       return;
     }
@@ -231,12 +216,12 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     });
   }
 
-  Widget _buildPlainBackButton(bool isThai) {
+  Widget _buildPlainBackButton() {
     return SizedBox(
       width: 44,
       height: 44,
       child: IconButton(
-        tooltip: _t(isThai, '\u0e01\u0e25\u0e31\u0e1a', 'Back'),
+        tooltip: 'Back',
         icon: const Icon(Icons.chevron_left_rounded, size: 30),
         onPressed: () {
           HapticFeedback.selectionClick();
@@ -303,21 +288,12 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   }
 
   Widget _buildValues(ThemeData theme) {
-    final isThai = LanguageController.isThai.value;
     if (_values.isEmpty) {
       return _buildEmptyPanel(
         theme: theme,
         icon: Icons.sensors_rounded,
-        title: _t(
-          isThai,
-          '\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e21\u0e35\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25',
-          'No data yet',
-        ),
-        hint: _t(
-          isThai,
-          '\u0e41\u0e15\u0e30\u0e2d\u0e48\u0e32\u0e19\u0e15\u0e2d\u0e19\u0e19\u0e35\u0e49\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e14\u0e36\u0e07\u0e04\u0e48\u0e32\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
-          'Tap Read Now to fetch sensor values',
-        ),
+        title: 'No data yet',
+        hint: 'Tap Read Now to fetch sensor values',
       );
     }
 
@@ -342,21 +318,13 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     );
   }
 
-  Widget _buildLog(ThemeData theme, bool isThai) {
+  Widget _buildLog(ThemeData theme) {
     if (_logs.isEmpty) {
       return _buildEmptyPanel(
         theme: theme,
         icon: Icons.receipt_long_rounded,
-        title: _t(
-          isThai,
-          '\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e21\u0e35\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01',
-          'No logs yet',
-        ),
-        hint: _t(
-          isThai,
-          '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01 TX/RX \u0e08\u0e30\u0e41\u0e2a\u0e14\u0e07\u0e2b\u0e25\u0e31\u0e07\u0e08\u0e32\u0e01\u0e2d\u0e48\u0e32\u0e19\u0e04\u0e48\u0e32',
-          'TX/RX logs appear after reading values',
-        ),
+        title: 'No logs yet',
+        hint: 'TX/RX logs appear after reading values',
       );
     }
 
@@ -379,7 +347,6 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final isThai = LanguageController.isThai.value;
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -391,15 +358,11 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
         shadowColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
         leading: Navigator.of(context).canPop()
-            ? _buildPlainBackButton(isThai)
+            ? _buildPlainBackButton()
             : null,
         centerTitle: true,
         title: Text(
-          _t(
-            isThai,
-            '\u0e2d\u0e48\u0e32\u0e19\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
-            'Read Sensor',
-          ),
+          'Read Sensor',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -429,13 +392,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
                   child: ElevatedButton.icon(
                     onPressed: _sendRead,
                     icon: const Icon(Icons.download_rounded),
-                    label: Text(
-                      _t(
-                        isThai,
-                        '\u0e2d\u0e48\u0e32\u0e19\u0e15\u0e2d\u0e19\u0e19\u0e35\u0e49',
-                        'Read Now',
-                      ),
-                    ),
+                    label: const Text('Read Now'),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(0, 48),
                       elevation: 1,
@@ -456,19 +413,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
                   icon: Icon(
                     _auto ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   ),
-                  label: Text(
-                    _auto
-                        ? _t(
-                            isThai,
-                            '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e40\u0e1b\u0e34\u0e14',
-                            'Auto On',
-                          )
-                        : _t(
-                            isThai,
-                            '\u0e2d\u0e31\u0e15\u0e42\u0e19\u0e21\u0e31\u0e15\u0e34 \u0e1b\u0e34\u0e14',
-                            'Auto Off',
-                          ),
-                  ),
+                  label: Text(_auto ? 'Auto On' : 'Auto Off'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(118, 44),
                     textStyle: const TextStyle(
@@ -489,13 +434,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
               child: OutlinedButton.icon(
                 onPressed: _forceReadTx,
                 icon: const Icon(Icons.read_more_rounded, size: 18),
-                label: Text(
-                  _t(
-                    isThai,
-                    '\u0e2d\u0e48\u0e32\u0e19\u0e41\u0e1a\u0e1a\u0e1a\u0e31\u0e07\u0e04\u0e31\u0e1a',
-                    'Read (force)',
-                  ),
-                ),
+                label: const Text('Read (force)'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 38),
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -515,11 +454,9 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: _intervalMs,
-              decoration: InputDecoration(
-                label: Text(
-                  isThai ? 'Auto Interval (ms)' : 'Auto Interval (ms)',
-                ),
-                border: const OutlineInputBorder(),
+              decoration: const InputDecoration(
+                label: Text('Auto Interval (ms)'),
+                border: OutlineInputBorder(),
               ),
               items: const [
                 DropdownMenuItem(value: 100, child: Text('100')),
@@ -535,11 +472,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              _t(
-                isThai,
-                '\u0e04\u0e48\u0e32\u0e40\u0e0b\u0e19\u0e40\u0e0b\u0e2d\u0e23\u0e4c',
-                'Sensor Values',
-              ),
+              'Sensor Values',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -570,13 +503,13 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
               ),
             const SizedBox(height: 20),
             Text(
-              _t(isThai, '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01', 'Log'),
+              'Log',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 8),
-            _buildLog(theme, isThai),
+            _buildLog(theme),
           ],
         ),
       ),

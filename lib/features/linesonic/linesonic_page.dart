@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/ble/ble_manager.dart';
-import '../../core/ui/language_controller.dart';
 import '../../core/widgets/cat_back_button.dart';
 import '../../core/widgets/portrait_background.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
@@ -32,8 +31,6 @@ class _LineSonicPageState extends State<LineSonicPage> {
   bool _openingPage = false;
   bool _openingBlePage = false;
 
-  String _t(bool isThai, String th, String en) => isThai ? th : en;
-
   Widget _lineSonicIcon(String name, {double size = 28}) {
     return Image.asset(
       'assets/icons/HomeUnified/$name',
@@ -58,7 +55,7 @@ class _LineSonicPageState extends State<LineSonicPage> {
     }
   }
 
-  Widget _buildBleBadge(bool isThai) {
+  Widget _buildBleBadge() {
     return StreamBuilder<BleConnectionStatus>(
       stream: BleManager.instance.statusStream,
       initialData: BleManager.instance.connectionStatus,
@@ -90,7 +87,7 @@ class _LineSonicPageState extends State<LineSonicPage> {
         return Padding(
           padding: const EdgeInsets.only(right: 12),
           child: Tooltip(
-            message: _t(isThai, 'Open BLE connection', 'Open BLE connection'),
+            message: 'Open BLE connection',
             child: Material(
               color: Colors.transparent,
               child: InkWell(
@@ -180,84 +177,71 @@ class _LineSonicPageState extends State<LineSonicPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: LanguageController.isThai,
-      builder: (context, isThai, _) {
-        final items = [
-          _LineSonicItem(
-            title: _t(isThai, 'PID Tuning', 'PID Tuning'),
-            subtitle: _t(
-              isThai,
-              'Tune motion PID over BLE',
-              'Tune motion PID over BLE',
-            ),
-            iconAsset: 'LineSonic-PID Tuning.png',
-            accent: _LineSonicPalette.pidCyan,
-            page: const LineSonicPidPage(),
-          ),
-          _LineSonicItem(
-            title: _t(isThai, 'Read Sensor', 'Read Sensor'),
-            subtitle: _t(
-              isThai,
-              'Read sensor values from board',
-              'Read sensor values from board',
-            ),
-            iconAsset: 'LineSonic-Read Sensor.png',
-            accent: _LineSonicPalette.sensorMint,
-            page: const LineSonicSensorPage(),
-          ),
-        ];
+    final items = [
+      _LineSonicItem(
+        title: 'PID Tuning',
+        subtitle: 'Tune motion PID over BLE',
+        iconAsset: 'LineSonic-PID Tuning.png',
+        accent: _LineSonicPalette.pidCyan,
+        page: const LineSonicPidPage(),
+      ),
+      _LineSonicItem(
+        title: 'Read Sensor',
+        subtitle: 'Read sensor values from board',
+        iconAsset: 'LineSonic-Read Sensor.png',
+        accent: _LineSonicPalette.sensorMint,
+        page: const LineSonicSensorPage(),
+      ),
+    ];
 
-        return Scaffold(
-          extendBodyBehindAppBar: true,
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            toolbarHeight: 44,
-            elevation: 0,
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            systemOverlayStyle: SystemUiOverlayStyle.dark,
-            foregroundColor: _LineSonicPalette.deepPlum,
-            leadingWidth: CatBackButton.leadingWidthFor(16),
-            leading: Navigator.of(context).canPop()
-                ? CatBackButton.leading()
-                : null,
-            centerTitle: true,
-            title: Text(
-              'LineSonic',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0,
-                color: _LineSonicPalette.deepPlum,
-              ),
-            ),
-            actions: [_buildBleBadge(isThai)],
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        toolbarHeight: 44,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        foregroundColor: _LineSonicPalette.deepPlum,
+        leadingWidth: CatBackButton.leadingWidthFor(16),
+        leading: Navigator.of(context).canPop()
+            ? CatBackButton.leading()
+            : null,
+        centerTitle: true,
+        title: Text(
+          'LineSonic',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+            color: _LineSonicPalette.deepPlum,
           ),
-          body: PortraitBackground(
-            child: ListView.separated(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                MediaQuery.paddingOf(context).top + 44 + 16,
-                16,
-                24,
-              ),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _LineSonicCard(
-                  item: item,
-                  enabled: !_openingPage,
-                  iconBuilder: _lineSonicIcon,
-                  onTap: () => _openPage(item.page),
-                );
-              },
-            ),
+        ),
+        actions: [_buildBleBadge()],
+      ),
+      body: PortraitBackground(
+        child: ListView.separated(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.paddingOf(context).top + 44 + 16,
+            16,
+            24,
           ),
-        );
-      },
+          itemCount: items.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return _LineSonicCard(
+              item: item,
+              enabled: !_openingPage,
+              iconBuilder: _lineSonicIcon,
+              onTap: () => _openPage(item.page),
+            );
+          },
+        ),
+      ),
     );
   }
 }
