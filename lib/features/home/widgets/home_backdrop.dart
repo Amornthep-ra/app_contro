@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/ambient_motion.dart';
@@ -20,7 +21,9 @@ import '../../../core/ui/lavender_glass.dart';
 ///
 /// It runs at ~30 fps and pauses automatically while another page covers
 /// Home, while the app is in the background, and when the system "remove
-/// animations" accessibility setting is on.
+/// animations" accessibility setting is on. After [idleTimeout] with no
+/// touch it eases to a stop (the blurred glass above it no longer has to be
+/// redrawn every frame) and starts again on the next touch.
 class HomeBackdrop extends StatefulWidget {
   const HomeBackdrop({super.key, this.animate, this.frameTime});
 
@@ -35,6 +38,9 @@ class HomeBackdrop extends StatefulWidget {
   /// `pumpAndSettle` can settle.
   static bool motionEnabledByDefault = AmbientMotion.enabledByDefault;
 
+  /// How long Home may sit untouched before the motion eases to a stop.
+  static const idleTimeout = Duration(seconds: 20);
+
   /// Number of backdrops whose motion clock is currently running.
   @visibleForTesting
   static int get debugRunningClocks => _HomeBackdropState._runningClocks;
@@ -45,13 +51,26 @@ class HomeBackdrop extends StatefulWidget {
 
 class _HomeBackdropState extends State<HomeBackdrop> {
   static const _frameInterval = Duration(milliseconds: 33);
+
+  /// How long the motion takes to slow from full speed to a stop when idle.
+  static const _windDown = Duration(milliseconds: 1500);
   static int _runningClocks = 0;
 
   final ValueNotifier<double> _seconds = ValueNotifier<double>(0);
   final Stopwatch _stopwatch = Stopwatch();
   late final AppLifecycleListener _lifecycle;
   Timer? _timer;
-  double _baseSeconds = 0;
+  Timer? _idleTimer;
+  int _lastTickMicros = 0;
+
+  /// Frames left in the wind-down; null at full speed. Counted in frames,
+  /// not wall time, so it behaves the same under a test's fake clock.
+  int? _windDownFramesLeft;
+  static final int _windDownFrames =
+      _windDown.inMilliseconds ~/ _frameInterval.inMilliseconds;
+
+  /// Stopped after [HomeBackdrop.idleTimeout] without a touch.
+  bool _idle = false;
   bool _appResumed = true;
   bool _tickerEnabled = true;
   bool _reduceMotion = false;
@@ -68,7 +87,29 @@ class _HomeBackdropState extends State<HomeBackdrop> {
         _syncClock();
       },
     );
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_onPointer);
     _applyFrameTime();
+  }
+
+  /// Any touch anywhere wakes the motion and restarts the idle countdown.
+  void _onPointer(PointerEvent event) {
+    if (event is! PointerDownEvent) return;
+    _windDownFramesLeft = null;
+    if (_idle) {
+      _idle = false;
+      _syncClock();
+    } else {
+      _restartIdleTimer();
+    }
+  }
+
+  void _restartIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = _timer == null
+        ? null
+        : Timer(HomeBackdrop.idleTimeout, () {
+            _windDownFramesLeft = _windDownFrames;
+          });
   }
 
   @override
@@ -88,6 +129,7 @@ class _HomeBackdropState extends State<HomeBackdrop> {
 
   @override
   void dispose() {
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onPointer);
     _stopClock();
     _lifecycle.dispose();
     _seconds.dispose();
@@ -105,7 +147,8 @@ class _HomeBackdropState extends State<HomeBackdrop> {
       (widget.animate ?? HomeBackdrop.motionEnabledByDefault) &&
       !_reduceMotion &&
       _tickerEnabled &&
-      _appResumed;
+      _appResumed &&
+      !_idle;
 
   void _syncClock() {
     if (_shouldAnimate) {
@@ -113,25 +156,46 @@ class _HomeBackdropState extends State<HomeBackdrop> {
       _stopwatch
         ..reset()
         ..start();
+      _lastTickMicros = 0;
+      _windDownFramesLeft = null;
       _runningClocks += 1;
-      _timer = Timer.periodic(_frameInterval, (_) {
-        _seconds.value =
-            _baseSeconds +
-            _stopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
-      });
+      _timer = Timer.periodic(_frameInterval, (_) => _tick());
+      _restartIdleTimer();
     } else {
       _stopClock();
     }
   }
 
+  /// Advances the motion; while winding down, by less each frame until it
+  /// stops.
+  void _tick() {
+    final now = _stopwatch.elapsedMicroseconds;
+    final elapsed = now - _lastTickMicros;
+    _lastTickMicros = now;
+    var speed = 1.0;
+    final framesLeft = _windDownFramesLeft;
+    if (framesLeft != null) {
+      if (framesLeft <= 0) {
+        _windDownFramesLeft = null;
+        _idle = true;
+        _stopClock();
+        return;
+      }
+      _windDownFramesLeft = framesLeft - 1;
+      speed = framesLeft / _windDownFrames;
+    }
+    _seconds.value += elapsed * speed / Duration.microsecondsPerSecond;
+  }
+
   void _stopClock() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
     final timer = _timer;
     if (timer == null) return;
     timer.cancel();
     _timer = null;
     _runningClocks -= 1;
     _stopwatch.stop();
-    _baseSeconds = _seconds.value;
   }
 
   @override

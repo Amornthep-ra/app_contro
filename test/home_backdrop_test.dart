@@ -59,6 +59,34 @@ void main() {
     expect(motionRunning, isFalse);
   });
 
+  testWidgets('Home backdrop eases to a stop when idle, a touch wakes it', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: HomeBackdrop(animate: true)),
+    );
+    expect(motionRunning, isTrue);
+
+    // A touch before the timeout restarts the countdown.
+    await tester.pump(HomeBackdrop.idleTimeout - const Duration(seconds: 1));
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pump(const Duration(seconds: 2));
+    expect(motionRunning, isTrue);
+
+    // Untouched: at the timeout it starts slowing down, then stops.
+    await tester.pump(HomeBackdrop.idleTimeout - const Duration(seconds: 2));
+    expect(motionRunning, isTrue);
+    await tester.pump(const Duration(seconds: 2));
+    expect(motionRunning, isFalse);
+
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pump();
+    expect(motionRunning, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    expect(motionRunning, isFalse);
+  });
+
   testWidgets('Home backdrop respects the reduce-motion setting', (
     tester,
   ) async {
