@@ -38,6 +38,8 @@ class HomePage extends StatefulWidget {
     this.blePresentationState,
     this.animateBackground,
     this.backgroundFrameTime,
+    this.readRssi,
+    this.rssiPollInterval = const Duration(seconds: 3),
   });
 
   final WidgetBuilder? blePageBuilder;
@@ -50,6 +52,12 @@ class HomePage extends StatefulWidget {
   /// Renders one fixed background frame (for previews/screenshots).
   final Duration? backgroundFrameTime;
 
+  /// Test seam: replaces [BleManager.readRssi].
+  final Future<int?> Function()? readRssi;
+
+  /// How often the connected line refreshes its signal while Home shows.
+  final Duration rssiPollInterval;
+
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -59,6 +67,13 @@ class _HomePageState extends State<HomePage>
   ModalRoute<void>? _observedRoute;
   StreamSubscription<bool>? _connSub;
   Timer? _rssiTimer;
+
+  /// Bumped whenever polling starts or stops, so a read still in flight
+  /// from an earlier run is dropped.
+  int _rssiGeneration = 0;
+  late final AppLifecycleListener _lifecycle;
+  bool _appResumed = true;
+  bool _coveredByRoute = false;
   Future<PackageInfo>? _infoFuture;
   late ValueListenable<BlePresentationState> _blePresentationState;
   BlePresentationStateController? _ownedBlePresentationState;
@@ -101,6 +116,15 @@ class _HomePageState extends State<HomePage>
         curve: Interval(start, start + 0.6, curve: Curves.easeOutCubic),
       );
     });
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    _appResumed =
+        lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) {
+        _appResumed = state == AppLifecycleState.resumed;
+        _syncRssiPolling();
+      },
+    );
     _bindBlePresentationState();
     _loadLastDevice();
     _bindConnection();
@@ -130,13 +154,25 @@ class _HomePageState extends State<HomePage>
   @override
   void didPopNext() {
     unawaited(OrientationUtils.request(AppOrientation.portrait));
+    _coveredByRoute = false;
+    _syncRssiPolling();
+  }
+
+  /// A page or sheet now covers Home: stop reading RSSI, so it never
+  /// competes with control writes on the one BLE link.
+  @override
+  void didPushNext() {
+    _coveredByRoute = true;
+    _syncRssiPolling();
   }
 
   @override
   void dispose() {
     appRouteObserver.unsubscribe(this);
     _connSub?.cancel();
+    _lifecycle.dispose();
     _rssiTimer?.cancel();
+    _rssiGeneration++;
     _blePresentationState.removeListener(_onBlePresentationChanged);
     _ownedBlePresentationState?.dispose();
     for (final reveal in _reveals) {
@@ -177,17 +213,10 @@ class _HomePageState extends State<HomePage>
   void _bindConnection() {
     _connSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
-      if (connected) {
-        _startRssiPolling();
-        _loadLastDevice();
-      } else {
-        _stopRssiPolling();
-      }
+      if (connected) _loadLastDevice();
+      _syncRssiPolling();
     });
-
-    if (BleManager.instance.isConnected) {
-      _startRssiPolling();
-    }
+    _syncRssiPolling();
   }
 
   Future<void> _loadLastDevice() async {
@@ -201,24 +230,41 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  /// Reads RSSI only while connected, with Home on top and the app in the
+  /// foreground. The last value stays on screen while Home is covered; it
+  /// is cleared on disconnect.
+  void _syncRssiPolling() {
+    final connected = BleManager.instance.isConnected;
+    final shouldPoll = connected && !_coveredByRoute && _appResumed;
+    if (shouldPoll) {
+      if (_rssiTimer == null) _startRssiPolling();
+    } else {
+      _stopRssiPolling(clear: !connected);
+    }
+  }
+
   void _startRssiPolling() {
     _rssiTimer?.cancel();
-    _pollRssi();
-    _rssiTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _pollRssi();
+    final generation = ++_rssiGeneration;
+    unawaited(_pollRssi(generation));
+    _rssiTimer = Timer.periodic(widget.rssiPollInterval, (_) {
+      unawaited(_pollRssi(generation));
     });
   }
 
-  void _stopRssiPolling() {
-    _rssiTimer?.cancel();
-    _rssiTimer = null;
-    if (!mounted) return;
+  void _stopRssiPolling({required bool clear}) {
+    if (_rssiTimer != null) {
+      _rssiTimer!.cancel();
+      _rssiTimer = null;
+      _rssiGeneration++;
+    }
+    if (!clear || _rssi == null || !mounted) return;
     setState(() => _rssi = null);
   }
 
-  Future<void> _pollRssi() async {
-    final value = await BleManager.instance.readRssi();
-    if (!mounted) return;
+  Future<void> _pollRssi(int generation) async {
+    final value = await (widget.readRssi ?? BleManager.instance.readRssi)();
+    if (!mounted || generation != _rssiGeneration) return;
     setState(() => _rssi = value);
   }
 

@@ -739,6 +739,13 @@ class BleManager {
     _setConnectionStatus(status);
   }
 
+  /// Test seam: tells [connectionStream] listeners the link came up or went
+  /// down, as a real connect or disconnect would.
+  @visibleForTesting
+  void debugEmitConnectionChangeForTesting(bool connected) {
+    _connectionController.add(connected);
+  }
+
   String? get currentDeviceName => _debugDeviceName ?? _device?.platformName;
   String? get currentDeviceId => _device?.remoteId.str;
   BleTrafficMode get trafficMode => _trafficMode;
