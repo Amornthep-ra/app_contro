@@ -476,6 +476,59 @@ void main() {
     expect(coordinator.forgetCalls, 0);
   });
 
+  testWidgets('pairing needed while the sheet is closing pops nothing else', (
+    tester,
+  ) async {
+    tester.view.physicalSize = _landscape * 2.625;
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.reset);
+    final navigator = GlobalKey<NavigatorState>();
+    final state = BleConnectionCoordinatorState(devices: _robots);
+    coordinator.debugEmitForTesting(state);
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        home: const Scaffold(body: Text('Root')),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push<void>(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: ConnectionStatusBadge(
+                coordinator: coordinator,
+                isBleConnected: () => true,
+                isControlSessionActive: () => false,
+                enableBlePlatformBindings: false,
+                pairingPromptLauncher:
+                    ({required context, coordinator}) async => null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await settle(tester);
+    await tester.tap(find.byType(ConnectionStatusBadge));
+    await settle(tester);
+    expect(find.byType(BleConnectionSheet), findsOneWidget);
+
+    // Swiped down: the sheet animates out, its State still listening.
+    navigator.currentState!.pop();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(BleConnectionSheet), findsOneWidget);
+    coordinator.debugEmitForTesting(
+      state.copyWith(securityState: BleControlSecurityState.pairingRequired),
+    );
+    await settle(tester);
+
+    expect(find.byType(BleConnectionSheet), findsNothing);
+    expect(find.byType(ConnectionStatusBadge), findsOneWidget);
+    expect(find.text('Root'), findsNothing);
+  });
+
   testWidgets('no Forget menu without a remembered robot', (tester) async {
     await openSheet(tester, BleConnectionCoordinatorState(devices: _robots));
     expect(find.byTooltip('More options'), findsNothing);
