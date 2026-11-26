@@ -32,7 +32,8 @@ class LineSonicStep {
     required this.holdMode,
   });
 
-  /// Null when the user has not picked one yet; sent as TIME, as before.
+  /// Null when the user has not picked one yet; such a step is refused by
+  /// [LineSonicProtocol.checkSteps] (the board would end it at once).
   final LineSonicStepMode? mode;
   final int value;
   final double kp;
@@ -55,6 +56,7 @@ class LineSonicStep {
 
 /// A step field, named as on the PID page.
 enum LineSonicField {
+  mode('Mode'),
   value('Milliseconds (ms)'),
   checksumValue('Line Count / Target'),
   kp('KP'),
@@ -204,9 +206,15 @@ abstract final class LineSonicProtocol {
         return value;
       }
 
-      int? whole(String raw, LineSonicField field, int max) {
+      int? whole(String raw, LineSonicField field, int max, {int min = 0}) {
         final value = decimal(raw, field);
         if (value == null) return null;
+        if (value < min) {
+          errors.add(
+            LineSonicFieldError(number, field, 'Must be more than 0.'),
+          );
+          return null;
+        }
         if (value != value.truncateToDouble()) {
           errors.add(LineSonicFieldError(number, field, 'Use a whole number.'));
           return null;
@@ -220,10 +228,28 @@ abstract final class LineSonicProtocol {
         return value.toInt();
       }
 
+      // Without a mode, or with a length or target of 0, the board ends the
+      // step at once and moves on.
+      if (input.mode == null) {
+        errors.add(
+          LineSonicFieldError(
+            number,
+            LineSonicField.mode,
+            'Pick Time or CheckSum.',
+          ),
+        );
+      }
       final checksum = input.mode == LineSonicStepMode.checksum;
-      final value = checksum
-          ? whole(input.value, LineSonicField.checksumValue, maxSensorSum)
-          : whole(input.value, LineSonicField.value, maxInt);
+      final value = input.mode == null
+          ? null
+          : checksum
+          ? whole(
+              input.value,
+              LineSonicField.checksumValue,
+              maxSensorSum,
+              min: 1,
+            )
+          : whole(input.value, LineSonicField.value, maxInt, min: 1);
       final kp = decimal(input.kp, LineSonicField.kp);
       final kd = decimal(input.kd, LineSonicField.kd);
       final speed = whole(input.speed, LineSonicField.speed, maxSpeed);

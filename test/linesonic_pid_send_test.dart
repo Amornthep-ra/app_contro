@@ -78,6 +78,16 @@ void main() {
     expect(find.textContaining('Command not sent'), findsNothing);
   });
 
+  testWidgets('a step with no mode is named and nothing is sent', (
+    tester,
+  ) async {
+    await openWithSteps(tester, [step()..['mode'] = '']);
+    await tapSendAll(tester);
+
+    expect(find.text('Step 1 · Mode: Pick Time or CheckSum.'), findsOneWidget);
+    expect(find.textContaining('Command not sent'), findsNothing);
+  });
+
   testWidgets('steps that need more than one write are not sent', (
     tester,
   ) async {

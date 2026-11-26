@@ -93,9 +93,29 @@ void main() {
       expect(payload, 'SEQ=TIME,1000,1.5,0.8,50,0,0,0,0,0,0,0');
     });
 
-    test('a step with no mode yet is sent as TIME, as before', () {
-      final payload = LineSonicProtocol.sequence(steps([input(mode: null)]));
-      expect(payload, startsWith('SEQ=TIME,'));
+    test('a step with no mode yet is refused', () {
+      final result = LineSonicProtocol.checkSteps([input(), input(mode: null)]);
+      expect(result.ok, isFalse);
+      expect(result.errors.single.step, 2);
+      expect(result.errors.single.field, LineSonicField.mode);
+      expect(
+        result.errors.single.toString(),
+        'Step 2 · Mode: Pick Time or CheckSum.',
+      );
+    });
+
+    test('a length or target of 0 is refused; 1 is fine', () {
+      final time = LineSonicProtocol.checkSteps([input(value: '0')]);
+      expect(time.errors.single.field, LineSonicField.value);
+      expect(time.errors.single.message, 'Must be more than 0.');
+
+      final checksum = LineSonicProtocol.checkSteps([
+        input(mode: LineSonicStepMode.checksum, value: ''),
+      ]);
+      expect(checksum.errors.single.field, LineSonicField.checksumValue);
+
+      steps([input(value: '1')]);
+      steps([input(mode: LineSonicStepMode.checksum, value: '1')]);
     });
 
     test('fixed commands', () {
