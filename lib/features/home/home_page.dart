@@ -16,7 +16,9 @@ import '../../core/ui/control_mode.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/utils/orientation_utils.dart';
+import '../../core/widgets/ble_connection_status.dart';
 import '../../core/widgets/ble_status_orb.dart';
+import '../../core/widgets/pairing_code_dialog.dart';
 import '../../core/widgets/signal_bars.dart';
 import '../bluetooth/bluetooth_ble_page.dart';
 import '../gamepad/gamepad_4_button_page.dart';
@@ -40,7 +42,11 @@ class HomePage extends StatefulWidget {
     this.backgroundFrameTime,
     this.readRssi,
     this.rssiPollInterval = const Duration(seconds: 3),
+    this.pairingPromptLauncher = promptForBlePairingCode,
   });
+
+  /// Opens the pairing code dialog (a test seam).
+  final BlePairingPromptLauncher pairingPromptLauncher;
 
   final WidgetBuilder? blePageBuilder;
   final ValueListenable<BlePresentationState>? blePresentationState;
@@ -87,6 +93,10 @@ class _HomePageState extends State<HomePage>
   int? _rssi;
   String? _lastDeviceId;
   String? _lastDeviceName;
+
+  /// Whether the connected board can be controlled yet (pair code, check).
+  BleControlSecurityState _securityState = BleControlSecurityState.disconnected;
+  bool _pairingDialogOpen = false;
 
   static final _guideUri = Uri.parse(
     'https://github.com/Amornthep-ra/PB-BLE-Example-All.git',
@@ -224,21 +234,39 @@ class _HomePageState extends State<HomePage>
     final coordinator = BleConnectionCoordinator.instance;
     _lastDeviceId = coordinator.state.lastDeviceId;
     _lastDeviceName = coordinator.state.lastDeviceName;
+    _securityState = coordinator.state.securityState;
     _coordinatorSub = coordinator.stream.listen((state) {
-      if (mounted) _applyLastDevice(state);
+      if (mounted) _applyCoordinatorState(state);
     });
     unawaited(coordinator.loadSavedDevice());
   }
 
-  void _applyLastDevice(BleConnectionCoordinatorState state) {
+  void _applyCoordinatorState(BleConnectionCoordinatorState state) {
     if (state.lastDeviceId == _lastDeviceId &&
-        state.lastDeviceName == _lastDeviceName) {
+        state.lastDeviceName == _lastDeviceName &&
+        state.securityState == _securityState) {
       return;
     }
     setState(() {
       _lastDeviceId = state.lastDeviceId;
       _lastDeviceName = state.lastDeviceName;
+      _securityState = state.securityState;
     });
+  }
+
+  /// Ready to control, or a board without the secure protocol.
+  bool get _controlUnlocked =>
+      _securityState == BleControlSecurityState.ready ||
+      _securityState == BleControlSecurityState.disconnected;
+
+  Future<void> _enterPairCode() async {
+    if (_pairingDialogOpen) return;
+    _pairingDialogOpen = true;
+    try {
+      await widget.pairingPromptLauncher(context: context);
+    } finally {
+      _pairingDialogOpen = false;
+    }
   }
 
   /// Reads RSSI only while connected, with Home on top and the app in the
@@ -528,7 +556,10 @@ class _HomePageState extends State<HomePage>
       container: true,
       liveRegion: true,
       label: connected
-          ? '${presentation.semanticLabel}, $name'
+          ? [
+              '${presentation.semanticLabel}, $name',
+              if (!_controlUnlocked) bleSecurityLineStyle(_securityState).$1,
+            ].join(', ')
           : presentation.semanticLabel,
       excludeSemantics: true,
       child: Row(
@@ -568,7 +599,18 @@ class _HomePageState extends State<HomePage>
                 ),
                 if (connected) ...[
                   const SizedBox(height: 4),
-                  _ConnectedLine(rssi: _rssi),
+                  // Linked is not the same as usable: say when the board
+                  // still needs its pair code or is being checked.
+                  if (_controlUnlocked)
+                    _ConnectedLine(rssi: _rssi)
+                  else
+                    Row(
+                      children: [
+                        Flexible(child: BleSecurityLine(state: _securityState)),
+                        const SizedBox(width: 8),
+                        SignalBars(rssi: _rssi),
+                      ],
+                    ),
                 ] else if (hint != null) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -597,7 +639,7 @@ class _HomePageState extends State<HomePage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (connected)
+          if (connected) ...[
             Row(
               children: [
                 Expanded(child: status),
@@ -608,8 +650,16 @@ class _HomePageState extends State<HomePage>
                   onPressed: _openingPage ? null : _openBlePage,
                 ),
               ],
-            )
-          else ...[
+            ),
+            if (requiresBlePairingCode(_securityState)) ...[
+              const SizedBox(height: 16),
+              GradientActionButton(
+                label: 'Enter pair code',
+                icon: Icons.key_rounded,
+                onPressed: _openingPage ? null : _enterPairCode,
+              ),
+            ],
+          ] else ...[
             status,
             const SizedBox(height: 18),
             if (canReconnect)

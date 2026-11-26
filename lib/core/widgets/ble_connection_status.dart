@@ -24,16 +24,9 @@ String resolveBleConnectedDeviceName({
   return unknownName;
 }
 
-/// One line under a connected robot's name: whether it is ready to control,
-/// needs the pairing code, or cannot be used.
-class BleSecurityLine extends StatelessWidget {
-  const BleSecurityLine({super.key, required this.state});
-
-  final BleControlSecurityState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color, icon) = switch (state) {
+/// Wording, color and icon of [BleSecurityLine] for [state].
+(String, Color, IconData) bleSecurityLineStyle(BleControlSecurityState state) =>
+    switch (state) {
       BleControlSecurityState.ready => (
         'Connected · ready to control',
         LavenderPalette.success,
@@ -65,6 +58,17 @@ class BleSecurityLine extends StatelessWidget {
         Icons.check_circle_rounded,
       ),
     };
+
+/// One line under a connected robot's name: whether it is ready to control,
+/// needs the pairing code, or cannot be used.
+class BleSecurityLine extends StatelessWidget {
+  const BleSecurityLine({super.key, required this.state});
+
+  final BleControlSecurityState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color, icon) = bleSecurityLineStyle(state);
     return Row(
       children: [
         Icon(icon, size: 15, color: color),
