@@ -110,6 +110,7 @@ void main() {
 
   for (final mode in <String, Widget Function(Future<int?> Function())>{
     'four-button': (acquire) => Gamepad4ButtonPage(acquireControl: acquire),
+    'eight-button': (acquire) => GamepadModeEdit(acquireControl: acquire),
     'joystick': (acquire) => JoystickPage(acquireControl: acquire),
   }.entries) {
     testWidgets('${mode.key}: Start turns into Emergency Stop', (tester) async {

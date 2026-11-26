@@ -8,6 +8,7 @@ import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
+import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
 import 'package:pb_controller/features/linesonic/linesonic_pid_page.dart';
 
@@ -18,10 +19,10 @@ void main() {
     BleManager.instance.setTrafficMode(BleTrafficMode.textCommand);
   });
 
-  for (final joystick in [false, true]) {
-    for (final newerOwner in [false, true]) {
+  for (final mode in ['four', 'eight', 'joystick']) {
+    for (final finish in ['mounted', 'gone', 'replaced']) {
       testWidgets(
-        'abandoned Start cleans only its owner: joystick=$joystick newer=$newerOwner',
+        'abandoned Start cleans only its owner: $mode finish=$finish',
         (tester) async {
           tester.view.physicalSize = const Size(1200, 800);
           tester.view.devicePixelRatio = 1;
@@ -46,9 +47,11 @@ void main() {
           unawaited(
             navigator.currentState!.push<void>(
               MaterialPageRoute(
-                builder: (_) => joystick
-                    ? JoystickPage(acquireControl: acquire)
-                    : Gamepad4ButtonPage(acquireControl: acquire),
+                builder: (_) => switch (mode) {
+                  'joystick' => JoystickPage(acquireControl: acquire),
+                  'eight' => GamepadModeEdit(acquireControl: acquire),
+                  _ => Gamepad4ButtonPage(acquireControl: acquire),
+                },
               ),
             ),
           );
@@ -57,14 +60,15 @@ void main() {
           await tester.pump();
           expect(pendingOwner, isNotNull);
           await navigator.currentState!.maybePop();
-          // Complete one case during the exit animation, while still mounted.
-          if (newerOwner) {
+          // 'mounted' completes during the exit animation; the others once
+          // the page is gone.
+          if (finish != 'mounted') {
             await tester.pumpAndSettle();
           } else {
             await tester.pump();
           }
           int? replacement;
-          if (newerOwner) {
+          if (finish == 'replaced') {
             BleManager.instance.releaseTrafficMode(pendingOwner!);
             replacement = BleManager.instance.claimTrafficMode(
               BleTrafficMode.controlBinary,
@@ -76,7 +80,7 @@ void main() {
           final textOwner = BleManager.instance.claimTrafficMode(
             BleTrafficMode.textCommand,
           );
-          if (newerOwner) {
+          if (finish == 'replaced') {
             expect(textOwner, isNull);
             BleManager.instance.releaseTrafficMode(replacement!);
           } else {
