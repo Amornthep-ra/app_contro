@@ -53,7 +53,13 @@ Future<bool?> promptForBlePairingCode({
   void closeExpiredSession() {
     if (generation == target.pairingConnectionGeneration) return;
     expired = true;
-    if (route.isActive) navigator.removeRoute(route);
+    // Pop when on top so route observers (Home's RSSI polling) hear the
+    // page under it is back on top; removeRoute tells them nothing.
+    if (route.isCurrent) {
+      navigator.pop();
+    } else if (route.isActive) {
+      navigator.removeRoute(route);
+    }
   }
 
   final subscription = target.stream.listen((_) => closeExpiredSession());

@@ -114,6 +114,35 @@ void main() {
       await coordinator.dispose();
     },
   );
+  testWidgets('a session change on top pops the dialog, so the page under '
+      'it hears it is back on top', (tester) async {
+    final coordinator = _SessionCoordinator();
+    final observer = RouteObserver<ModalRoute<void>>();
+    final host = GlobalKey<_RouteAwareHostState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [observer],
+        home: _RouteAwareHost(
+          key: host,
+          observer: observer,
+          coordinator: coordinator,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(host.currentState!.covered, isTrue);
+
+    coordinator.generation++;
+    coordinator.debugEmitForTesting(const BleConnectionCoordinatorState());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PairingCodeDialog), findsNothing);
+    expect(host.currentState!.covered, isFalse);
+    expect(coordinator.cancellations, 0);
+    await tester.pumpWidget(const SizedBox());
+    await coordinator.dispose();
+  });
   group('closing while pairing', () {
     Future<_SessionCoordinator> openPrompt(WidgetTester tester) async {
       final coordinator = _SessionCoordinator();
@@ -428,6 +457,53 @@ class _DialogHostState extends State<_DialogHost> {
           if (_closed) Text(_result ?? 'cancelled'),
         ],
       ),
+    ),
+  );
+}
+
+class _RouteAwareHost extends StatefulWidget {
+  const _RouteAwareHost({
+    super.key,
+    required this.observer,
+    required this.coordinator,
+  });
+
+  final RouteObserver<ModalRoute<void>> observer;
+  final BleConnectionCoordinator coordinator;
+
+  @override
+  State<_RouteAwareHost> createState() => _RouteAwareHostState();
+}
+
+class _RouteAwareHostState extends State<_RouteAwareHost> with RouteAware {
+  var covered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    widget.observer.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void dispose() {
+    widget.observer.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPushNext() => covered = true;
+
+  @override
+  void didPopNext() => covered = false;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: TextButton(
+      onPressed: () => promptForBlePairingCode(
+        context: context,
+        coordinator: widget.coordinator,
+      ),
+      child: const Text('Open'),
     ),
   );
 }

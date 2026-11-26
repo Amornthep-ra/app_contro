@@ -266,6 +266,11 @@ class _HomePageState extends State<HomePage>
       await widget.pairingPromptLauncher(context: context);
     } finally {
       _pairingDialogOpen = false;
+      // Also when the dialog was removed without a pop.
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        _coveredByRoute = false;
+        _syncRssiPolling();
+      }
     }
   }
 
