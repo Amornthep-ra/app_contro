@@ -1001,7 +1001,7 @@ class _JoystickPageState extends State<JoystickPage>
 
   Future<void> _loadPreset(int slot) async {
     final obj = await _presets.load(slot);
-    if (obj == null) return;
+    if (obj == null || !mounted) return;
     try {
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];

@@ -759,12 +759,13 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     return false;
   }
 
-  void _resetLayouts() async {
+  Future<void> _resetLayouts() async {
     _pushHistory();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);
     await prefs.remove('${_prefsLayoutAll}_start_stop');
     await prefs.remove(_prefsActiveAll);
+    if (!mounted) return;
     setState(() {
       _layoutAll = {};
       _activeIds = {'F:forward', 'F:backward', 'F:left', 'F:right'};
@@ -785,7 +786,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
 
   Future<void> _loadPreset(int slot) async {
     final obj = await _presets.load(slot);
-    if (obj == null) return;
+    if (obj == null || !mounted) return;
     try {
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];

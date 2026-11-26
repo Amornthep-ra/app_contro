@@ -440,7 +440,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
 
   Future<void> _loadPreset(int slot) async {
     final obj = await _presets.load(slot);
-    if (obj == null) return;
+    if (obj == null || !mounted) return;
     try {
       final layoutRaw = obj['layout'];
       final leftRaw = obj['leftActive'];
@@ -803,7 +803,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
     });
   }
 
-  void _resetLayouts() async {
+  Future<void> _resetLayouts() async {
     _pushHistory();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsLayoutAll);
@@ -812,6 +812,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
     await prefs.remove(_prefsLayoutRight);
     await prefs.remove(_prefsActiveLeft);
     await prefs.remove(_prefsActiveRight);
+    if (!mounted) return;
     setState(() {
       _layoutAll = {};
       _leftActive = Set<String>.from(_defaultLeftActiveIds);
