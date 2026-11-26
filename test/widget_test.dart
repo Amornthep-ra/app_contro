@@ -127,6 +127,44 @@ void main() {
     ]);
   });
 
+  testWidgets('one failed orientation request does not break later ones', (
+    WidgetTester tester,
+  ) async {
+    final platformCalls = <MethodCall>[];
+    var fail = true;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        platformCalls.add(call);
+        if (fail) {
+          fail = false;
+          throw PlatformException(code: 'orientation_failed');
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await OrientationUtils.request(AppOrientation.landscape);
+      // The failed one is tried again, then later ones still run.
+      await OrientationUtils.request(AppOrientation.landscape);
+      await OrientationUtils.request(AppOrientation.portrait);
+    });
+
+    expect(tester.takeException(), isA<PlatformException>());
+    expect(platformCalls, hasLength(3));
+    expect(platformCalls.last.arguments, [
+      'DeviceOrientation.portraitUp',
+      'DeviceOrientation.portraitDown',
+    ]);
+  });
+
   testWidgets('Orientation coordinator ignores duplicate requests', (
     WidgetTester tester,
   ) async {

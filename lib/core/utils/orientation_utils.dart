@@ -18,7 +18,7 @@ class OrientationUtils {
 
     _pending = _pending.then((_) async {
       if (_requested != orientation) return;
-      await SystemChrome.setPreferredOrientations(switch (orientation) {
+      final applied = await _apply(switch (orientation) {
         AppOrientation.landscape => const [
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
@@ -28,6 +28,8 @@ class OrientationUtils {
           DeviceOrientation.portraitDown,
         ],
       });
+      // Not applied: let the same request try again next time.
+      if (!applied && _requested == orientation) _requested = null;
     });
     return _pending;
   }
@@ -38,10 +40,27 @@ class OrientationUtils {
 
   static Future<void> reset() {
     _requested = null;
-    _pending = _pending.then(
-      (_) => SystemChrome.setPreferredOrientations(DeviceOrientation.values),
-    );
+    _pending = _pending.then((_) => _apply(DeviceOrientation.values));
     return _pending;
+  }
+
+  /// Sets [orientations]; a platform failure is reported, not thrown, so
+  /// one failed request cannot break every later one queued behind it.
+  static Future<bool> _apply(List<DeviceOrientation> orientations) async {
+    try {
+      await SystemChrome.setPreferredOrientations(orientations);
+      return true;
+    } catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'orientation',
+          context: ErrorDescription('while setting preferred orientations'),
+        ),
+      );
+      return false;
+    }
   }
 
   @visibleForTesting
