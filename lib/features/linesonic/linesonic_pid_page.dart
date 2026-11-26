@@ -87,6 +87,36 @@ class _StepData {
     'showOptions': showOptions,
   };
 
+  /// A step as saved by [toJson]. Values of an unexpected type fall back to
+  /// defaults instead of throwing, so one odd field cannot lose all steps.
+  factory _StepData.fromJson(int id, Map<String, dynamic> json) {
+    final modeRaw = _jsonText(json['mode'], '').toUpperCase();
+    final mode = switch (modeRaw) {
+      'CHECKSUM' => _StepMode.checksum,
+      'TIME' => _StepMode.time,
+      _ => null,
+    };
+    return _StepData(
+      id: id,
+      mode: mode,
+      kp: _jsonText(json['kp']),
+      kd: _jsonText(json['kd']),
+      speed: _jsonText(json['speed']),
+      value: _jsonText(json['value']),
+      afterMs: _jsonText(json['afterMs']),
+      afterSpeed: _jsonText(json['afterSpeed']),
+      stopMs: _jsonText(json['stopMs']),
+      holdMs: _jsonText(json['holdMs']),
+      holdThreshold: _jsonText(json['holdThreshold']),
+      lineColor: _jsonInt(json['lineColor'], max: 1),
+      holdMode: _jsonInt(json['holdMode'], max: 2),
+      continueAfter: _jsonBool(json['continueAfter'], false),
+      stopBetween: _jsonBool(json['stopBetween'], false),
+      collapsed: _jsonBool(json['collapsed'], false),
+      showOptions: _jsonBool(json['showOptions'], mode != null),
+    );
+  }
+
   void dispose() {
     kpCtrl.dispose();
     kdCtrl.dispose();
@@ -100,6 +130,35 @@ class _StepData {
   }
 }
 
+/// A saved field as text: numbers are accepted too (older or hand-edited
+/// data), anything else is [fallback].
+String _jsonText(Object? value, [String fallback = '0']) => switch (value) {
+  final String text => text,
+  final num number => number.toString(),
+  _ => fallback,
+};
+
+/// A saved choice index in 0..[max]; text and decimals are accepted.
+int _jsonInt(Object? value, {required int max}) {
+  final parsed = switch (value) {
+    final num number => number.toInt(),
+    final String text => int.tryParse(text.trim()),
+    _ => null,
+  };
+  return (parsed ?? 0).clamp(0, max);
+}
+
+bool _jsonBool(Object? value, bool fallback) =>
+    value is bool ? value : fallback;
+
+/// The step objects in a saved list; anything else in it is skipped.
+List<Map<String, dynamic>> _jsonSteps(Object? value) => value is List
+    ? [
+        for (final item in value)
+          if (item is Map) Map<String, dynamic>.from(item),
+      ]
+    : const [];
+
 class _PresetSlot {
   _PresetSlot({required this.name, required this.steps});
 
@@ -111,12 +170,8 @@ class _PresetSlot {
   Map<String, dynamic> toJson() => {'name': name, 'steps': steps};
 
   static _PresetSlot fromJson(Map<String, dynamic> json) => _PresetSlot(
-    name: (json['name'] as String?) ?? 'Preset',
-    steps:
-        (json['steps'] as List<dynamic>?)
-            ?.whereType<Map<String, dynamic>>()
-            .toList() ??
-        [],
+    name: _jsonText(json['name'], ''),
+    steps: _jsonSteps(json['steps']),
   );
 }
 
@@ -148,6 +203,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   int _saveGeneration = 0;
   bool _stepsDirty = false;
   bool _leavingPage = false;
+
+  /// Saved steps and presets are in. Until then editing is off and nothing
+  /// is saved, so loading cannot drop edits or saving overwrite old data.
+  bool _loaded = false;
   int? _bleTrafficOwner;
 
   @override
@@ -163,12 +222,43 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   Future<void> _initAsync() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted || _leavingPage) return;
-    _loadPresets(prefs);
-    _loadSteps(prefs);
+    // Each is read on its own: one unreadable entry does not stop the other.
+    final presetsRead = await _loadPresets(prefs);
+    final stepsRead = await _loadSteps(prefs);
+    if (!mounted || _leavingPage) return;
     if (_steps.isEmpty) {
       _steps.add(_newStep());
     }
-    if (mounted) setState(() {});
+    setState(() => _loaded = true);
+    final unreadable = [
+      if (!stepsRead) 'PID steps',
+      if (!presetsRead) 'PID presets',
+    ];
+    if (unreadable.isNotEmpty) {
+      _showSnack(
+        'Saved ${unreadable.join(' and ')} could not be read. '
+        'A copy was kept.',
+      );
+    }
+  }
+
+  /// Decodes the list saved under [key]; null when there is none. When it
+  /// cannot be read, keeps the text under `<key>_unreadable` (before
+  /// anything is saved over it) and reports false.
+  Future<(List<Object?>?, bool)> _readSavedList(
+    SharedPreferences prefs,
+    String key,
+  ) async {
+    final raw = prefs.getString(key);
+    if (raw == null || raw.trim().isEmpty) return (null, true);
+    try {
+      final data = jsonDecode(raw);
+      if (data is List) return (data, true);
+    } on FormatException {
+      // Kept below.
+    }
+    await prefs.setString('${key}_unreadable', raw);
+    return (null, false);
   }
 
   @override
@@ -188,6 +278,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   void _scheduleAutoSave() {
+    if (!_loaded) return;
     _stepsDirty = true;
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(
@@ -238,48 +329,19 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     Navigator.of(context).pop();
   }
 
-  void _loadSteps(SharedPreferences prefs) {
-    final raw = prefs.getString(_prefsStepsKey);
-    if (raw == null || raw.trim().isEmpty) return;
-    final data = jsonDecode(raw);
-    if (data is! List) return;
+  /// False when the saved steps could not be read (a copy is kept).
+  Future<bool> _loadSteps(SharedPreferences prefs) async {
+    final (data, readable) = await _readSavedList(prefs, _prefsStepsKey);
+    if (data == null) return readable;
     for (final s in _steps) {
       s.dispose();
     }
     _steps.clear();
     var nextId = 1;
-    for (final item in data) {
-      if (item is! Map<String, dynamic>) continue;
-      final modeRaw = (item['mode'] as String?) ?? '';
-      final continueAfter = (item['continueAfter'] as bool?) ?? false;
-      final parsedMode = modeRaw.toUpperCase() == 'CHECKSUM'
-          ? _StepMode.checksum
-          : (modeRaw.toUpperCase() == 'TIME' ? _StepMode.time : null);
-      final collapsed = (item['collapsed'] as bool?) ?? false;
-      final showOptions =
-          (item['showOptions'] as bool?) ?? (parsedMode != null);
-      _steps.add(
-        _StepData(
-          id: nextId++,
-          mode: parsedMode,
-          kp: (item['kp'] as String?) ?? '0',
-          kd: (item['kd'] as String?) ?? '0',
-          speed: (item['speed'] as String?) ?? '0',
-          value: (item['value'] as String?) ?? '0',
-          afterMs: (item['afterMs'] as String?) ?? '0',
-          afterSpeed: (item['afterSpeed'] as String?) ?? '0',
-          stopMs: (item['stopMs'] as String?) ?? '0',
-          holdMs: (item['holdMs'] as String?) ?? '0',
-          holdThreshold: (item['holdThreshold'] as String?) ?? '0',
-          lineColor: (item['lineColor'] as int?) ?? 0,
-          holdMode: (item['holdMode'] as int?) ?? 0,
-          continueAfter: continueAfter,
-          stopBetween: (item['stopBetween'] as bool?) ?? false,
-          collapsed: collapsed,
-          showOptions: showOptions,
-        ),
-      );
+    for (final item in _jsonSteps(data)) {
+      _steps.add(_StepData.fromJson(nextId++, item));
     }
+    return true;
   }
 
   Future<void> _savePresetsToPrefs() async {
@@ -288,19 +350,19 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     await prefs.setString(_prefsPresetsKey, jsonEncode(data));
   }
 
-  void _loadPresets(SharedPreferences prefs) {
-    final raw = prefs.getString(_prefsPresetsKey);
-    if (raw == null || raw.trim().isEmpty) return;
-    final data = jsonDecode(raw);
-    if (data is! List) return;
+  /// False when the saved presets could not be read (a copy is kept).
+  Future<bool> _loadPresets(SharedPreferences prefs) async {
+    final (data, readable) = await _readSavedList(prefs, _prefsPresetsKey);
+    if (data == null) return readable;
     for (var i = 0; i < _presetCount && i < data.length; i++) {
       final item = data[i];
-      if (item is! Map<String, dynamic>) continue;
-      _presets[i] = _PresetSlot.fromJson(item);
+      if (item is! Map) continue;
+      _presets[i] = _PresetSlot.fromJson(Map<String, dynamic>.from(item));
       if (_presets[i].name.trim().isEmpty) {
         _presets[i].name = 'Preset ${i + 1}';
       }
     }
+    return true;
   }
 
   _StepData _newStep({
@@ -595,35 +657,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       _steps.clear();
       var nextId = 1;
       for (final item in preset.steps) {
-        final modeRaw = (item['mode'] as String?) ?? '';
-        final continueAfter = (item['continueAfter'] as bool?) ?? false;
-        final parsedMode = modeRaw.toUpperCase() == 'CHECKSUM'
-            ? _StepMode.checksum
-            : (modeRaw.toUpperCase() == 'TIME' ? _StepMode.time : null);
-        final collapsed = (item['collapsed'] as bool?) ?? false;
-        final showOptions =
-            (item['showOptions'] as bool?) ?? (parsedMode != null);
-        _steps.add(
-          _StepData(
-            id: nextId++,
-            mode: parsedMode,
-            kp: (item['kp'] as String?) ?? '0',
-            kd: (item['kd'] as String?) ?? '0',
-            speed: (item['speed'] as String?) ?? '0',
-            value: (item['value'] as String?) ?? '0',
-            afterMs: (item['afterMs'] as String?) ?? '0',
-            afterSpeed: (item['afterSpeed'] as String?) ?? '0',
-            stopMs: (item['stopMs'] as String?) ?? '0',
-            holdMs: (item['holdMs'] as String?) ?? '0',
-            holdThreshold: (item['holdThreshold'] as String?) ?? '0',
-            lineColor: (item['lineColor'] as int?) ?? 0,
-            holdMode: (item['holdMode'] as int?) ?? 0,
-            continueAfter: continueAfter,
-            stopBetween: (item['stopBetween'] as bool?) ?? false,
-            collapsed: collapsed,
-            showOptions: showOptions,
-          ),
-        );
+        _steps.add(_StepData.fromJson(nextId++, item));
       }
       _scheduleAutoSave();
     });
@@ -805,7 +839,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                           const SizedBox(width: 8),
                           IconButton.filledTonal(
                             tooltip: 'Save preset',
-                            onPressed: _savePresetDialog,
+                            onPressed: _loaded ? _savePresetDialog : null,
                             icon: const Icon(Icons.save_outlined),
                             visualDensity: const VisualDensity(
                               horizontal: -2,
@@ -1553,12 +1587,14 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
         ),
         floatingActionButton: FloatingActionButton.extended(
           heroTag: 'add_step_linesonic_pid',
-          onPressed: () {
-            setState(() {
-              _steps.add(_newStep());
-              _scheduleAutoSave();
-            });
-          },
+          onPressed: _loaded
+              ? () {
+                  setState(() {
+                    _steps.add(_newStep());
+                    _scheduleAutoSave();
+                  });
+                }
+              : null,
           icon: const Icon(Icons.add),
           label: Text('Add Step'),
         ),
