@@ -1705,6 +1705,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
                                                 _layoutAll,
                                               );
                                             },
+                                            onLayoutFitted: (next) => setState(
+                                              () => _layoutAll = next,
+                                            ),
                                             selectedId: _selectedId,
                                             lockedIds: _lockedIds,
                                             snapToGrid: _showGrid,
@@ -1920,6 +1923,12 @@ class _EditablePadPanel extends StatefulWidget {
   final Map<String, _BtnSpec> specs;
   final Map<String, GamepadButtonLayout> layout;
   final ValueChanged<Map<String, GamepadButtonLayout>> onLayoutChanged;
+
+  /// The layout moved into place for this screen (missing buttons added,
+  /// ones past the edge or overlapping moved). Shown, not saved: only a
+  /// real edit is saved, so opening the editor on a smaller screen does not
+  /// overwrite a layout made on a bigger one.
+  final ValueChanged<Map<String, GamepadButtonLayout>> onLayoutFitted;
   final String? selectedId;
   final String? warningId;
   final Set<String> lockedIds;
@@ -1934,6 +1943,7 @@ class _EditablePadPanel extends StatefulWidget {
     required this.specs,
     required this.layout,
     required this.onLayoutChanged,
+    required this.onLayoutFitted,
     required this.selectedId,
     this.warningId,
     required this.lockedIds,
@@ -2051,7 +2061,8 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
         }
         _layout.removeWhere((k, _) => !widget.ids.contains(k));
         // A layout from another screen size can sit past the edge or on
-        // top of another button: show and save it moved into place.
+        // top of another button: show it moved into place (saved only once
+        // the user edits).
         final fitted = _fitLayoutToPanel(size, fitOrder, _layout);
         if (!identical(fitted, _layout)) {
           fitted.forEach((id, layout) => _layout[id] = layout);
@@ -2061,7 +2072,7 @@ class _EditablePadPanelState extends State<_EditablePadPanel> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             setState(() {});
-            widget.onLayoutChanged(_layout);
+            widget.onLayoutFitted(_layout);
           });
         }
         return Stack(

@@ -787,6 +787,29 @@ void main() {
       });
     }
 
+    for (final (name, layoutKey) in [
+      ('four-button', 'gp4_layout_all'),
+      ('eight-button', 'gp8_layout_all'),
+    ]) {
+      testWidgets('$name: opening the editor saves the fitted layout only '
+          'after an edit', (tester) async {
+        final saved = cramped[name]!;
+        SharedPreferences.setMockInitialValues(saved);
+        await openEditor(tester, _pages[name]!.build());
+        final prefs = await SharedPreferences.getInstance();
+        // Shown moved into place, but the saved layout is untouched.
+        expect(prefs.getString(layoutKey), saved[layoutKey]);
+
+        final controls = _byTypeName(_pages[name]!.controlType);
+        await tester.tapAt(rectsOf(tester, controls).first.center);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Decrease size'));
+        await tester.pumpAndSettle();
+        expect(prefs.getString(layoutKey), isNot(saved[layoutKey]));
+        await closePage(tester);
+      });
+    }
+
     testWidgets('eight-button: play mode fits a saved layout without '
         'rewriting it', (tester) async {
       final layout = jsonEncode({
