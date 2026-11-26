@@ -23,6 +23,9 @@ Future<bool?> promptForBlePairingCode({
   var expired = false;
   final route = DialogRoute<bool>(
     context: context,
+    // Closing the dialog cancels pairing and disconnects the robot, so a
+    // stray tap beside it must not do that. Cancel and Back still close it.
+    barrierDismissible: false,
     themes: InheritedTheme.capture(from: context, to: navigator.context),
     builder: (_) => PairingCodeDialog(
       replacingSavedCode:
@@ -161,9 +164,14 @@ class _PairingCodeDialogState extends State<PairingCodeDialog> {
             : media.size.height;
         final availableHeight =
             boxHeight - media.viewInsets.bottom - media.padding.vertical;
-        return availableHeight < compactBelowHeight
-            ? _buildCompact(context)
-            : _buildFull(context);
+        // While the code is being checked, Back cannot close the dialog:
+        // that would cancel pairing mid-handshake and disconnect.
+        return PopScope(
+          canPop: !_submitting,
+          child: availableHeight < compactBelowHeight
+              ? _buildCompact(context)
+              : _buildFull(context),
+        );
       },
     );
   }

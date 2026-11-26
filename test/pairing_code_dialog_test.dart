@@ -114,6 +114,104 @@ void main() {
       await coordinator.dispose();
     },
   );
+  group('closing while pairing', () {
+    Future<_SessionCoordinator> openPrompt(WidgetTester tester) async {
+      final coordinator = _SessionCoordinator();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => promptForBlePairingCode(
+                  context: context,
+                  coordinator: coordinator,
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PairingCodeDialog), findsOneWidget);
+      return coordinator;
+    }
+
+    Future<void> submit(WidgetTester tester) async {
+      await tester.enterText(find.byType(TextField), 'Example1');
+      await tester.pump();
+      await tester.tap(find.text('Pair'));
+      await tester.pump();
+    }
+
+    Future<void> tapBeside(WidgetTester tester) async {
+      await tester.tapAt(const Offset(4, 4));
+      // The Pair spinner keeps animating: pump a fixed time, not settle.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> systemBack(WidgetTester tester) async {
+      await tester.binding.handlePopRoute();
+      // The Pair spinner keeps animating: pump a fixed time, not settle.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> finish(
+      WidgetTester tester,
+      _SessionCoordinator coordinator,
+    ) async {
+      if (!coordinator.result.isCompleted) {
+        coordinator.result.complete(
+          const BlePairingAttemptResult(
+            ready: true,
+            failure: BlePairingFailure.none,
+          ),
+        );
+      }
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      await coordinator.dispose();
+    }
+
+    for (final (name, close) in [
+      ('a tap beside it', tapBeside),
+      ('system Back', systemBack),
+    ]) {
+      testWidgets('$name while the code is checked keeps it open', (
+        tester,
+      ) async {
+        final coordinator = await openPrompt(tester);
+        await submit(tester);
+        await close(tester);
+
+        expect(find.byType(PairingCodeDialog), findsOneWidget);
+        expect(coordinator.cancellations, 0);
+        await finish(tester, coordinator);
+      });
+    }
+
+    testWidgets('a tap beside it never closes it', (tester) async {
+      final coordinator = await openPrompt(tester);
+      await tapBeside(tester);
+
+      expect(find.byType(PairingCodeDialog), findsOneWidget);
+      expect(coordinator.cancellations, 0);
+      await finish(tester, coordinator);
+    });
+
+    testWidgets('system Back before Pair cancels like Cancel', (tester) async {
+      final coordinator = await openPrompt(tester);
+      await systemBack(tester);
+
+      expect(find.byType(PairingCodeDialog), findsNothing);
+      expect(coordinator.cancellations, 1);
+      await finish(tester, coordinator);
+    });
+  });
+
   testWidgets('Cancel closes the pairing dialog without a code', (
     tester,
   ) async {
