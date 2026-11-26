@@ -347,48 +347,46 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     return v.isEmpty ? '0' : v;
   }
 
-  Future<void> _sendCommand(String msg, {String? toast}) async {
-    final now = DateTime.now();
-    if (_sending ||
-        now.difference(_lastSend) < const Duration(milliseconds: 200)) {
-      return;
-    }
-    _sending = true;
-    _lastSend = now;
+  /// Shortest gap between two commands to the board.
+  static const _minCommandGap = Duration(milliseconds: 200);
 
-    if (!BleManager.instance.isConnected) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('BLE not connected')));
-      _sending = false;
+  void _setSending(bool sending) {
+    if (!mounted) {
+      _sending = sending;
       return;
     }
+    setState(() => _sending = sending);
+  }
 
-    final owner = _bleTrafficOwner;
-    if (owner == null) {
-      _sending = false;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('BLE is busy in control mode')),
-        );
+  /// Sends [msg] and returns whether it went out. The send buttons are
+  /// disabled meanwhile; a press right after the last command waits out
+  /// [_minCommandGap] instead of being dropped.
+  Future<bool> _sendCommand(String msg, {String? toast}) async {
+    if (_sending) return false;
+    _setSending(true);
+    try {
+      final wait = _minCommandGap - DateTime.now().difference(_lastSend);
+      if (wait > Duration.zero) await Future<void>.delayed(wait);
+      if (!mounted) return false;
+      if (!BleManager.instance.isConnected) {
+        _showSnack('BLE not connected');
+        return false;
       }
-      return;
-    }
-    final result = await BleManager.instance.send(msg, owner: owner);
-    _sending = false;
-    if (result != BleWriteResult.sent) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Command not sent: ${result.name}')),
-        );
+      final owner = _bleTrafficOwner;
+      if (owner == null) {
+        _showSnack('BLE is busy in control mode');
+        return false;
       }
-      return;
-    }
-    if (toast != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(toast)));
+      _lastSend = DateTime.now();
+      final result = await BleManager.instance.send(msg, owner: owner);
+      if (result != BleWriteResult.sent) {
+        _showSnack('Command not sent: ${result.name}');
+        return false;
+      }
+      if (toast != null) _showSnack(toast);
+      return true;
+    } finally {
+      _setSending(false);
     }
   }
 
@@ -485,8 +483,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     final steps = _checkedSteps();
     if (steps == null) return;
     if (!_fitsOneWrite(steps, LineSonicProtocol.sequence)) return;
-    await _sendCommand(LineSonicProtocol.sequence(steps), toast: 'Sent all');
-    _lastSeqSend = DateTime.now();
+    if (await _sendCommand(
+      LineSonicProtocol.sequence(steps),
+      toast: 'Sent all',
+    )) {
+      _lastSeqSend = DateTime.now();
+    }
   }
 
   Future<void> _sendSequencePd() async {
@@ -510,11 +512,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     final steps = _checkedSteps();
     if (steps == null) return;
     if (!_fitsOneWrite(steps, LineSonicProtocol.sequencePd)) return;
-    await _sendCommand(
+    if (await _sendCommand(
       LineSonicProtocol.sequencePd(steps),
       toast: 'Sent PD+Speed',
-    );
-    _lastPdSend = DateTime.now();
+    )) {
+      _lastPdSend = DateTime.now();
+    }
   }
 
   Future<void> _sendSW1() async {
@@ -560,34 +563,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   Future<void> _savePresetDialog() async {
-    final controller = TextEditingController(
-      text: _presets[_selectedPreset].name,
-    );
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Save Preset'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            label: Text('Preset name'),
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          _PresetNameDialog(initialName: _presets[_selectedPreset].name),
     );
-    controller.dispose();
-    if (name == null) return;
+    if (name == null || !mounted) return;
     final fallbackName = 'Preset ${_selectedPreset + 1}';
     final newName = name.isEmpty ? fallbackName : name;
     setState(() {
@@ -1583,6 +1564,51 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
         ),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
+    );
+  }
+}
+
+/// Asks for a preset name. The field's controller lives in this dialog's
+/// State, so it outlives the closing animation that still builds the field.
+class _PresetNameDialog extends StatefulWidget {
+  const _PresetNameDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_PresetNameDialog> createState() => _PresetNameDialogState();
+}
+
+class _PresetNameDialogState extends State<_PresetNameDialog> {
+  late final _controller = TextEditingController(text: widget.initialName);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Save Preset'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(
+          label: Text('Preset name'),
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
