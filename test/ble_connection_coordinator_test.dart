@@ -764,6 +764,36 @@ void main() {
       await platform.dispose();
     });
 
+    test('picking another robot ends the search for the last one', () async {
+      SharedPreferences.setMockInitialValues({
+        'ble_last_device_id': '01:02:03:04:05:06',
+      });
+      final platform = _FakeBleConnectionPlatform()
+        // Stop before the BLE setup that a test platform cannot do.
+        ..connectError = StateError('test stops here');
+      final coordinator = BleConnectionCoordinator(
+        platform: platform,
+        ensureScanPermissions: () async => BleScanPermissionResult.granted,
+      );
+
+      final search = coordinator.autoConnectLastDevice(
+        timeout: const Duration(seconds: 10),
+        source: 'test',
+      );
+      await Future<void>.delayed(Duration.zero);
+      final other = _scanResult(id: 'AA:BB:CC:DD:EE:FF');
+      platform.emitScanResults([other]);
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.state.scanning, isTrue);
+
+      await coordinator.connect(other, source: 'test_pick');
+
+      expect(await search, isFalse);
+      expect(platform.connectCalls, 1);
+      expect(coordinator.state.scanning, isFalse);
+      await platform.dispose();
+    });
+
     test('completes auto-connect when an active scan is cancelled', () async {
       SharedPreferences.setMockInitialValues({
         'ble_last_device_id': '01:02:03:04:05:06',

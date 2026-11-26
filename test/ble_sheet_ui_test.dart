@@ -326,6 +326,28 @@ void main() {
     expect(title.didExceedMaxLines, isFalse);
   });
 
+  testWidgets('while it looks for the last robot, others can be picked', (
+    tester,
+  ) async {
+    // Reconnecting to the remembered robot scans for it (up to 10 s).
+    // Meanwhile the list stays usable and the scan can be stopped.
+    await openSheet(
+      tester,
+      BleConnectionCoordinatorState(
+        scanning: true,
+        scanSecondsLeft: 8,
+        devices: _robots,
+        lastDeviceId: _lastId,
+        lastDeviceName: 'PB-Robot-02',
+      ),
+    );
+    expect(_inSheet(find.textContaining('Stop')), findsWidgets);
+
+    await tester.tap(find.text('PB-Robot-04'));
+    await tester.pump();
+    expect(coordinator.connected, ['C8:2E:18:4A:9F:04']);
+  });
+
   testWidgets('only the tapped row shows a spinner', (tester) async {
     await openSheet(tester, BleConnectionCoordinatorState(devices: _robots));
 
