@@ -661,7 +661,9 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
       (k, _) => !_leftActive.contains(k) && !_rightActive.contains(k),
     );
     _lockedIds.removeWhere((id) => !_layoutAll.containsKey(id));
-    _pressedIds.removeWhere((id) => !_layoutAll.containsKey(id));
+    // Holds command ids (kCmd*), not layout ids, and nothing is held in the
+    // editor: clear it rather than filter it by layout keys.
+    _pressedIds.clear();
     _up = false;
     _down = false;
     _left = false;
@@ -840,7 +842,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
         if (_leftActive.contains(id)) {
           _leftActive.remove(id);
           _layoutAll.remove(id);
-          _pressedIds.remove(id);
+          // Command ids, not layout ids: nothing is held in the editor.
+          _pressedIds.clear();
           _lockedIds.remove(id);
           if (_selectedId == id) _selectedId = null;
           if (id == 'L:up') _up = false;
@@ -857,7 +860,8 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
         if (_rightActive.contains(id)) {
           _rightActive.remove(id);
           _layoutAll.remove(id);
-          _pressedIds.remove(id);
+          // Command ids, not layout ids: nothing is held in the editor.
+          _pressedIds.clear();
           _lockedIds.remove(id);
           if (_selectedId == id) _selectedId = null;
           if (id == 'R:triangle') _triangle = false;
