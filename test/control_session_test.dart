@@ -24,10 +24,13 @@ void main() {
   Future<int?> acquire() async =>
       BleManager.instance.claimTrafficMode(BleTrafficMode.controlBinary);
 
-  final modes = <String, Widget Function()>{
-    'four-button': () => Gamepad4ButtonPage(acquireControl: acquire),
-    'eight-button': () => GamepadModeEdit(acquireControl: acquire),
-    'joystick': () => JoystickPage(acquireControl: acquire),
+  final pages = <String, Widget Function(Future<int?> Function() acquire)>{
+    'four-button': (acquire) => Gamepad4ButtonPage(acquireControl: acquire),
+    'eight-button': (acquire) => GamepadModeEdit(acquireControl: acquire),
+    'joystick': (acquire) => JoystickPage(acquireControl: acquire),
+  };
+  final modes = {
+    for (final page in pages.entries) page.key: () => page.value(acquire),
   };
 
   void useLandscapePhone(WidgetTester tester) {
@@ -163,6 +166,70 @@ void main() {
       expect(find.byType(GamepadAppBarBackButton), findsNothing);
       expectControlReleased();
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('${mode.key}: a Start still pending when the app is '
+        'suspended leaves Start usable', (tester) async {
+      useLandscapePhone(tester);
+      final gate = Completer<void>();
+      var acquires = 0;
+      Future<int?> slowAcquire() async {
+        acquires++;
+        if (acquires == 1) {
+          final owner = BleManager.instance.claimTrafficMode(
+            BleTrafficMode.controlBinary,
+          );
+          await gate.future;
+          return owner;
+        }
+        // Back in the foreground: Start resumes control.
+        BleManager.instance.debugPresentConnectionForTesting(
+          status: BleConnectionStatus.connected,
+          connected: true,
+          deviceName: 'PB-Robot',
+        );
+        return BleManager.instance.resumeControl(ownerName: 'test');
+      }
+
+      addTearDown(() async {
+        // Never leave control suspended for the next test.
+        final manager = BleManager.instance;
+        if (manager.controlSuspendedForLifecycle) {
+          manager.debugPresentConnectionForTesting(
+            status: BleConnectionStatus.connected,
+            connected: true,
+            deviceName: 'PB-Robot',
+          );
+          final owner = await manager.resumeControl(ownerName: 'cleanup');
+          if (owner != null) manager.releaseTrafficMode(owner);
+        }
+        manager.debugPresentConnectionForTesting(
+          status: BleConnectionStatus.disconnected,
+        );
+      });
+      await tester.pumpWidget(MaterialApp(home: pages[mode.key]!(slowAcquire)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(ControlStartStopButton));
+      await tester.pump();
+      // The notification shade, say, while Start waits for the robot.
+      await BleManager.instance.handleAppLifecycleState(
+        AppLifecycleState.inactive,
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(BleManager.instance.controlSuspendedForLifecycle, isTrue);
+      expect(find.bySemanticsLabel('Start control'), findsOneWidget);
+
+      await tester.tap(find.byType(ControlStartStopButton));
+      await tester.pumpAndSettle();
+      expect(acquires, 2);
+      expect(find.bySemanticsLabel('Emergency Stop'), findsOneWidget);
+
+      await tester.tap(find.byType(ControlStartStopButton));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 4));
     });
 
     testWidgets('${mode.key}: opening the editor stops driving', (

@@ -120,7 +120,8 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> startControl() async {
-    if (controlStarted || !canStartControl) return;
+    final suspended = BleManager.instance.controlSuspendedForLifecycle;
+    if ((controlStarted && !suspended) || !canStartControl) return;
     setState(() => startInProgress = true);
     final owner =
         await (acquireControlOverride?.call() ??
@@ -128,8 +129,13 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
               ownerName: controlOwnerName,
             ));
     // Give control back if the page left, switched mode or opened the
-    // editor while Start was pending.
-    if (!mounted || leavingControlPage || modeSwitchInProgress || editMode) {
+    // editor while Start was pending, or the app was suspended meanwhile
+    // (that stop ran while Start was not shown as started).
+    if (!mounted ||
+        leavingControlPage ||
+        modeSwitchInProgress ||
+        editMode ||
+        (owner != null && BleManager.instance.controlSuspendedForLifecycle)) {
       if (owner != null) {
         await BleManager.instance.stopAndReleaseControl(owner: owner);
       }
