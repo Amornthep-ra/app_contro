@@ -232,8 +232,14 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
   Timer? _tick;
   String _lastPacketKey = '';
   int _lastSendMs = 0;
+
+  /// Tells the hold buttons that input was cleared, so they stop showing
+  /// a press and ignore fingers still down (as on the Joystick page).
+  final _inputResetSignal = ValueNotifier<int>(0);
+
   @override
   void resetInputState() {
+    if (mounted) _inputResetSignal.value++;
     void apply() {
       _up = false;
       _down = false;
@@ -393,6 +399,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
   void dispose() {
     _editWarningTimer?.cancel();
     disposeControlSession();
+    _inputResetSignal.dispose();
     super.dispose();
   }
 
@@ -1768,6 +1775,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
                                             },
                                             layout: _layoutAll,
                                             onPressChanged: _onAnyPress,
+                                            resetSignal: _inputResetSignal,
                                           ),
                                   ),
                                 ),
@@ -2139,11 +2147,13 @@ class _LayoutPadPanel extends StatelessWidget {
   final Map<String, _BtnSpec> specs;
   final Map<String, GamepadButtonLayout> layout;
   final void Function(String id, bool down) onPressChanged;
+  final Listenable resetSignal;
   const _LayoutPadPanel({
     required this.ids,
     required this.specs,
     required this.layout,
     required this.onPressChanged,
+    required this.resetSignal,
   });
   @override
   Widget build(BuildContext context) {
@@ -2185,6 +2195,7 @@ class _LayoutPadPanel extends StatelessWidget {
                 asset: spec.asset,
                 diameter: d,
                 showLabel: false,
+                resetSignal: resetSignal,
                 lightImpactBeforeBuzz: true,
                 onPressChanged: onPressChanged,
               ),

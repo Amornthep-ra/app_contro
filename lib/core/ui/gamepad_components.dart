@@ -583,6 +583,12 @@ class GamepadImageHoldButton extends StatefulWidget {
   final bool lightImpactBeforeBuzz;
   final void Function(String id, bool isDown)? onPressChanged;
 
+  /// Input was cleared by the page: drop the pressed look without
+  /// reporting a release. A finger still down stays ignored until every
+  /// finger on the button lifts (CircularHoldDetector reports no new
+  /// press while one is held).
+  final Listenable? resetSignal;
+
   const GamepadImageHoldButton({
     super.key,
     required this.label,
@@ -592,6 +598,7 @@ class GamepadImageHoldButton extends StatefulWidget {
     this.showLabel = true,
     this.lightImpactBeforeBuzz = false,
     this.onPressChanged,
+    this.resetSignal,
   });
 
   @override
@@ -600,6 +607,31 @@ class GamepadImageHoldButton extends StatefulWidget {
 
 class _GamepadImageHoldButtonState extends State<GamepadImageHoldButton> {
   bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.resetSignal?.addListener(_onInputReset);
+  }
+
+  @override
+  void didUpdateWidget(GamepadImageHoldButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetSignal != widget.resetSignal) {
+      oldWidget.resetSignal?.removeListener(_onInputReset);
+      widget.resetSignal?.addListener(_onInputReset);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.resetSignal?.removeListener(_onInputReset);
+    super.dispose();
+  }
+
+  void _onInputReset() {
+    if (_pressed) setState(() => _pressed = false);
+  }
 
   void _onDown() {
     if (_pressed) return;

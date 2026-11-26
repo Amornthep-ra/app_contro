@@ -338,8 +338,14 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   final _history = GamepadEditHistory<_EditSnapshot>();
   Timer? _tick;
   int _lastSendMs = 0;
+
+  /// Tells the hold buttons that input was cleared, so they stop showing
+  /// a press and ignore fingers still down (as on the Joystick page).
+  final _inputResetSignal = ValueNotifier<int>(0);
+
   @override
   void resetInputState() {
+    if (mounted) _inputResetSignal.value++;
     void apply() {
       _f = false;
       _b = false;
@@ -938,6 +944,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   void dispose() {
     _editWarningTimer?.cancel();
     disposeControlSession();
+    _inputResetSignal.dispose();
     super.dispose();
   }
 
@@ -1471,6 +1478,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
                                                 specs: _fourButtonSpecs(),
                                                 layout: _layoutAll,
                                                 onPressChanged: _onPressChanged,
+                                                resetSignal: _inputResetSignal,
                                               ),
                                       ),
                                     ),
@@ -1902,11 +1910,13 @@ class _LayoutPadPanel extends StatelessWidget {
   final Map<String, _BtnSpec> specs;
   final Map<String, GamepadButtonLayout> layout;
   final void Function(String id, bool down) onPressChanged;
+  final Listenable resetSignal;
   const _LayoutPadPanel({
     required this.ids,
     required this.specs,
     required this.layout,
     required this.onPressChanged,
+    required this.resetSignal,
   });
   @override
   Widget build(BuildContext context) {
@@ -1947,6 +1957,7 @@ class _LayoutPadPanel extends StatelessWidget {
                 asset: scaled.cfg.iconAsset ?? '',
                 diameter: scaled.diameter,
                 showLabel: false,
+                resetSignal: resetSignal,
                 onPressChanged: (id, down) => onPressChanged(id, down),
               ),
             );
