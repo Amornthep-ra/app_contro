@@ -146,6 +146,20 @@ void main() {
       );
     });
 
+    test('KP or KD too large to send is refused, not thrown', () {
+      final huge = '9' * 400;
+      for (final step in [
+        input(kp: huge),
+        input(kd: huge),
+        input(kp: '1000001'),
+      ]) {
+        final result = LineSonicProtocol.checkSteps([step]);
+        expect(result.ok, isFalse);
+        expect(result.errors.single.message, 'Must be 1000000 or less.');
+      }
+      steps([input(kp: '1000000')]);
+    });
+
     test('a 0 step that would still do nothing is refused', () {
       for (final step in [
         // Switched on with 0 ms.

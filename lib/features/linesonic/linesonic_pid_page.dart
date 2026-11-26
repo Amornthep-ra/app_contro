@@ -207,6 +207,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   /// Saved steps and presets are in. Until then editing is off and nothing
   /// is saved, so loading cannot drop edits or saving overwrite old data.
   bool _loaded = false;
+
+  /// Set when reading the saved data threw: the page still opens with a
+  /// step, but saves nothing, so what is stored is not overwritten.
+  bool _savingDisabled = false;
   int? _bleTrafficOwner;
 
   @override
@@ -220,16 +224,34 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   Future<void> _initAsync() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted || _leavingPage) return;
-    // Each is read on its own: one unreadable entry does not stop the other.
-    final presetsRead = await _loadPresets(prefs);
-    final stepsRead = await _loadSteps(prefs);
+    var presetsRead = true;
+    var stepsRead = true;
+    var failed = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted || _leavingPage) return;
+      // Each is read on its own: one unreadable entry does not stop the
+      // other.
+      presetsRead = await _loadPresets(prefs);
+      stepsRead = await _loadSteps(prefs);
+    } catch (error) {
+      failed = true;
+      debugPrint('PID steps load failed: $error');
+    }
     if (!mounted || _leavingPage) return;
     if (_steps.isEmpty) {
       _steps.add(_newStep());
     }
-    setState(() => _loaded = true);
+    setState(() {
+      _savingDisabled = failed;
+      _loaded = true;
+    });
+    if (failed) {
+      _showSnack(
+        'Saved PID steps could not be read. Changes here will not be saved.',
+      );
+      return;
+    }
     final unreadable = [
       if (!stepsRead) 'PID steps',
       if (!presetsRead) 'PID presets',
@@ -278,7 +300,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   void _scheduleAutoSave() {
-    if (!_loaded) return;
+    if (!_loaded || _savingDisabled) return;
     _stepsDirty = true;
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(
@@ -707,7 +729,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       },
     );
 
-    if (selected == null) return;
+    if (selected == null || !mounted) return;
     setState(() => _selectedPreset = selected);
   }
 
@@ -839,7 +861,9 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                           const SizedBox(width: 8),
                           IconButton.filledTonal(
                             tooltip: 'Save preset',
-                            onPressed: _loaded ? _savePresetDialog : null,
+                            onPressed: _loaded && !_savingDisabled
+                                ? _savePresetDialog
+                                : null,
                             icon: const Icon(Icons.save_outlined),
                             visualDensity: const VisualDensity(
                               horizontal: -2,
@@ -849,7 +873,9 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
                           const SizedBox(width: 4),
                           IconButton.outlined(
                             tooltip: 'Load preset',
-                            onPressed: () => _loadPreset(_selectedPreset),
+                            onPressed: _loaded
+                                ? () => _loadPreset(_selectedPreset)
+                                : null,
                             icon: const Icon(Icons.download_outlined),
                             visualDensity: const VisualDensity(
                               horizontal: -2,

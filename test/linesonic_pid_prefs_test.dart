@@ -62,6 +62,26 @@ void main() {
     expect(prefs.getString('${stepsKey}_unreadable'), '{not json');
   });
 
+  testWidgets('a read that throws still opens the page, saving off', (
+    tester,
+  ) async {
+    // Not text: SharedPreferences.getString throws on it.
+    await openPage(tester, {stepsKey: 42});
+
+    expect(stepCards(), findsOneWidget);
+    expect(
+      find.text(
+        'Saved PID steps could not be read. Changes here will not be saved.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Add Step'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(stepCards(), findsNWidgets(2));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.get(stepsKey), 42);
+  });
+
   testWidgets('numbers where text was expected still load', (tester) async {
     await openPage(tester, {
       stepsKey: jsonEncode([step(kp: 1.5, holdMode: '2'), step()]),

@@ -160,6 +160,10 @@ abstract final class LineSonicProtocol {
   /// Largest value `String.toInt()` reads into an ESP32 `int`.
   static const maxInt = 2147483647;
 
+  /// KP and KD limit. Far above any useful gain; it keeps the number
+  /// finite and sendable (a 309-digit KP parsed to infinity and threw).
+  static const maxGain = 1000000;
+
   static const sw1 = 'SW1=1';
   static const reset = 'RESET=1';
   static const sensorRead = 'SENS=1';
@@ -193,7 +197,7 @@ abstract final class LineSonicProtocol {
       final input = inputs[i];
       final number = i + 1;
 
-      double? decimal(String raw, LineSonicField field) {
+      double? decimal(String raw, LineSonicField field, {num? max}) {
         final value = parseNumber(raw);
         if (value == null) {
           errors.add(LineSonicFieldError(number, field, 'Enter a number.'));
@@ -201,6 +205,12 @@ abstract final class LineSonicProtocol {
         }
         if (value < 0) {
           errors.add(LineSonicFieldError(number, field, 'Must be 0 or more.'));
+          return null;
+        }
+        if (max != null && value > max) {
+          errors.add(
+            LineSonicFieldError(number, field, 'Must be $max or less.'),
+          );
           return null;
         }
         return value;
@@ -269,8 +279,8 @@ abstract final class LineSonicProtocol {
         );
         value = null;
       }
-      final kp = decimal(input.kp, LineSonicField.kp);
-      final kd = decimal(input.kd, LineSonicField.kd);
+      final kp = decimal(input.kp, LineSonicField.kp, max: maxGain);
+      final kd = decimal(input.kd, LineSonicField.kd, max: maxGain);
       final speed = whole(input.speed, LineSonicField.speed, maxSpeed);
       final holding = input.holdMode != 0;
       final holdMs = holding
