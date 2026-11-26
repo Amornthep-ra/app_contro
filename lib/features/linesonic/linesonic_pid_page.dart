@@ -176,7 +176,11 @@ class _PresetSlot {
 }
 
 class LineSonicPidPage extends StatefulWidget {
-  const LineSonicPidPage({super.key});
+  const LineSonicPidPage({super.key, this.sendOverride});
+
+  /// Replaces the BLE write in tests.
+  @visibleForTesting
+  final Future<BleWriteResult> Function(String command)? sendOverride;
 
   @override
   State<LineSonicPidPage> createState() => _LineSonicPidPageState();
@@ -213,6 +217,12 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   bool _savingDisabled = false;
   int? _bleTrafficOwner;
 
+  /// [LineSonicProtocol.sequenceShape] of the last Send All this page made
+  /// on the current link; null when the board may hold other steps (none
+  /// sent yet, Reset, or the link dropped).
+  String? _boardShape;
+  StreamSubscription<bool>? _connectionSub;
+
   @override
   void initState() {
     super.initState();
@@ -220,6 +230,9 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       BleTrafficMode.textCommand,
       ownerName: 'linesonic_pid',
     );
+    _connectionSub = BleManager.instance.connectionStream.listen((connected) {
+      if (!connected) _boardShape = null;
+    });
     _initAsync();
   }
 
@@ -285,6 +298,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
 
   @override
   void dispose() {
+    _connectionSub?.cancel();
     _autosaveTimer?.cancel();
     _leavingPage = true;
     unawaited(_flushSteps());
@@ -452,7 +466,8 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       final wait = _minCommandGap - DateTime.now().difference(_lastSend);
       if (wait > Duration.zero) await Future<void>.delayed(wait);
       if (!mounted) return false;
-      if (!BleManager.instance.isConnected) {
+      final override = widget.sendOverride;
+      if (override == null && !BleManager.instance.isConnected) {
         _showSnack('BLE not connected');
         return false;
       }
@@ -462,7 +477,9 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
         return false;
       }
       _lastSend = DateTime.now();
-      final result = await BleManager.instance.send(msg, owner: owner);
+      final result = override != null
+          ? await override(msg)
+          : await BleManager.instance.send(msg, owner: owner);
       if (result != BleWriteResult.sent) {
         _showSnack('Command not sent: ${result.name}');
         return false;
@@ -572,6 +589,7 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       toast: 'Sent all',
     )) {
       _lastSeqSend = DateTime.now();
+      _boardShape = LineSonicProtocol.sequenceShape(steps);
     }
   }
 
@@ -593,8 +611,31 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       return;
     }
 
-    final steps = _checkedSteps();
-    if (steps == null) return;
+    // The board applies SEQPD= by index to the steps it already has, and
+    // ignores it without any: only send it over the steps of the last Send
+    // All.
+    final boardShape = _boardShape;
+    if (boardShape == null) {
+      _showSnack('Send All first: the board has no steps from this page.');
+      return;
+    }
+    final result = LineSonicProtocol.checkSteps(_steps.map(_inputOf).toList());
+    final pdErrors = result.errors.where(
+      (e) =>
+          e.field == LineSonicField.kp ||
+          e.field == LineSonicField.kd ||
+          e.field == LineSonicField.speed,
+    );
+    if (pdErrors.isNotEmpty) {
+      final more = pdErrors.length - 1;
+      _showSnack('${pdErrors.first}${more > 0 ? ' (+$more more)' : ''}');
+      return;
+    }
+    final steps = result.steps;
+    if (!result.ok || LineSonicProtocol.sequenceShape(steps) != boardShape) {
+      _showSnack('Steps changed since Send All. Send All first.');
+      return;
+    }
     if (!_fitsOneWrite(steps, LineSonicProtocol.sequencePd)) return;
     if (await _sendCommand(
       LineSonicProtocol.sequencePd(steps),
@@ -609,7 +650,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
   }
 
   Future<void> _sendReset() async {
-    await _sendCommand(LineSonicProtocol.reset, toast: 'Sent Reset');
+    // The board restarts and forgets its steps.
+    if (await _sendCommand(LineSonicProtocol.reset, toast: 'Sent Reset')) {
+      _boardShape = null;
+    }
   }
 
   void _duplicateStep(int index) {

@@ -42,6 +42,7 @@ void main() {
     WidgetTester tester,
     List<Map<String, Object>> steps, {
     int mtu = 512,
+    Future<BleWriteResult> Function(String command)? send,
   }) async {
     SharedPreferences.setMockInitialValues({
       'linesonic_steps_v2': jsonEncode(steps),
@@ -56,7 +57,9 @@ void main() {
     tester.view.physicalSize = const Size(700, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const MaterialApp(home: LineSonicPidPage()));
+    await tester.pumpWidget(
+      MaterialApp(home: LineSonicPidPage(sendOverride: send)),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -193,6 +196,92 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(writes, hasLength(2));
       restore();
+    });
+  });
+
+  group('Send PD+Speed follows the last Send All (N-7)', () {
+    late List<String> sent;
+    Future<BleWriteResult> send(String command) async {
+      sent.add(command);
+      return BleWriteResult.sent;
+    }
+
+    setUp(() => sent = []);
+
+    Future<void> press(WidgetTester tester, String label) async {
+      final button = find.text(label);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      // Past the 3 s / 1 s cooldowns and the snack bar.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(seconds: 4));
+    }
+
+    /// The step's KP field (saved as 1.5; the card is opened first).
+    Future<void> setKp(WidgetTester tester, String kp) async {
+      final field = find.byWidgetPredicate(
+        (w) => w is TextField && w.controller?.text == '1.5',
+      );
+      await tester.ensureVisible(field);
+      await tester.enterText(field, kp);
+      await tester.pump();
+    }
+
+    testWidgets('before any Send All nothing is sent', (tester) async {
+      await openWithSteps(tester, [step()], send: send);
+      await press(tester, 'Send PD+Speed');
+
+      expect(sent, isEmpty);
+    });
+
+    testWidgets('after Send All, new KP goes as SEQPD=', (tester) async {
+      await openWithSteps(tester, [step()..['collapsed'] = false], send: send);
+      await press(tester, 'Send All');
+      await setKp(tester, '2.5');
+      await press(tester, 'Send PD+Speed');
+
+      expect(sent, [startsWith('SEQ='), 'SEQPD=2.5,0.8,50']);
+    });
+
+    testWidgets('a step added since Send All stops it', (tester) async {
+      await openWithSteps(tester, [step()], send: send);
+      await press(tester, 'Send All');
+      await tester.tap(find.text('Add Step'));
+      await tester.pump();
+      await press(tester, 'Send PD+Speed');
+
+      expect(sent, hasLength(1));
+    });
+
+    testWidgets('after Reset Board it waits for the next Send All', (
+      tester,
+    ) async {
+      await openWithSteps(tester, [step()], send: send);
+      await press(tester, 'Send All');
+      await press(tester, 'Reset Board');
+      await press(tester, 'Send PD+Speed');
+
+      expect(sent, [startsWith('SEQ='), 'RESET=1']);
+    });
+
+    testWidgets('a bad KP is named, not "Send All first"', (tester) async {
+      await openWithSteps(tester, [step()..['collapsed'] = false], send: send);
+      await press(tester, 'Send All');
+      await setKp(tester, '2000000');
+      tester
+          .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+          .removeCurrentSnackBar();
+      final button = find.text('Send PD+Speed');
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.text('Step 1 · KP: Must be 1000000 or less.'),
+        findsOneWidget,
+      );
+      expect(sent, hasLength(1));
+      await tester.pump(const Duration(seconds: 5));
     });
   });
 

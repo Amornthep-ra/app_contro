@@ -352,6 +352,25 @@ abstract final class LineSonicProtocol {
   }
 
   /// `SEQPD=kp,kd,speed;...`: updates the steps already on the board.
+  /// What `SEQPD=` cannot change: the board applies it by index to the
+  /// steps already loaded, so it fits only steps of this shape (all but
+  /// KP, KD and speed).
+  static String sequenceShape(List<LineSonicStep> steps) => steps
+      .map(
+        (s) => [
+          s.mode == LineSonicStepMode.checksum ? 'CHECKSUM' : 'TIME',
+          s.value,
+          s.afterMs,
+          s.afterSpeed,
+          s.stopMs,
+          s.lineColor,
+          s.holdMs,
+          s.holdThreshold,
+          s.holdMode,
+        ].join(','),
+      )
+      .join(';');
+
   static String sequencePd(List<LineSonicStep> steps) {
     final parts = steps.map(
       (s) => '${formatDecimal(s.kp)},${formatDecimal(s.kd)},${s.speed}',
