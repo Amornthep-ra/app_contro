@@ -280,12 +280,19 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _openBlePage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: widget.blePageBuilder ?? (_) => const BluetoothBlePage(),
-      ),
-    );
-    await OrientationUtils.request(AppOrientation.portrait);
+    // Same guard as the tiles: a second tap must not push a second page.
+    if (_openingPage) return;
+    setState(() => _openingPage = true);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: widget.blePageBuilder ?? (_) => const BluetoothBlePage(),
+        ),
+      );
+    } finally {
+      await OrientationUtils.request(AppOrientation.portrait);
+      if (mounted) setState(() => _openingPage = false);
+    }
   }
 
   Future<void> _openPage(Widget page) async {
@@ -598,7 +605,7 @@ class _HomePageState extends State<HomePage>
                 _RoundGlassIconButton(
                   icon: Icons.tune_rounded,
                   tooltip: 'Manage connection',
-                  onPressed: _openBlePage,
+                  onPressed: _openingPage ? null : _openBlePage,
                 ),
               ],
             )
@@ -613,7 +620,7 @@ class _HomePageState extends State<HomePage>
                     child: GlassActionButton(
                       label: 'Reconnect',
                       icon: Icons.refresh_rounded,
-                      onPressed: _connectLastDevice,
+                      onPressed: _openingPage ? null : _connectLastDevice,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -622,7 +629,7 @@ class _HomePageState extends State<HomePage>
                     child: GradientActionButton(
                       label: 'Scan devices',
                       icon: Icons.search_rounded,
-                      onPressed: _openBlePage,
+                      onPressed: _openingPage ? null : _openBlePage,
                     ),
                   ),
                 ],
@@ -631,7 +638,7 @@ class _HomePageState extends State<HomePage>
               GradientActionButton(
                 label: 'Scan devices',
                 icon: Icons.search_rounded,
-                onPressed: _openBlePage,
+                onPressed: _openingPage ? null : _openBlePage,
               ),
           ],
         ],
@@ -978,7 +985,7 @@ class _RoundGlassIconButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
