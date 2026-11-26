@@ -374,6 +374,7 @@ class BleConnectionCoordinator {
   int _authenticationGeneration = 0;
   int _consecutiveTransientHandshakeFailures = 0;
   int _consecutiveCapabilityMismatches = 0;
+
   /// About one minute with the default backoff and 8 s scans.
   static const maxLinkLossReconnectAttempts = 6;
   final Duration _linkLossScanTimeout;
@@ -709,7 +710,7 @@ class BleConnectionCoordinator {
     }
   }
 
-  Future<void> initialize() => _initializeFuture ??= _loadSavedDevice();
+  Future<void> initialize() => _initializeFuture ??= loadSavedDevice();
 
   void acquire() {
     _consumerCount++;
@@ -720,12 +721,14 @@ class BleConnectionCoordinator {
     if (_consumerCount == 0) await stopScan();
   }
 
-  Future<void> _loadSavedDevice() async {
+  /// Reloads the last device saved on this phone into [state].
+  Future<void> loadSavedDevice() async {
     final prefs = await SharedPreferences.getInstance();
     _emit(
       _state.copyWith(
-        lastDeviceId: prefs.getString(_lastDeviceIdKey),
-        lastDeviceName: prefs.getString(_lastDeviceNameKey),
+        // '' (not null) so a device forgotten elsewhere is cleared too.
+        lastDeviceId: prefs.getString(_lastDeviceIdKey) ?? '',
+        lastDeviceName: prefs.getString(_lastDeviceNameKey) ?? '',
       ),
     );
   }

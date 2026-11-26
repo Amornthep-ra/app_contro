@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/ble/ble_connection_coordinator.dart';
@@ -66,6 +65,7 @@ class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin, RouteAware {
   ModalRoute<void>? _observedRoute;
   StreamSubscription<bool>? _connSub;
+  StreamSubscription<BleConnectionCoordinatorState>? _coordinatorSub;
   Timer? _rssiTimer;
 
   /// Bumped whenever polling starts or stops, so a read still in flight
@@ -87,8 +87,6 @@ class _HomePageState extends State<HomePage>
   String? _lastDeviceId;
   String? _lastDeviceName;
 
-  static const _prefsLastDeviceIdKey = 'ble_last_device_id';
-  static const _prefsLastDeviceNameKey = 'ble_last_device_name';
   static final _guideUri = Uri.parse(
     'https://github.com/Amornthep-ra/PB-BLE-Example-All.git',
   );
@@ -126,7 +124,7 @@ class _HomePageState extends State<HomePage>
       },
     );
     _bindBlePresentationState();
-    _loadLastDevice();
+    _bindLastDevice();
     _bindConnection();
   }
 
@@ -170,6 +168,7 @@ class _HomePageState extends State<HomePage>
   void dispose() {
     appRouteObserver.unsubscribe(this);
     _connSub?.cancel();
+    _coordinatorSub?.cancel();
     _lifecycle.dispose();
     _rssiTimer?.cancel();
     _rssiGeneration++;
@@ -213,20 +212,31 @@ class _HomePageState extends State<HomePage>
   void _bindConnection() {
     _connSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
-      if (connected) _loadLastDevice();
       _syncRssiPolling();
     });
     _syncRssiPolling();
   }
 
-  Future<void> _loadLastDevice() async {
-    final prefs = await SharedPreferences.getInstance();
-    final id = prefs.getString(_prefsLastDeviceIdKey);
-    final name = prefs.getString(_prefsLastDeviceNameKey);
-    if (!mounted) return;
+  /// The last device comes from the coordinator, which saves it on
+  /// connect and clears it on Forget, from any page.
+  void _bindLastDevice() {
+    final coordinator = BleConnectionCoordinator.instance;
+    _lastDeviceId = coordinator.state.lastDeviceId;
+    _lastDeviceName = coordinator.state.lastDeviceName;
+    _coordinatorSub = coordinator.stream.listen((state) {
+      if (mounted) _applyLastDevice(state);
+    });
+    unawaited(coordinator.loadSavedDevice());
+  }
+
+  void _applyLastDevice(BleConnectionCoordinatorState state) {
+    if (state.lastDeviceId == _lastDeviceId &&
+        state.lastDeviceName == _lastDeviceName) {
+      return;
+    }
     setState(() {
-      _lastDeviceId = id;
-      _lastDeviceName = name;
+      _lastDeviceId = state.lastDeviceId;
+      _lastDeviceName = state.lastDeviceName;
     });
   }
 
@@ -275,7 +285,6 @@ class _HomePageState extends State<HomePage>
       ),
     );
     await OrientationUtils.request(AppOrientation.portrait);
-    await _loadLastDevice();
   }
 
   Future<void> _openPage(Widget page) async {
