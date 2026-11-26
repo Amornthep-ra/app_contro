@@ -5,7 +5,6 @@ import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../connection/app_connection.dart';
 import 'ble_adapter_observation.dart';
 import 'ble_manager.dart';
 import 'ble_pairing_store.dart';
@@ -436,7 +435,6 @@ class BleConnectionCoordinator {
 
     _authenticationGeneration++;
     _authenticationFuture = null;
-    AppConnection.instance.setBleConnected(false);
     _secureHandshakeTransport.clearSecureControlSession();
     if (_state.connecting ||
         _manualDisconnectInProgress ||
@@ -1368,7 +1366,6 @@ class BleConnectionCoordinator {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_lastDeviceIdKey, result.device.remoteId.str);
       await prefs.setString(_lastDeviceNameKey, name);
-      AppConnection.instance.setBleConnected(true);
       if (_enforceSecureProtocol) {
         await authenticateConnectedBoard();
       } else {
@@ -1382,7 +1379,6 @@ class BleConnectionCoordinator {
         ),
       );
     } catch (error) {
-      AppConnection.instance.setBleConnected(false);
       _emit(_state.copyWith(failureReason: 'connect_failed:$error'));
     } finally {
       if (!connected) {
@@ -1557,7 +1553,6 @@ class BleConnectionCoordinator {
       await stopScan(releaseManagementLease: false);
       if (!_ensureCanManageConnection(owner: owner)) return;
       await BleManager.instance.disconnect();
-      AppConnection.instance.setBleConnected(false);
       _emit(
         _state.copyWith(
           securityState: BleControlSecurityState.disconnected,

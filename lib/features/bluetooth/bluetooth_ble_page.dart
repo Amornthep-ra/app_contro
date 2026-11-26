@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../core/connection/app_connection.dart';
 import '../../core/ble/ble_adapter_observation.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
@@ -190,7 +189,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       if (!mounted) return;
 
       if (!connected) {
-        AppConnection.instance.setBleConnected(false);
         setState(() {
           _connecting = false;
           _connectingDeviceId = null;
