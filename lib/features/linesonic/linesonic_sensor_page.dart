@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/ble/ble_manager.dart';
+import '../../core/ble/ble_protocol_line_assembler.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/portrait_background.dart';
+import 'linesonic_protocol.dart';
 
 class LineSonicSensorPage extends StatefulWidget {
   const LineSonicSensorPage({super.key});
@@ -16,7 +18,7 @@ class LineSonicSensorPage extends StatefulWidget {
 class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   final List<int> _values = [];
   int? _sum;
-  String _rxBuffer = '';
+  final _rxLines = BleProtocolLineAssembler();
   int _intervalMs = 200;
   bool _auto = false;
   Timer? _autoTimer;
@@ -56,6 +58,8 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
 
   void _bindDataStream() {
     _dataSub?.cancel();
+    // A line cut off by a disconnect must not prefix the next one.
+    _rxLines.reset();
     final owner = _bleTrafficOwner;
     if (owner == null) return;
     final stream = BleManager.instance.onData(owner: owner);
@@ -74,42 +78,20 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   }
 
   void _handleData(List<int> data) {
-    if (data.isEmpty) return;
-    _rxBuffer += String.fromCharCodes(data);
-
-    int idx;
-    while ((idx = _rxBuffer.indexOf('\n')) != -1) {
-      final line = _rxBuffer.substring(0, idx).trim();
-      _rxBuffer = _rxBuffer.substring(idx + 1);
+    for (final line in _rxLines.add(data)) {
       _parseLine(line);
     }
   }
 
   void _parseLine(String line) {
     _addLog('RX: $line');
-    if (!line.startsWith('SENS=')) return;
-    final raw = line.substring(5);
-    final parts = raw.split(',');
-    final next = <int>[];
-    int? nextSum;
-    for (final p in parts) {
-      final part = p.trim();
-      if (part.toUpperCase().startsWith('SUM=')) {
-        final s = part.substring(4);
-        final v = int.tryParse(s);
-        if (v != null) nextSum = v;
-        continue;
-      }
-      final v = int.tryParse(part);
-      if (v != null) next.add(v);
-    }
-    if (next.isEmpty) return;
-    if (!mounted) return;
+    final reading = LineSonicProtocol.parseSensorLine(line);
+    if (reading == null || !mounted) return;
     setState(() {
       _values
         ..clear()
-        ..addAll(next);
-      _sum = nextSum;
+        ..addAll(reading.values);
+      _sum = reading.sum;
     });
   }
 
@@ -133,8 +115,11 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       _showBleBusy();
       return;
     }
-    _addLog('TX: SENS=1');
-    final result = await BleManager.instance.send('SENS=1', owner: owner);
+    _addLog('TX: ${LineSonicProtocol.sensorRead}');
+    final result = await BleManager.instance.send(
+      LineSonicProtocol.sensorRead,
+      owner: owner,
+    );
     if (result != BleWriteResult.sent) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
