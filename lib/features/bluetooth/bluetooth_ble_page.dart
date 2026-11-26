@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/ble/ble_adapter_observation.dart';
+import '../../core/ble/ble_connect_flow_controller.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/ble_presentation_state.dart';
@@ -77,8 +78,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     'com.pbcontroller.app/bluetooth_settings',
   );
 
-  bool _scanning = false;
-  bool _connecting = false;
   bool _scrolled = false;
 
   StreamSubscription<BluetoothAdapterState>? _adapterStateSub;
@@ -87,32 +86,40 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
   StreamSubscription<bool>? _isScanningSub;
   StreamSubscription<bool>? _connStateSub;
 
-  List<ScanResult> _devices = const [];
-
   static const int _scanTimeoutSeconds = 10;
-  int _scanSecondsLeft = 0;
   int? _bleTrafficOwner;
 
-  String? _lastDeviceId;
-  String? _lastDeviceNamePersisted;
-  bool _pendingConnectLast = false;
   bool _pairingDialogOpen = false;
 
+  late final BleConnectFlowController _flow;
+  bool get _scanning => _flow.scanning;
+  bool get _connecting => _flow.connecting;
+  int get _scanSecondsLeft => _flow.scanSecondsLeft;
+  List<ScanResult> get _devices => _flow.devices;
+  String? get _lastDeviceId => _flow.lastDeviceId;
+  String? get _lastDeviceNamePersisted => _flow.lastDeviceName;
+  bool get _pendingConnectLast => _flow.pendingConnectLast;
+
   /// Row the user tapped, so its spinner shows while connecting.
-  String? _connectingDeviceId;
-  BleControlSecurityState _securityState = BleControlSecurityState.disconnected;
+  String? get _connectingDeviceId => _flow.connectingDeviceId;
+  BleControlSecurityState get _securityState => _flow.securityState;
   BleConnectionCoordinator get _bleCoordinator =>
       widget.coordinator ?? BleConnectionCoordinator.instance;
   bool get _isBleConnected =>
       widget.isBleConnected?.call() ?? BleManager.instance.isConnected;
 
-  StreamSubscription<BleConnectionCoordinatorState>? _bleCoordinatorSub;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _bleCoordinatorSub = _bleCoordinator.stream.listen(_applyCoordinatorState);
+    _flow = BleConnectFlowController(
+      coordinator: _bleCoordinator,
+      initialSource: 'bluetooth_page_initial',
+      manualSource: 'bluetooth_page_manual',
+      connectSource: 'bluetooth_page',
+      autoConnectTimeout: const Duration(seconds: _scanTimeoutSeconds),
+      onCoordinatorState: _onCoordinatorState,
+    )..addListener(_onFlowChanged);
     if (widget.enableBlePlatformBindings) {
       _bleCoordinator.acquire();
       _bleTrafficOwner = BleManager.instance.claimTrafficMode(
@@ -121,66 +128,22 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       );
       _bindConnectionGuard();
       _bindAdapterState();
-      _initializeCoordinator();
+      unawaited(_flow.start());
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _applyCoordinatorState(_bleCoordinator.state);
+        if (mounted) _flow.applyState(_bleCoordinator.state);
       });
     }
   }
 
-  Future<void> _initializeCoordinator() async {
-    await _bleCoordinator.initialize();
-    _applyCoordinatorState(_bleCoordinator.state);
-    _queueAutoConnectLast();
+  void _onFlowChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _applyCoordinatorState(BleConnectionCoordinatorState state) {
+  void _onCoordinatorState(BleConnectionCoordinatorState state) {
     if (!mounted) return;
-    setState(() {
-      _scanning = state.scanning;
-      _connecting = state.connecting;
-      if (!state.connecting) _connectingDeviceId = null;
-      _scanSecondsLeft = state.scanSecondsLeft;
-      _securityState = state.securityState;
-      _lastDeviceId = state.lastDeviceId?.isEmpty == true
-          ? null
-          : state.lastDeviceId;
-      _lastDeviceNamePersisted = state.lastDeviceName?.isEmpty == true
-          ? null
-          : state.lastDeviceName;
-      _devices = state.devices;
-    });
     if (requiresBlePairingCode(state.securityState) && _isBleConnected) {
       _schedulePairingCheck();
-    }
-  }
-
-  void _queueAutoConnectLast() {
-    if (_lastDeviceId == null) return;
-    if (_connecting || BleManager.instance.isConnected) return;
-    if (_pendingConnectLast) return;
-    _pendingConnectLast = true;
-    unawaited(_connectRememberedDevice('bluetooth_page_initial'));
-  }
-
-  Future<void> _connectRememberedDevice(
-    String source, {
-    bool userInitiated = false,
-  }) async {
-    try {
-      await _bleCoordinator.autoConnectLastDevice(
-        timeout: const Duration(seconds: _scanTimeoutSeconds),
-        source: source,
-        userInitiated: userInitiated,
-      );
-    } finally {
-      _pendingConnectLast = false;
-      if (mounted) {
-        setState(() {
-          if (_connectingDeviceId == _lastDeviceId) _connectingDeviceId = null;
-        });
-      }
     }
   }
 
@@ -188,12 +151,7 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     _connStateSub = BleManager.instance.connectionStream.listen((connected) {
       if (!mounted) return;
 
-      if (!connected) {
-        setState(() {
-          _connecting = false;
-          _connectingDeviceId = null;
-        });
-      }
+      if (!connected) _flow.markDisconnected();
     });
   }
 
@@ -203,10 +161,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     _adapterStateSub?.cancel();
     _isScanningSub?.cancel();
     _connStateSub?.cancel();
-    _bleCoordinatorSub?.cancel();
-    if (widget.enableBlePlatformBindings) {
-      unawaited(_bleCoordinator.release());
-    }
+    _flow
+      ..removeListener(_onFlowChanged)
+      ..dispose();
     final trafficOwner = _bleTrafficOwner;
     _bleTrafficOwner = null;
     if (trafficOwner != null) {
@@ -307,28 +264,9 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
     if (confirmed) await _bleCoordinator.forgetLastDevice();
   }
 
-  void _connectLastDevice() {
-    if (_pendingConnectLast) return;
-    setState(() {
-      _pendingConnectLast = true;
-      _connectingDeviceId = _lastDeviceId;
-    });
-    unawaited(
-      _connectRememberedDevice('bluetooth_page_manual', userInitiated: true),
-    );
-  }
+  void _connectLastDevice() => unawaited(_flow.connectLast());
 
-  Future<void> _connect(ScanResult result) async {
-    final id = result.device.remoteId.str;
-    setState(() => _connectingDeviceId = id);
-    try {
-      await _bleCoordinator.connect(result, source: 'bluetooth_page');
-    } finally {
-      if (mounted && _connectingDeviceId == id) {
-        setState(() => _connectingDeviceId = null);
-      }
-    }
-  }
+  Future<void> _connect(ScanResult result) => _flow.connect(result);
 
   Future<void> _enterPairingCode({bool automatic = false}) async {
     if (_pairingDialogOpen || !mounted) return;
