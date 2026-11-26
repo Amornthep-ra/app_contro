@@ -211,6 +211,15 @@ void main() {
         greaterThan(182),
       );
       expect(perStep, greaterThan(30));
+      // SEQPD= is shorter, so more steps fit.
+      expect(
+        LineSonicProtocol.stepsThatFit(
+          many,
+          payloadSize: 182,
+          build: LineSonicProtocol.sequencePd,
+        ),
+        greaterThan(fit182),
+      );
     });
   });
 

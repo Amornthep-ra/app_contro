@@ -328,15 +328,17 @@ abstract final class LineSonicProtocol {
   static bool fitsInOneWrite(String command, {required int payloadSize}) =>
       command.length + 1 <= payloadSize;
 
-  /// How many steps like [steps] fit in one write of [payloadSize].
+  /// How many of [steps] fit in one write of [payloadSize] when sent with
+  /// [build] ([sequence] or [sequencePd]).
   static int stepsThatFit(
     List<LineSonicStep> steps, {
     required int payloadSize,
+    String Function(List<LineSonicStep> steps) build = sequence,
   }) {
     var count = 0;
     while (count < steps.length &&
         fitsInOneWrite(
-          sequence(steps.sublist(0, count + 1)),
+          build(steps.sublist(0, count + 1)),
           payloadSize: payloadSize,
         )) {
       count++;

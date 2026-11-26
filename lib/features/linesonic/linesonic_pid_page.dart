@@ -10,6 +10,7 @@ import '../../core/ble/ble_manager.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/widgets/portrait_background.dart';
+import 'linesonic_protocol.dart';
 
 enum _StepMode { time, checksum }
 
@@ -391,41 +392,76 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
     }
   }
 
-  String _buildSeqPayload() {
-    final parts = <String>[];
-    for (final s in _steps) {
-      final mode = s.mode == _StepMode.checksum ? 'CHECKSUM' : 'TIME';
-      final value = _numOrZero(s.valueCtrl.text);
-      final kp = _numOrZero(s.kpCtrl.text);
-      final kd = _numOrZero(s.kdCtrl.text);
-      final speed = _numOrZero(s.speedCtrl.text);
-      final afterMs = s.continueAfter ? _numOrZero(s.afterMsCtrl.text) : '0';
-      final afterSpeed = s.continueAfter
-          ? _numOrZero(s.afterSpeedCtrl.text)
-          : '0';
-      final stopMs = s.stopBetween ? _numOrZero(s.stopMsCtrl.text) : '0';
-      final holdMs = s.holdMode == 0 ? '0' : _numOrZero(s.holdMsCtrl.text);
-      final holdThreshold = s.holdMode == 0
-          ? '0'
-          : _numOrZero(s.holdThresholdCtrl.text);
-      final holdMode = s.holdMode;
-      final lineColor = s.lineColor;
-      parts.add(
-        '$mode,$value,$kp,$kd,$speed,$afterMs,$afterSpeed,$stopMs,$lineColor,$holdMs,$holdThreshold,$holdMode',
-      );
-    }
-    return 'SEQ=${parts.join(';')}';
+  LineSonicStepInput _inputOf(_StepData s) => LineSonicStepInput(
+    mode: switch (s.mode) {
+      _StepMode.time => LineSonicStepMode.time,
+      _StepMode.checksum => LineSonicStepMode.checksum,
+      null => null,
+    },
+    value: s.valueCtrl.text,
+    kp: s.kpCtrl.text,
+    kd: s.kdCtrl.text,
+    speed: s.speedCtrl.text,
+    afterMs: s.afterMsCtrl.text,
+    afterSpeed: s.afterSpeedCtrl.text,
+    stopMs: s.stopMsCtrl.text,
+    holdMs: s.holdMsCtrl.text,
+    holdThreshold: s.holdThresholdCtrl.text,
+    lineColor: s.lineColor,
+    holdMode: s.holdMode,
+    continueAfter: s.continueAfter,
+    stopBetween: s.stopBetween,
+  );
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  String _buildSeqPdPayload() {
-    final parts = <String>[];
-    for (final s in _steps) {
-      final kp = _numOrZero(s.kpCtrl.text);
-      final kd = _numOrZero(s.kdCtrl.text);
-      final speed = _numOrZero(s.speedCtrl.text);
-      parts.add('$kp,$kd,$speed');
+  /// The steps as numbers, or null after telling the user what to fix.
+  List<LineSonicStep>? _checkedSteps() {
+    final result = LineSonicProtocol.checkSteps(_steps.map(_inputOf).toList());
+    if (result.tooManySteps) {
+      _showSnack(
+        'The board runs at most ${LineSonicProtocol.maxSteps} steps. '
+        'Remove ${_steps.length - LineSonicProtocol.maxSteps}.',
+      );
+      return null;
     }
-    return 'SEQPD=${parts.join(';')}';
+    if (result.errors.isNotEmpty) {
+      final more = result.errors.length - 1;
+      _showSnack('${result.errors.first}${more > 0 ? ' (+$more more)' : ''}');
+      return null;
+    }
+    return result.steps;
+  }
+
+  /// False after telling the user, when [payload] would be split over
+  /// several BLE writes: the board reads each write on its own.
+  bool _fitsOneWrite(
+    List<LineSonicStep> steps,
+    String Function(List<LineSonicStep> steps) build,
+  ) {
+    final payload = build(steps);
+    final manager = BleManager.instance;
+    // Not connected: _sendCommand says so.
+    if (!manager.isConnected) return true;
+    final payloadSize = manager.payloadSize;
+    if (LineSonicProtocol.fitsInOneWrite(payload, payloadSize: payloadSize)) {
+      return true;
+    }
+    final fit = LineSonicProtocol.stepsThatFit(
+      steps,
+      payloadSize: payloadSize,
+      build: build,
+    );
+    _showSnack(
+      'Too long to send at once: this phone fits $fit of '
+      '${steps.length} steps.',
+    );
+    return false;
   }
 
   Future<void> _sendSequence() async {
@@ -446,8 +482,10 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       return;
     }
 
-    final payload = _buildSeqPayload();
-    await _sendCommand(payload, toast: 'Sent all');
+    final steps = _checkedSteps();
+    if (steps == null) return;
+    if (!_fitsOneWrite(steps, LineSonicProtocol.sequence)) return;
+    await _sendCommand(LineSonicProtocol.sequence(steps), toast: 'Sent all');
     _lastSeqSend = DateTime.now();
   }
 
@@ -469,17 +507,22 @@ class _LineSonicPidPageState extends State<LineSonicPidPage> {
       return;
     }
 
-    final payload = _buildSeqPdPayload();
-    await _sendCommand(payload, toast: 'Sent PD+Speed');
+    final steps = _checkedSteps();
+    if (steps == null) return;
+    if (!_fitsOneWrite(steps, LineSonicProtocol.sequencePd)) return;
+    await _sendCommand(
+      LineSonicProtocol.sequencePd(steps),
+      toast: 'Sent PD+Speed',
+    );
     _lastPdSend = DateTime.now();
   }
 
   Future<void> _sendSW1() async {
-    await _sendCommand('SW1=1', toast: 'Sent SW1');
+    await _sendCommand(LineSonicProtocol.sw1, toast: 'Sent SW1');
   }
 
   Future<void> _sendReset() async {
-    await _sendCommand('RESET=1', toast: 'Sent Reset');
+    await _sendCommand(LineSonicProtocol.reset, toast: 'Sent Reset');
   }
 
   void _duplicateStep(int index) {
@@ -1560,6 +1603,11 @@ class _NumberField extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      // Digits (also Thai) and a decimal point or comma; never ; or spaces,
+      // which would break the SEQ= fields.
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9\u0E50-\u0E59.,]')),
+      ],
       onTap: () {
         controller.selection = TextSelection(
           baseOffset: 0,
