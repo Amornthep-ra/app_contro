@@ -26,6 +26,7 @@ import '../../../../core/ui/gamepad_assets.dart';
 import '../../../../core/widgets/gamepad_controls_sheet.dart';
 import '../../../../core/ui/control_mode.dart';
 import '../../../../core/ui/control_mode_preference.dart';
+import '../../../../core/ui/control_preset_store.dart';
 import '../../../../core/ui/gamepad_components.dart';
 import '../../../../core/ui/app_assets.dart';
 import '../../../../core/widgets/gamepad_app_bar.dart';
@@ -177,11 +178,7 @@ class _JoystickPageState extends State<JoystickPage>
 
   /// Margin the editor keeps between a control and the pad's edge.
   static const double _editEdgePad = 16.0;
-  static const _prefsPreset1 = 'joy_preset_1';
-  static const _prefsPreset2 = 'joy_preset_2';
-  static const _prefsPreset3 = 'joy_preset_3';
-  static const _prefsPreset4 = 'joy_preset_4';
-  static const _prefsPreset5 = 'joy_preset_5';
+  static const _presets = ControlPresetStore('joy');
   @override
   bool editMode = false;
   bool _menuOpen = false;
@@ -994,43 +991,18 @@ class _JoystickPageState extends State<JoystickPage>
     });
   }
 
-  String _presetKey(int slot) {
-    switch (slot) {
-      case 1:
-        return _prefsPreset1;
-      case 2:
-        return _prefsPreset2;
-      case 3:
-        return _prefsPreset3;
-      case 4:
-        return _prefsPreset4;
-      case 5:
-        return _prefsPreset5;
-      default:
-        throw ArgumentError.value(slot, 'slot', 'Unsupported preset slot');
-    }
-  }
-
   Future<void> _savePreset(int slot, {String? name}) async {
-    final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
       'layout': encodeGamepadLayout(_layout),
       'active': _activeIds.toList(),
     };
-    final trimmed = (name ?? '').trim();
-    if (trimmed.isNotEmpty) {
-      data['name'] = trimmed;
-    }
-    await prefs.setString(_presetKey(slot), jsonEncode(data));
+    await _presets.save(slot, data, name: name);
   }
 
   Future<void> _loadPreset(int slot) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_presetKey(slot));
-    if (raw == null || raw.isEmpty) return;
+    final obj = await _presets.load(slot);
+    if (obj == null) return;
     try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return;
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       // Undo in the editor brings back what was on the pad before.
@@ -1059,7 +1031,7 @@ class _JoystickPageState extends State<JoystickPage>
   @override
   Future<void> showPresetSheet() => showControlPresetSheet(
     context: context,
-    presetKey: _presetKey,
+    presetKey: _presets.keyFor,
     onSave: (slot, name) => _savePreset(slot, name: name),
     onLoad: _loadPreset,
   );

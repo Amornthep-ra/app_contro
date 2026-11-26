@@ -17,6 +17,7 @@ import '../../core/ble/control_timing.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/control_mode.dart';
 import '../../core/ui/control_mode_preference.dart';
+import '../../core/ui/control_preset_store.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
 import '../../core/widgets/gamepad_edit_grid.dart';
@@ -193,11 +194,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
   static const _prefsActiveRight = 'gp8_active_right';
   static const _prefsDriveSpeed = 'gp8_drive_speed';
   static const _prefsTurnSpeed = 'gp8_turn_speed';
-  static const _prefsPreset1 = 'gp8_preset_1';
-  static const _prefsPreset2 = 'gp8_preset_2';
-  static const _prefsPreset3 = 'gp8_preset_3';
-  static const _prefsPreset4 = 'gp8_preset_4';
-  static const _prefsPreset5 = 'gp8_preset_5';
+  static const _presets = ControlPresetStore('gp8');
   bool _up = false;
   bool _down = false;
   bool _left = false;
@@ -430,25 +427,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
     _sendBinary(force: true);
   }
 
-  String _presetKey(int slot) {
-    switch (slot) {
-      case 1:
-        return _prefsPreset1;
-      case 2:
-        return _prefsPreset2;
-      case 3:
-        return _prefsPreset3;
-      case 4:
-        return _prefsPreset4;
-      case 5:
-        return _prefsPreset5;
-      default:
-        throw ArgumentError.value(slot, 'slot', 'Unsupported preset slot');
-    }
-  }
-
   Future<void> _savePreset(int slot, {String? name}) async {
-    final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
       'layout': encodeGamepadLayout(_layoutAll),
       'leftActive': _leftActive.toList(),
@@ -456,20 +435,13 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
       'drive': _driveSpeed,
       'turn': _turnSpeed,
     };
-    final trimmed = (name ?? '').trim();
-    if (trimmed.isNotEmpty) {
-      data['name'] = trimmed;
-    }
-    await prefs.setString(_presetKey(slot), jsonEncode(data));
+    await _presets.save(slot, data, name: name);
   }
 
   Future<void> _loadPreset(int slot) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_presetKey(slot));
-    if (raw == null || raw.isEmpty) return;
+    final obj = await _presets.load(slot);
+    if (obj == null) return;
     try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return;
       final layoutRaw = obj['layout'];
       final leftRaw = obj['leftActive'];
       final rightRaw = obj['rightActive'];
@@ -505,7 +477,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
   @override
   Future<void> showPresetSheet() => showControlPresetSheet(
     context: context,
-    presetKey: _presetKey,
+    presetKey: _presets.keyFor,
     onSave: (slot, name) => _savePreset(slot, name: name),
     onLoad: _loadPreset,
   );

@@ -19,6 +19,7 @@ import '../../core/widgets/gamepad_edit_grid.dart';
 import '../../core/ui/app_assets.dart';
 import '../../core/ui/control_mode.dart';
 import '../../core/ui/control_mode_preference.dart';
+import '../../core/ui/control_preset_store.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/control_preset_slots.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
@@ -311,11 +312,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     with ControlPageMixin<Gamepad4ButtonPage> {
   static const _prefsLayoutAll = 'gp4_layout_all';
   static const _prefsActiveAll = 'gp4_active_all';
-  static const _prefsPreset1 = 'gp4_preset_1';
-  static const _prefsPreset2 = 'gp4_preset_2';
-  static const _prefsPreset3 = 'gp4_preset_3';
-  static const _prefsPreset4 = 'gp4_preset_4';
-  static const _prefsPreset5 = 'gp4_preset_5';
+  static const _presets = ControlPresetStore('gp4');
   bool _f = false, _b = false, _l = false, _r = false;
   String _command = '0';
   String _speedLabel = 'Lo';
@@ -777,44 +774,19 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     });
   }
 
-  String _presetKey(int slot) {
-    switch (slot) {
-      case 1:
-        return _prefsPreset1;
-      case 2:
-        return _prefsPreset2;
-      case 3:
-        return _prefsPreset3;
-      case 4:
-        return _prefsPreset4;
-      case 5:
-        return _prefsPreset5;
-      default:
-        throw ArgumentError.value(slot, 'slot', 'Unsupported preset slot');
-    }
-  }
-
   Future<void> _savePreset(int slot, {String? name}) async {
-    final prefs = await SharedPreferences.getInstance();
     final data = <String, Object>{
       'layout': encodeGamepadLayout(_layoutAll),
       'active': _activeIds.toList(),
       'speed': _speedLabel,
     };
-    final trimmed = (name ?? '').trim();
-    if (trimmed.isNotEmpty) {
-      data['name'] = trimmed;
-    }
-    await prefs.setString(_presetKey(slot), jsonEncode(data));
+    await _presets.save(slot, data, name: name);
   }
 
   Future<void> _loadPreset(int slot) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_presetKey(slot));
-    if (raw == null || raw.isEmpty) return;
+    final obj = await _presets.load(slot);
+    if (obj == null) return;
     try {
-      final obj = jsonDecode(raw);
-      if (obj is! Map) return;
       final layoutRaw = obj['layout'];
       final activeRaw = obj['active'];
       final speed = obj['speed'];
@@ -850,7 +822,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   @override
   Future<void> showPresetSheet() => showControlPresetSheet(
     context: context,
-    presetKey: _presetKey,
+    presetKey: _presets.keyFor,
     onSave: (slot, name) => _savePreset(slot, name: name),
     onLoad: _loadPreset,
   );
