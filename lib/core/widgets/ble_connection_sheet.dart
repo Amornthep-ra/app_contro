@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../ble/ble_connect_flow_controller.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_manager.dart';
 import '../ble/ble_presentation_state.dart';
@@ -104,23 +105,23 @@ class BleConnectionSheet extends StatefulWidget {
 }
 
 class _BleConnectionSheetState extends State<BleConnectionSheet> {
-  bool _scanning = false;
-  bool _connecting = false;
-  int _scanSecondsLeft = 0;
   Timer? _cleanupTimer;
   final Map<String, _BleEntry> _deviceMap = {};
-  String? _lastDeviceId;
-  String? _lastDeviceName;
-  bool _pendingConnectLast = false;
+  bool _pairingRequestPending = false;
+  BleConnectionCoordinator get _bleCoordinator => widget.coordinator;
+
+  late final BleConnectFlowController _flow;
+  bool get _scanning => _flow.scanning;
+  bool get _connecting => _flow.connecting;
+  int get _scanSecondsLeft => _flow.scanSecondsLeft;
+  String? get _lastDeviceId => _flow.lastDeviceId;
+  String? get _lastDeviceName => _flow.lastDeviceName;
+  bool get _pendingConnectLast => _flow.pendingConnectLast;
 
   /// Row the user tapped (or the last device for `Connect <name>`), so only
   /// that one shows a spinner while connecting.
-  String? _connectingDeviceId;
-  bool _pairingRequestPending = false;
-  BleControlSecurityState _securityState = BleControlSecurityState.disconnected;
-  BleConnectionCoordinator get _bleCoordinator => widget.coordinator;
-
-  StreamSubscription<BleConnectionCoordinatorState>? _bleCoordinatorSub;
+  String? get _connectingDeviceId => _flow.connectingDeviceId;
+  BleControlSecurityState get _securityState => _flow.securityState;
   final ScrollController _scrollController = ScrollController();
   bool _showDiagnostics = false;
   bool _diagnosticsCopied = false;
@@ -129,10 +130,15 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
   @override
   void initState() {
     super.initState();
-    _bleCoordinatorSub = _bleCoordinator.stream.listen(_applyCoordinatorState);
+    _flow = BleConnectFlowController(
+      coordinator: _bleCoordinator,
+      initialSource: 'connection_badge_initial',
+      manualSource: 'connection_badge_manual',
+      connectSource: 'connection_status_badge',
+      onCoordinatorState: _onCoordinatorState,
+    )..addListener(_onFlowChanged);
     if (widget.enableBlePlatformBindings) {
-      _bleCoordinator.acquire();
-      _initializeCoordinator();
+      unawaited(_flow.start());
       _cleanupTimer = Timer.periodic(
         const Duration(seconds: 2),
         (_) => _pruneOldDevices(),
@@ -140,31 +146,18 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       _startScan();
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _applyCoordinatorState(_bleCoordinator.state);
+        if (mounted) _flow.applyState(_bleCoordinator.state);
       });
     }
   }
 
-  Future<void> _initializeCoordinator() async {
-    await _bleCoordinator.initialize();
-    _applyCoordinatorState(_bleCoordinator.state);
-    _queueAutoConnectLast();
+  void _onFlowChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _applyCoordinatorState(BleConnectionCoordinatorState state) {
+  void _onCoordinatorState(BleConnectionCoordinatorState state) {
     if (!mounted) return;
     setState(() {
-      _scanning = state.scanning;
-      _connecting = state.connecting;
-      if (!state.connecting) _connectingDeviceId = null;
-      _scanSecondsLeft = state.scanSecondsLeft;
-      _securityState = state.securityState;
-      _lastDeviceId = state.lastDeviceId?.isEmpty == true
-          ? null
-          : state.lastDeviceId;
-      _lastDeviceName = state.lastDeviceName?.isEmpty == true
-          ? null
-          : state.lastDeviceName;
       _deviceMap
         ..clear()
         ..addEntries(
@@ -197,10 +190,9 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
 
   @override
   void dispose() {
-    _bleCoordinatorSub?.cancel();
-    if (widget.enableBlePlatformBindings) {
-      unawaited(_bleCoordinator.release());
-    }
+    _flow
+      ..removeListener(_onFlowChanged)
+      ..dispose();
     _cleanupTimer?.cancel();
     _copiedTimer?.cancel();
     _scrollController.dispose();
@@ -217,41 +209,14 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
     if (mounted) setState(() {});
   }
 
-  void _queueAutoConnectLast() {
-    if (_lastDeviceId == null) return;
-    if (_connecting || BleManager.instance.isConnected) return;
-    if (_pendingConnectLast) return;
-    _pendingConnectLast = true;
-    unawaited(_connectRememberedDevice('connection_badge_initial'));
-  }
-
-  Future<void> _connectRememberedDevice(
-    String source, {
-    bool userInitiated = false,
-  }) async {
-    try {
-      await _bleCoordinator.autoConnectLastDevice(
-        timeout: const Duration(seconds: 10),
-        source: source,
-        userInitiated: userInitiated,
-      );
-    } finally {
-      _pendingConnectLast = false;
-      if (mounted) {
-        setState(() {
-          if (_connectingDeviceId == _lastDeviceId) _connectingDeviceId = null;
-        });
-      }
-    }
-  }
-
   Future<void> _confirmForgetLastDevice() async {
     final id = _lastDeviceId;
     if (id == null) return;
     final name = _deviceName(id) ?? id;
-    final currentId = BleManager.instance.currentDeviceId;
-    final connectedToIt =
-        widget.isBleConnected() && (currentId == null || currentId == id);
+    final connectedToIt = _flow.isConnectedTo(
+      id,
+      connected: widget.isBleConnected(),
+    );
     final confirmed = await showLavenderConfirmDialog(
       context: context,
       icon: Icons.delete_outline_rounded,
@@ -283,29 +248,9 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
 
   Future<void> _openPairingCode() => _requestPairingCode(automatic: false);
 
-  Future<void> _connect(ScanResult result) async {
-    final id = result.device.remoteId.str;
-    setState(() => _connectingDeviceId = id);
-    try {
-      await _bleCoordinator.connect(result, source: 'connection_status_badge');
-    } finally {
-      if (mounted && _connectingDeviceId == id) {
-        setState(() => _connectingDeviceId = null);
-      }
-    }
-  }
+  Future<void> _connect(ScanResult result) => _flow.connect(result);
 
-  Future<void> _connectLast() async {
-    if (_lastDeviceId == null || _pendingConnectLast) return;
-    setState(() {
-      _pendingConnectLast = true;
-      _connectingDeviceId = _lastDeviceId;
-    });
-    await _connectRememberedDevice(
-      'connection_badge_manual',
-      userInitiated: true,
-    );
-  }
+  Future<void> _connectLast() => _flow.connectLast();
 
   String _diagnosticAge(Duration? age) {
     if (age == null) return '-';
