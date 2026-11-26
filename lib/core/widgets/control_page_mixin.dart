@@ -41,6 +41,14 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   /// Set while the page hands control over to another mode's page.
   bool modeSwitchInProgress = false;
 
+  /// Set once the saved layout has loaded (or failed to). The editor waits
+  /// for it, so a late load cannot overwrite what was just dragged.
+  bool layoutLoaded = false;
+
+  /// Wraps the page's layout load so [layoutLoaded] follows it.
+  Future<void> trackLayoutLoad(Future<void> load) =>
+      load.whenComplete(() => layoutLoaded = true);
+
   StreamSubscription<bool>? _controlConnectionSub;
 
   bool get editMode;

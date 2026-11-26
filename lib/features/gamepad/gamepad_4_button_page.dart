@@ -438,6 +438,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
 
   @override
   void toggleEdit() {
+    if (!editMode && !layoutLoaded) return;
     stopControlForEditor();
     setState(() {
       editMode = !editMode;
@@ -889,7 +890,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     _sendSpeed('Med');
-    final layoutsLoaded = _loadLayouts();
+    final layoutsLoaded = trackLayoutLoad(_loadLayouts());
     final open = widget.openOnArrival;
     if (open != null) unawaited(openAfterLoad(layoutsLoaded, open));
   }

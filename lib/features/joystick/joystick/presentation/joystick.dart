@@ -427,9 +427,9 @@ class _JoystickPageState extends State<JoystickPage>
     unawaited(ControlModePreference.save(controlMode));
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
-    final layoutLoaded = _loadLayout();
+    final loaded = trackLayoutLoad(_loadLayout());
     final open = widget.openOnArrival;
-    if (open != null) unawaited(openAfterLoad(layoutLoaded, open));
+    if (open != null) unawaited(openAfterLoad(loaded, open));
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       if (!controlStarted || editMode) return;
       _stepSticks();
@@ -703,6 +703,7 @@ class _JoystickPageState extends State<JoystickPage>
 
   @override
   void toggleEdit() {
+    if (!editMode && !layoutLoaded) return;
     // The editor is not for driving: entering it stops the robot like
     // Emergency Stop, and driving again needs Start. (While editing the
     // page sends nothing, not even keepalives.)

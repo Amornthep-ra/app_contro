@@ -345,7 +345,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     unawaited(_loadSpeedPrefs());
-    final layoutsLoaded = _loadLayouts();
+    final layoutsLoaded = trackLayoutLoad(_loadLayouts());
     final open = widget.openOnArrival;
     if (open != null) unawaited(openAfterLoad(layoutsLoaded, open));
   }
@@ -625,6 +625,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
 
   @override
   void toggleEdit() {
+    if (!editMode && !layoutLoaded) return;
     stopControlForEditor();
     setState(() {
       editMode = !editMode;
