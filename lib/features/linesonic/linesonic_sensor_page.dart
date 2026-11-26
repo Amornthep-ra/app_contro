@@ -9,7 +9,20 @@ import '../../core/widgets/portrait_background.dart';
 import 'linesonic_protocol.dart';
 
 class LineSonicSensorPage extends StatefulWidget {
-  const LineSonicSensorPage({super.key});
+  const LineSonicSensorPage({
+    super.key,
+    this.sendOverride,
+    this.readTxOverride,
+    this.dataOverride,
+  });
+
+  /// Replace the BLE write, the TX read and the notifications in tests.
+  @visibleForTesting
+  final Future<BleWriteResult> Function(String command)? sendOverride;
+  @visibleForTesting
+  final Future<List<int>> Function()? readTxOverride;
+  @visibleForTesting
+  final Stream<List<int>>? dataOverride;
 
   @override
   State<LineSonicSensorPage> createState() => _LineSonicSensorPageState();
@@ -18,6 +31,9 @@ class LineSonicSensorPage extends StatefulWidget {
 class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   final List<int> _values = [];
   int? _sum;
+
+  /// The values on screen are raw ADC (no SUM came with them).
+  bool _rawAdc = true;
   final _rxLines = BleProtocolLineAssembler();
   int _intervalMs = 200;
   bool _auto = false;
@@ -27,7 +43,6 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   DateTime _lastWarn = DateTime.fromMillisecondsSinceEpoch(0);
   final List<String> _logs = [];
   DateTime _lastRead = DateTime.fromMillisecondsSinceEpoch(0);
-  bool _pendingForceRead = false;
   int? _bleTrafficOwner;
 
   /// A read command is being written; Auto skips its tick meanwhile.
@@ -94,7 +109,8 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     _rxLines.reset();
     final owner = _bleTrafficOwner;
     if (owner == null) return;
-    final stream = BleManager.instance.onData(owner: owner);
+    final stream =
+        widget.dataOverride ?? BleManager.instance.onData(owner: owner);
     if (stream == null) return;
     _dataSub = stream.listen(_handleData);
   }
@@ -124,6 +140,7 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
         ..clear()
         ..addAll(reading.values);
       _sum = reading.sum;
+      _rawAdc = reading.isRawAdc;
     });
   }
 
@@ -172,10 +189,13 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     _readInFlight = true;
     final BleWriteResult result;
     try {
-      result = await BleManager.instance.send(
-        LineSonicProtocol.sensorRead,
-        owner: owner,
-      );
+      final override = widget.sendOverride;
+      result = override != null
+          ? await override(LineSonicProtocol.sensorRead)
+          : await BleManager.instance.send(
+              LineSonicProtocol.sensorRead,
+              owner: owner,
+            );
     } finally {
       _readInFlight = false;
     }
@@ -192,13 +212,9 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       return;
     }
     if (fromAuto) _autoFailures = 0;
-
-    if (_pendingForceRead) return;
-    _pendingForceRead = true;
-    Future.delayed(const Duration(milliseconds: 250), () async {
-      _pendingForceRead = false;
-      await _forceReadTx();
-    });
+    // The reading comes as a notification. No read of TX afterwards: the
+    // board writes "ACK" there right after the reading, so a read finds
+    // that instead.
   }
 
   Future<void> _forceReadTx() async {
@@ -226,12 +242,19 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
         _showBleBusy();
         return;
       }
-      final data = await BleManager.instance.readTx(owner: owner);
+      final readTx = widget.readTxOverride;
+      final data = readTx != null
+          ? await readTx()
+          : await BleManager.instance.readTx(owner: owner);
       if (data.isEmpty) {
         _addLog('READ: (empty)');
         return;
       }
       final text = String.fromCharCodes(data).trim();
+      if (text.toUpperCase() == 'ACK') {
+        _addLog('READ: ACK (the reply to a command, not a reading)');
+        return;
+      }
       _addLog('READ: $text');
       _parseLine(text);
     } catch (e) {
@@ -528,9 +551,21 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Sensor Values',
+              _rawAdc ? 'Sensor Values (raw ADC)' : 'Sensor Values (0-100)',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _rawAdc
+                  ? 'Read Now shows raw ADC. CheckSum targets and the SUM '
+                        'threshold use the sum of 0-100 light values, not '
+                        'these numbers.'
+                  : 'Light values as CheckSum and the SUM threshold use '
+                        'them.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 8),

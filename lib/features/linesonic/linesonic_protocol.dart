@@ -141,10 +141,15 @@ class LineSonicSequenceResult {
 class LineSonicSensorReading {
   const LineSonicSensorReading(this.values, this.sum);
 
+  /// Raw `ADC_read` values without [sum] (the board's reply to `SENS=1`);
+  /// with it, each sensor's 0-100 `ReadLightSensor` value.
   final List<int> values;
 
-  /// Only lines from `PBLineSonic_sendAdcAll` carry `SUM=`.
+  /// Only lines from `PBLineSonic_sendAdcAll` carry `SUM=`: the sum CheckSum
+  /// targets and the SUM threshold compare against.
   final int? sum;
+
+  bool get isRawAdc => sum == null;
 }
 
 abstract final class LineSonicProtocol {
