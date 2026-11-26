@@ -90,6 +90,7 @@ class BleConnectionSheet extends StatefulWidget {
     required this.isBleConnected,
     required this.enableBlePlatformBindings,
     this.presentationState,
+    this.pairingPromptEnabled = true,
   });
 
   final Future<void> Function(bool automatic) onPairingRequested;
@@ -99,6 +100,11 @@ class BleConnectionSheet extends StatefulWidget {
 
   /// The toolbar badge's state, so the sheet header says the same thing.
   final ValueListenable<BlePresentationState>? presentationState;
+
+  /// False where the page shows no pairing prompt (Joystick's editor):
+  /// the sheet then stays open instead of closing for one, so Disconnect
+  /// and Forget stay reachable.
+  final bool pairingPromptEnabled;
 
   @override
   State<BleConnectionSheet> createState() => _BleConnectionSheetState();
@@ -169,7 +175,8 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
           ),
         );
     });
-    if (!_pairingRequestPending &&
+    if (widget.pairingPromptEnabled &&
+        !_pairingRequestPending &&
         !_bleCoordinator.pairingPromptPresentedForConnection &&
         requiresBlePairingCode(state.securityState) &&
         widget.isBleConnected()) {
@@ -546,7 +553,9 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
         tooltip: _securityState == BleControlSecurityState.ready
             ? 'Paired'
             : 'Pair code',
-        onPressed: needsCode ? _openPairingCode : null,
+        onPressed: needsCode && widget.pairingPromptEnabled
+            ? _openPairingCode
+            : null,
         icon: Icon(
           Icons.password_rounded,
           color: needsCode

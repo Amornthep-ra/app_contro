@@ -120,6 +120,7 @@ void main() {
     bool connected = false,
     BlePresentationKind badge = BlePresentationKind.notConnected,
     Size size = _landscape,
+    bool pairingPromptEnabled = true,
   }) async {
     tester.view.physicalSize = size * 2.625;
     tester.view.devicePixelRatio = 2.625;
@@ -132,6 +133,7 @@ void main() {
             alignment: Alignment.topCenter,
             child: ConnectionStatusBadge(
               coordinator: coordinator,
+              pairingPromptEnabled: pairingPromptEnabled,
               isBleConnected: () => connected,
               isControlSessionActive: () => false,
               enableBlePlatformBindings: false,
@@ -527,6 +529,32 @@ void main() {
     expect(find.byType(BleConnectionSheet), findsNothing);
     expect(find.byType(ConnectionStatusBadge), findsOneWidget);
     expect(find.text('Root'), findsNothing);
+  });
+
+  testWidgets('pairing needed on a page that will not prompt keeps the '
+      'sheet open', (tester) async {
+    final state = BleConnectionCoordinatorState(
+      devices: _robots,
+      lastDeviceId: _lastId,
+      lastDeviceName: 'PB-Robot-02',
+    );
+    await openSheet(
+      tester,
+      state,
+      connected: true,
+      pairingPromptEnabled: false,
+    );
+    coordinator.debugEmitForTesting(
+      state.copyWith(securityState: BleControlSecurityState.pairingRequired),
+    );
+    await settle(tester);
+
+    expect(find.byType(BleConnectionSheet), findsOneWidget);
+    expect(_inSheet(find.text('Disconnect')), findsOneWidget);
+    final pairCode = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.password_rounded),
+    );
+    expect(pairCode.onPressed, isNull);
   });
 
   testWidgets('no Forget menu without a remembered robot', (tester) async {
