@@ -14,7 +14,6 @@ import '../../../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/ble/ble_manager.dart';
-import '../../../../core/ble/ble_connection_coordinator.dart';
 import '../joystick_controller.dart';
 import '../widgets/joystick_widget.dart';
 import '../joystick_view.dart';
@@ -37,7 +36,6 @@ import '../../../../core/widgets/gamepad_telemetry_chip.dart';
 import '../../../../core/widgets/gamepad_edit_notices.dart';
 import '../../../../core/widgets/gamepad_edit_shared.dart';
 import '../../../../core/widgets/gamepad_edit_toolbar.dart';
-import '../../../../core/widgets/pairing_code_dialog.dart';
 import '../../../gamepad/control_mode_settings_page.dart';
 
 const double kJoyMinSize = 0.6;
@@ -229,14 +227,6 @@ class _JoystickPageState extends State<JoystickPage>
   bool _showGrid = false;
   Color _opacity(Color color, double opacity) =>
       color.withAlpha((opacity * 255).round());
-  StreamSubscription<bool>? _bleConnSub;
-  int? _bleTrafficOwner;
-  @override
-  bool startInProgress = false;
-  bool _leavingControlPage = false;
-  @override
-  bool controlStarted = false;
-  bool _modeSwitchInProgress = false;
 
   /// Tells the sticks and face buttons that input was cleared, so they
   /// stop showing a held position and ignore fingers still down (J-4).
@@ -304,14 +294,8 @@ class _JoystickPageState extends State<JoystickPage>
     Set<int>? buttons,
     bool force = false,
   }) {
-    if (!controlStarted ||
-        _modeSwitchInProgress ||
-        startInProgress ||
-        BleManager.instance.controlSuspendedForLifecycle) {
-      return;
-    }
-    final owner = _bleTrafficOwner;
-    if (owner == null) return;
+    if (!canSendControl) return;
+    final owner = controlOwner!;
     _lastControlSendMs = DateTime.now().millisecondsSinceEpoch;
     final testSink = widget.sendControlPacket;
     if (testSink != null) {
@@ -380,58 +364,25 @@ class _JoystickPageState extends State<JoystickPage>
     _timer = null;
   }
 
+  @override
+  String get controlOwnerName => 'joystick';
+
+  @override
+  Future<int?> Function()? get acquireControlOverride => widget.acquireControl;
+
   // The send timer runs for the page's lifetime and idles while control is
-  // stopped; only leaving the page cancels it (_stopTimer).
+  // stopped; only leaving the page cancels it (stopSendingForExit).
+  @override
+  void startControlLoop() {}
+
   @override
   void stopControlLoop() {}
 
   @override
-  bool get canStartControl =>
-      !_leavingControlPage && !startInProgress && !_modeSwitchInProgress;
+  void stopSendingForExit() => _stopTimer();
+
   @override
-  Future<void> startControl() async {
-    if (controlStarted || !canStartControl) return;
-    setState(() => startInProgress = true);
-    final owner =
-        await (widget.acquireControl?.call() ??
-            BleConnectionCoordinator.instance.acquireControlForStart(
-              ownerName: 'joystick',
-            ));
-    // Also give control back if the editor opened while Start was pending.
-    if (!mounted || _leavingControlPage || _modeSwitchInProgress || editMode) {
-      if (owner != null) {
-        await BleManager.instance.stopAndReleaseControl(owner: owner);
-      }
-      if (mounted) setState(() => startInProgress = false);
-      return;
-    }
-    if (owner == null) {
-      setState(() => startInProgress = false);
-      if (requiresBlePairingCode(
-        BleConnectionCoordinator.instance.state.securityState,
-      )) {
-        final paired = await promptForBlePairingCode(context: context);
-        if (paired == true && mounted) {
-          await startControl();
-        }
-        return;
-      }
-      showGamepadTopNotice(
-        context,
-        message: controlStartFailureMessage(
-          BleConnectionCoordinator.instance.state,
-        ),
-        style: GamepadNoticeStyle.error,
-      );
-      return;
-    }
-    _bleTrafficOwner = owner;
-    resetInputState();
-    if (!mounted) return;
-    setState(() {
-      startInProgress = false;
-      controlStarted = true;
-    });
+  void sendStartPacket() {
     _sendBinary(
       JoystickPacket(lx: 0, ly: 0, rx: 0, ry: 0),
       buttons: const <int>{},
@@ -440,12 +391,8 @@ class _JoystickPageState extends State<JoystickPage>
   }
 
   @override
-  Future<void> stopControl() async {
-    if (!controlStarted) return;
-    resetInputState();
-    if (mounted) setState(() => controlStarted = false);
-    await _releaseTrafficOwnershipForExit(emergency: true);
-  }
+  Future<void> sendExitStop(int owner) =>
+      _sendZeroAndClear(updateUi: false, owner: owner);
 
   Future<void> _sendZeroAndClear({bool updateUi = true, int? owner}) {
     _signalInputReset();
@@ -465,7 +412,7 @@ class _JoystickPageState extends State<JoystickPage>
     _controller.setLeftJoystick(0, 0);
     _controller.setRightJoystick(0, 0);
     _lastButtonsKey = 0;
-    final stopOwner = owner ?? _bleTrafficOwner;
+    final stopOwner = owner ?? controlOwner;
     final stopFuture = stopOwner == null
         ? Future<void>.value()
         : BleManager.instance.sendControlStop(owner: stopOwner);
@@ -482,21 +429,11 @@ class _JoystickPageState extends State<JoystickPage>
   void initState() {
     super.initState();
     unawaited(ControlModePreference.save(LastControlMode.joystick));
-    BleManager.instance.controlSuspendedListenable.addListener(
-      handleControlSuspended,
-    );
+    initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     final layoutLoaded = _loadLayout();
     final open = widget.openOnArrival;
     if (open != null) unawaited(openAfterLoad(layoutLoaded, open));
-    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
-      if (!mounted) return;
-      resetInputState();
-      if (!connected) {
-        setState(() => controlStarted = false);
-        unawaited(_releaseTrafficOwnershipForExit());
-      }
-    });
     _timer = Timer.periodic(const Duration(milliseconds: 25), (_) {
       if (!controlStarted || editMode) return;
       _stepSticks();
@@ -580,11 +517,11 @@ class _JoystickPageState extends State<JoystickPage>
     required String source,
     ControlModeOpen? open,
   }) async {
-    if (_modeSwitchInProgress || editMode) return;
+    if (modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
-    final owner = _bleTrafficOwner;
+    final owner = controlOwner;
     setState(() {
-      _modeSwitchInProgress = true;
+      modeSwitchInProgress = true;
       controlStarted = false;
     });
     resetInputState();
@@ -596,7 +533,7 @@ class _JoystickPageState extends State<JoystickPage>
             : LastControlMode.eightButton,
       ),
     );
-    _bleTrafficOwner = null;
+    controlOwner = null;
     if (owner != null) {
       manager.handoffControlForModeSwitch(owner: owner, source: source);
     }
@@ -609,7 +546,7 @@ class _JoystickPageState extends State<JoystickPage>
   }
 
   Future<void> _openSettings() async {
-    if (editMode || _modeSwitchInProgress) return;
+    if (editMode || modeSwitchInProgress) return;
     final result = await Navigator.of(context).push<ControlModeSettingsResult>(
       controlModeSettingsRoute(
         mode: ControlMode.joystick,
@@ -662,14 +599,8 @@ class _JoystickPageState extends State<JoystickPage>
 
   @override
   void dispose() {
-    _leavingControlPage = true;
-    _stopTimer();
     _editWarningTimer?.cancel();
-    _bleConnSub?.cancel();
-    BleManager.instance.controlSuspendedListenable.removeListener(
-      handleControlSuspended,
-    );
-    unawaited(_releaseTrafficOwnershipForExit());
+    disposeControlSession();
     _leftDebug.dispose();
     _rightDebug.dispose();
     _inputResetSignal.dispose();
@@ -829,7 +760,7 @@ class _JoystickPageState extends State<JoystickPage>
     // The editor is not for driving: entering it stops the robot like
     // Emergency Stop, and driving again needs Start. (While editing the
     // page sends nothing, not even keepalives.)
-    if (!editMode && controlStarted) unawaited(stopControl());
+    stopControlForEditor();
     setState(() {
       editMode = !editMode;
       if (editMode && _panelSize != null) {
@@ -1401,41 +1332,6 @@ class _JoystickPageState extends State<JoystickPage>
     }
   }
 
-  Future<bool> _onBack() async {
-    if (_leavingControlPage) return false;
-    _leavingControlPage = true;
-    _stopTimer();
-    await _releaseTrafficOwnershipForExit();
-    if (!mounted) return false;
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
-      navigator.pop();
-    } else {
-      navigator.pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
-    }
-    return false;
-  }
-
-  Future<void> _releaseTrafficOwnershipForExit({bool emergency = false}) async {
-    final owner = _bleTrafficOwner;
-    _bleTrafficOwner = null;
-    if (owner == null) return;
-    final manager = BleManager.instance;
-    if (emergency) {
-      await manager.emergencyStopAndReleaseControl(
-        owner: owner,
-        source: 'joystick_emergency_stop',
-      );
-      return;
-    }
-    manager.disableControlReconnect(owner);
-    try {
-      await _sendZeroAndClear(updateUi: false, owner: owner);
-    } finally {
-      manager.releaseTrafficMode(owner);
-    }
-  }
-
   Widget _buildAlignmentGuides() {
     if (!editMode || _dragCount == 0 || (!_showVGuide && !_showHGuide)) {
       return const SizedBox.shrink();
@@ -1580,7 +1476,7 @@ class _JoystickPageState extends State<JoystickPage>
       metrics: metrics,
       onPressed: () {
         gamepadBuzz();
-        _onBack();
+        exitControlPage();
       },
     );
   }
@@ -1615,7 +1511,7 @@ class _JoystickPageState extends State<JoystickPage>
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        _onBack();
+        exitControlPage();
       },
       child: Stack(
         children: [

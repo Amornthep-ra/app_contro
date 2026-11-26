@@ -12,7 +12,6 @@ import '../../core/widgets/gamepad_control_toolbar.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/ble/ble_manager.dart';
-import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ui/gamepad_assets.dart';
 import '../../core/ui/gamepad_components.dart';
 import '../../core/ui/gamepad_edit_metrics.dart';
@@ -33,7 +32,6 @@ import '../../core/widgets/gamepad_edit_notices.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
 import '../../core/widgets/gamepad_edit_toolbar.dart';
 import '../../core/widgets/gamepad_telemetry_chip.dart';
-import '../../core/widgets/pairing_code_dialog.dart';
 import 'control_mode_settings_page.dart';
 
 const double designW = 1280;
@@ -344,14 +342,6 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   final _history = GamepadEditHistory<_EditSnapshot>();
   Timer? _tick;
   int _lastSendMs = 0;
-  StreamSubscription<bool>? _bleConnSub;
-  int? _bleTrafficOwner;
-  @override
-  bool startInProgress = false;
-  bool _leavingControlPage = false;
-  @override
-  bool controlStarted = false;
-  bool _modeSwitchInProgress = false;
   @override
   void resetInputState() {
     void apply() {
@@ -452,6 +442,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
 
   @override
   void toggleEdit() {
+    stopControlForEditor();
     setState(() {
       editMode = !editMode;
       _editWarningId = null;
@@ -870,15 +861,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   void _showBoundaryWarning() => _editNotices.showBoundaryWarning(context);
 
   void _sendBinary({bool force = false}) {
-    if (!controlStarted ||
-        startInProgress ||
-        _modeSwitchInProgress ||
-        BleManager.instance.controlSuspendedForLifecycle) {
-      return;
-    }
-    if (!BleManager.instance.isConnected) return;
-    final owner = _bleTrafficOwner;
-    if (owner == null) return;
+    if (!canSendControl || !BleManager.instance.isConnected) return;
+    final owner = controlOwner!;
     final now = DateTime.now().millisecondsSinceEpoch;
     final key = _packetKey();
     if (!force) {
@@ -902,7 +886,8 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     );
   }
 
-  void _startControlLoop() {
+  @override
+  void startControlLoop() {
     if (_tick != null) return;
     _tick = Timer.periodic(
       const Duration(milliseconds: kLoopMs),
@@ -917,99 +902,39 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   }
 
   @override
-  bool get canStartControl =>
-      !_leavingControlPage && !startInProgress && !_modeSwitchInProgress;
-  @override
-  Future<void> startControl() async {
-    if (controlStarted || !canStartControl) return;
-    setState(() => startInProgress = true);
-    final owner =
-        await (widget.acquireControl?.call() ??
-            BleConnectionCoordinator.instance.acquireControlForStart(
-              ownerName: 'gamepad_4',
-            ));
-    if (!mounted || _leavingControlPage || _modeSwitchInProgress) {
-      if (owner != null) {
-        await BleManager.instance.stopAndReleaseControl(owner: owner);
-      }
-      return;
-    }
-    if (owner == null) {
-      setState(() => startInProgress = false);
-      if (requiresBlePairingCode(
-        BleConnectionCoordinator.instance.state.securityState,
-      )) {
-        final paired = await promptForBlePairingCode(context: context);
-        if (paired == true && mounted) {
-          await startControl();
-        }
-        return;
-      }
-      showGamepadTopNotice(
-        context,
-        message: controlStartFailureMessage(
-          BleConnectionCoordinator.instance.state,
-        ),
-        style: GamepadNoticeStyle.error,
-      );
-      return;
-    }
-    _bleTrafficOwner = owner;
-    resetInputState();
-    if (!mounted) return;
-    setState(() {
-      startInProgress = false;
-      controlStarted = true;
-    });
-    _startControlLoop();
-    _sendBinary(force: true);
-  }
+  String get controlOwnerName => 'gamepad_4';
 
   @override
-  Future<void> stopControl() async {
-    if (!controlStarted) return;
-    stopControlLoop();
-    resetInputState();
-    if (mounted) setState(() => controlStarted = false);
-    await _releaseTrafficOwnershipForExit(emergency: true);
-  }
+  Future<int?> Function()? get acquireControlOverride => widget.acquireControl;
+
+  @override
+  void sendStartPacket() => _sendBinary(force: true);
 
   @override
   void initState() {
     super.initState();
     unawaited(ControlModePreference.save(LastControlMode.fourButton));
-    BleManager.instance.controlSuspendedListenable.addListener(
-      handleControlSuspended,
-    );
+    initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     _sendSpeed('Med');
     final layoutsLoaded = _loadLayouts();
     final open = widget.openOnArrival;
     if (open != null) unawaited(openAfterLoad(layoutsLoaded, open));
-    _bleConnSub = BleManager.instance.connectionStream.listen((connected) {
-      if (!mounted) return;
-      resetInputState();
-      if (!connected) {
-        stopControlLoop();
-        setState(() => controlStarted = false);
-        unawaited(_releaseTrafficOwnershipForExit());
-      }
-    });
   }
 
   Future<void> _switchToPrecision({ControlModeOpen? open}) async {
-    if (_modeSwitchInProgress || editMode) return;
+    if (modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
-    final owner = _bleTrafficOwner;
+    final owner = controlOwner;
     setState(() {
-      _modeSwitchInProgress = true;
+      modeSwitchInProgress = true;
       controlStarted = false;
       _speedMenuOpen = false;
     });
     resetInputState();
     stopControlLoop();
     unawaited(ControlModePreference.save(LastControlMode.eightButton));
-    _bleTrafficOwner = null;
+    controlOwner = null;
     if (owner != null) {
       manager.handoffControlForModeSwitch(
         owner: owner,
@@ -1025,18 +950,18 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   }
 
   Future<void> _switchToJoystick({ControlModeOpen? open}) async {
-    if (_modeSwitchInProgress || editMode) return;
+    if (modeSwitchInProgress || editMode) return;
     final manager = BleManager.instance;
-    final owner = _bleTrafficOwner;
+    final owner = controlOwner;
     setState(() {
-      _modeSwitchInProgress = true;
+      modeSwitchInProgress = true;
       controlStarted = false;
       _speedMenuOpen = false;
     });
     resetInputState();
     stopControlLoop();
     unawaited(ControlModePreference.save(LastControlMode.joystick));
-    _bleTrafficOwner = null;
+    controlOwner = null;
     if (owner != null) {
       manager.handoffControlForModeSwitch(
         owner: owner,
@@ -1098,44 +1023,9 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
 
   @override
   void dispose() {
-    _leavingControlPage = true;
     _editWarningTimer?.cancel();
-    stopControlLoop();
-    _bleConnSub?.cancel();
-    BleManager.instance.controlSuspendedListenable.removeListener(
-      handleControlSuspended,
-    );
-    unawaited(_releaseTrafficOwnershipForExit());
+    disposeControlSession();
     super.dispose();
-  }
-
-  Future<void> _releaseTrafficOwnershipForExit({bool emergency = false}) async {
-    final owner = _bleTrafficOwner;
-    _bleTrafficOwner = null;
-    if (owner == null) return;
-    final manager = BleManager.instance;
-    if (emergency) {
-      await manager.emergencyStopAndReleaseControl(
-        owner: owner,
-        source: 'gamepad_4_emergency_stop',
-      );
-      return;
-    }
-    manager.disableControlReconnect(owner);
-    try {
-      if (manager.isConnected) {
-        await manager.sendControlStop(owner: owner);
-      }
-    } finally {
-      manager.releaseTrafficMode(owner);
-    }
-  }
-
-  Future<void> _exitControlPage() async {
-    if (_leavingControlPage) return;
-    _leavingControlPage = true;
-    await _releaseTrafficOwnershipForExit();
-    if (mounted) Navigator.of(context).pop();
   }
 
   String _computeCommand() {
@@ -1213,9 +1103,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     return GamepadAppBarBackButton(
       onPressed: () async {
         gamepadBuzz();
-        await _releaseTrafficOwnershipForExit();
-        if (!mounted) return;
-        Navigator.of(context).pop();
+        await exitControlPage();
       },
     );
   }
@@ -1531,7 +1419,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) unawaited(_exitControlPage());
+        if (!didPop) unawaited(exitControlPage());
       },
       child: Stack(
         children: [
