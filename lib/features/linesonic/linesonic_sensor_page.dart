@@ -30,6 +30,15 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
   bool _pendingForceRead = false;
   int? _bleTrafficOwner;
 
+  /// A read command is being written; Auto skips its tick meanwhile.
+  bool _readInFlight = false;
+
+  /// Auto reads in a row that did not go out; Auto stops at
+  /// [_maxAutoFailures].
+  int _autoFailures = 0;
+  static const _maxAutoFailures = 3;
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
@@ -41,10 +50,33 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     _connSub = BleManager.instance.connectionStream.listen((_) {
       _bindDataStream();
     });
+    _lifecycle = AppLifecycleListener(onStateChange: _onAppLifecycle);
+  }
+
+  /// Auto stops sending while the app is in the background (the BLE link
+  /// and the battery stay free) and goes on when it is back.
+  void _onAppLifecycle(AppLifecycleState state) {
+    if (!_auto) return;
+    switch (state) {
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        if (_autoTimer == null) return;
+        _autoTimer!.cancel();
+        _autoTimer = null;
+        _addLog('Auto paused (app in background)');
+      case AppLifecycleState.resumed:
+        if (_autoTimer != null) return;
+        _startAutoTimer();
+        _addLog('Auto resumed');
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _autoTimer?.cancel();
     _dataSub?.cancel();
     _connSub?.cancel();
@@ -95,7 +127,28 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     });
   }
 
-  Future<void> _sendRead() async {
+  /// Shows [message] at most every 2 s, unless [always].
+  /// Shows [message] at most every 2 s. [always] shows it now, in place of
+  /// any message still on screen.
+  void _warn(String message, {bool always = false}) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    if (!always && now.difference(_lastWarn) <= const Duration(seconds: 2)) {
+      return;
+    }
+    _lastWarn = now;
+    final messenger = ScaffoldMessenger.of(context);
+    if (always) messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _autoTick() {
+    // The previous read is still being written: skip rather than queue.
+    if (_readInFlight) return;
+    unawaited(_sendRead(fromAuto: true));
+  }
+
+  Future<void> _sendRead({bool fromAuto = false}) async {
     if (!BleManager.instance.isConnected) {
       if (_auto) _setAuto(false);
       final now = DateTime.now();
@@ -116,18 +169,29 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
       return;
     }
     _addLog('TX: ${LineSonicProtocol.sensorRead}');
-    final result = await BleManager.instance.send(
-      LineSonicProtocol.sensorRead,
-      owner: owner,
-    );
+    _readInFlight = true;
+    final BleWriteResult result;
+    try {
+      result = await BleManager.instance.send(
+        LineSonicProtocol.sensorRead,
+        owner: owner,
+      );
+    } finally {
+      _readInFlight = false;
+    }
     if (result != BleWriteResult.sent) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Command not sent: ${result.name}')),
+      if (fromAuto && _auto && ++_autoFailures >= _maxAutoFailures) {
+        _setAuto(false);
+        _warn(
+          'Auto stopped: the board is not receiving commands',
+          always: true,
         );
+      } else {
+        _warn('Command not sent: ${result.name}');
       }
       return;
     }
+    if (fromAuto) _autoFailures = 0;
 
     if (_pendingForceRead) return;
     _pendingForceRead = true;
@@ -175,14 +239,21 @@ class _LineSonicSensorPageState extends State<LineSonicSensorPage> {
     }
   }
 
+  void _startAutoTimer() {
+    _autoTimer?.cancel();
+    _autoTimer = Timer.periodic(
+      Duration(milliseconds: _intervalMs),
+      (_) => _autoTick(),
+    );
+  }
+
   void _setAuto(bool on) {
     _autoTimer?.cancel();
+    _autoTimer = null;
     _auto = on;
+    _autoFailures = 0;
     if (on) {
-      _autoTimer = Timer.periodic(
-        Duration(milliseconds: _intervalMs),
-        (_) => _sendRead(),
-      );
+      _startAutoTimer();
       _addLog('Auto ON (${_intervalMs}ms)');
     } else {
       _addLog('Auto OFF');
