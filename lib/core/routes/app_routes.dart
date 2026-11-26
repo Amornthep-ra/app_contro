@@ -17,9 +17,9 @@ class AppRoutes {
   static const String lineSonic = '/linesonic';
   static const String bluetoothBle = '/bluetooth-ble';
   static const String gamepad = '/gamepad';
-  static const String gamepad4Button = '/gamepad-4-button';
-  static const String gamepad8Button = '/gamepad-8-button';
-  static const String dualJoystickMode1 = '/dual-joystick-mode1';
+  static const String gamepad4Button = kGamepad4ButtonRoute;
+  static const String gamepad8Button = kGamepad8ButtonRoute;
+  static const String dualJoystickMode1 = kJoystickRoute;
 
   /// What a control page should open on arrival when Settings switched to
   /// it (Edit layout / Saved layouts for another mode).

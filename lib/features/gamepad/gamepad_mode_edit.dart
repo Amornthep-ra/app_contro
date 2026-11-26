@@ -27,7 +27,6 @@ import '../../core/widgets/control_preset_slots.dart';
 import '../../core/widgets/connection_status_badge.dart';
 import '../../core/widgets/gamepad_app_bar.dart';
 import '../../core/utils/orientation_utils.dart';
-import '../../core/routes/app_routes.dart';
 import '../../core/widgets/gamepad_controls_sheet.dart';
 import '../../core/widgets/gamepad_edit_notices.dart';
 import '../../core/widgets/gamepad_edit_shared.dart';
@@ -354,78 +353,18 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
     if (open != null) unawaited(openAfterLoad(layoutsLoaded, open));
   }
 
-  Future<void> _switchToPreset({ControlModeOpen? open}) async {
-    if (modeSwitchInProgress || editMode) return;
-    final manager = BleManager.instance;
-    final owner = controlOwner;
-    setState(() {
-      modeSwitchInProgress = true;
-      controlStarted = false;
-      _speedPanelOpen = false;
-    });
-    resetInputState();
-    stopControlLoop();
-    unawaited(ControlModePreference.save(LastControlMode.fourButton));
-    controlOwner = null;
-    if (owner != null) {
-      manager.handoffControlForModeSwitch(
-        owner: owner,
-        source: 'gamepad_precision_to_preset',
-      );
-    }
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed<void, bool>(
-      AppRoutes.gamepad4Button,
-      result: true,
-      arguments: ControlPageArguments(open: open),
-    );
-  }
+  @override
+  ControlMode get controlMode => ControlMode.eightButton;
 
-  Future<void> _switchToJoystick({ControlModeOpen? open}) async {
-    if (modeSwitchInProgress || editMode) return;
-    final manager = BleManager.instance;
-    final owner = controlOwner;
-    setState(() {
-      modeSwitchInProgress = true;
-      controlStarted = false;
-      _speedPanelOpen = false;
-    });
-    resetInputState();
-    stopControlLoop();
-    unawaited(ControlModePreference.save(LastControlMode.joystick));
-    controlOwner = null;
-    if (owner != null) {
-      manager.handoffControlForModeSwitch(
-        owner: owner,
-        source: 'gamepad_8_to_joystick',
-      );
-    }
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed<void, bool>(
-      AppRoutes.dualJoystickMode1,
-      result: true,
-      arguments: ControlPageArguments(open: open),
-    );
-  }
+  @override
+  void onModeSwitchStarted() => _speedPanelOpen = false;
 
-  Future<void> _openSettings() async {
-    if (editMode) return;
-    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
-      controlModeSettingsRoute(
-        mode: ControlMode.eightButton,
-        onManageLayouts: showPresetSheet,
-      ),
-    );
-    if (!mounted || result == null) return;
-    switch (result.mode) {
-      case ControlMode.eightButton:
-        openFromSettings(result.open);
-      case ControlMode.fourButton:
-        await _switchToPreset(open: result.open);
-      case ControlMode.joystick:
-        await _switchToJoystick(open: result.open);
-    }
-  }
+  Future<void> _openSettings() => openControlSettings(
+    () => controlModeSettingsRoute(
+      mode: controlMode,
+      onManageLayouts: showPresetSheet,
+    ),
+  );
 
   Widget _buildStartHint(GamepadControlLayout layout) {
     final padding = MediaQuery.paddingOf(context);

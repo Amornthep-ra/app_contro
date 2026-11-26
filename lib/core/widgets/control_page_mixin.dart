@@ -5,9 +5,29 @@ import 'package:flutter/widgets.dart';
 import '../ble/ble_connection_coordinator.dart';
 import '../ble/ble_manager.dart';
 import '../ui/control_mode.dart';
+import '../ui/control_mode_preference.dart';
 import 'control_start_stop.dart';
 import 'gamepad_appbar_controls.dart';
 import 'pairing_code_dialog.dart';
+
+/// Log source of each mode switch, kept from the per-page versions so
+/// logs compare with older builds.
+const _modeSwitchSources = <(ControlMode, ControlMode), String>{
+  (ControlMode.fourButton, ControlMode.eightButton):
+      'gamepad_preset_to_precision',
+  (ControlMode.fourButton, ControlMode.joystick): 'gamepad_4_to_joystick',
+  (ControlMode.eightButton, ControlMode.fourButton):
+      'gamepad_precision_to_preset',
+  (ControlMode.eightButton, ControlMode.joystick): 'gamepad_8_to_joystick',
+  (ControlMode.joystick, ControlMode.fourButton): 'joystick_to_gamepad_4',
+  (ControlMode.joystick, ControlMode.eightButton): 'joystick_to_gamepad_8',
+};
+
+LastControlMode _lastControlModeFor(ControlMode mode) => switch (mode) {
+  ControlMode.fourButton => LastControlMode.fourButton,
+  ControlMode.eightButton => LastControlMode.eightButton,
+  ControlMode.joystick => LastControlMode.joystick,
+};
 
 /// What the 4 BTN, 8 BTN and Joystick pages share: the control session
 /// (BLE ownership, Start/Stop, leaving the page), the layout editor and
@@ -30,6 +50,13 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   StreamSubscription<bool>? _controlConnectionSub;
 
   bool get editMode;
+
+  /// The mode this page shows.
+  ControlMode get controlMode;
+
+  /// Called inside the [setState] that starts a mode switch, to close
+  /// page-specific menus.
+  void onModeSwitchStarted() {}
 
   /// Name given to the BLE owner, also the prefix of its log sources.
   String get controlOwnerName;
@@ -198,6 +225,52 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   /// needs Start. Call from [toggleEdit] before flipping [editMode].
   void stopControlForEditor() {
     if (!editMode && controlStarted) unawaited(stopControl());
+  }
+
+  /// Opens Settings (the route [buildRoute] makes), then opens what it
+  /// asked for here or switches to the mode it picked.
+  Future<void> openControlSettings(
+    Route<ControlModeSettingsResult> Function() buildRoute,
+  ) async {
+    if (editMode || modeSwitchInProgress) return;
+    final result = await Navigator.of(context).push(buildRoute());
+    if (!mounted || result == null) return;
+    if (result.mode == controlMode) {
+      openFromSettings(result.open);
+      return;
+    }
+    await switchToControlMode(result.mode, open: result.open);
+  }
+
+  /// Replaces this page with [target]'s page, handing BLE control over so
+  /// the robot keeps its link, then opens [open] there.
+  Future<void> switchToControlMode(
+    ControlMode target, {
+    ControlModeOpen? open,
+  }) async {
+    if (modeSwitchInProgress || editMode || target == controlMode) return;
+    final owner = controlOwner;
+    setState(() {
+      modeSwitchInProgress = true;
+      controlStarted = false;
+      onModeSwitchStarted();
+    });
+    resetInputState();
+    stopSendingForExit();
+    unawaited(ControlModePreference.save(_lastControlModeFor(target)));
+    controlOwner = null;
+    if (owner != null) {
+      BleManager.instance.handoffControlForModeSwitch(
+        owner: owner,
+        source: _modeSwitchSources[(controlMode, target)]!,
+      );
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed<void, bool>(
+      controlModeRoute(target),
+      result: true,
+      arguments: ControlPageArguments(open: open),
+    );
   }
 
   void showStartFirstNotice() {

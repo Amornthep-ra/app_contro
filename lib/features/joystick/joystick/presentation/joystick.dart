@@ -22,7 +22,6 @@ import '../../../../core/utils/orientation_utils.dart';
 import '../joystick_theme.dart';
 import '../../../../core/ble/joystick_packet.dart';
 import '../../../../core/ble/control_timing.dart';
-import '../../../../core/routes/app_routes.dart';
 import '../../../../core/ui/gamepad_assets.dart';
 import '../../../../core/widgets/gamepad_controls_sheet.dart';
 import '../../../../core/ui/control_mode.dart';
@@ -512,65 +511,15 @@ class _JoystickPageState extends State<JoystickPage>
     });
   }
 
-  Future<void> _switchToControlMode({
-    required String route,
-    required String source,
-    ControlModeOpen? open,
-  }) async {
-    if (modeSwitchInProgress || editMode) return;
-    final manager = BleManager.instance;
-    final owner = controlOwner;
-    setState(() {
-      modeSwitchInProgress = true;
-      controlStarted = false;
-    });
-    resetInputState();
-    _stopTimer();
-    unawaited(
-      ControlModePreference.save(
-        route == AppRoutes.gamepad4Button
-            ? LastControlMode.fourButton
-            : LastControlMode.eightButton,
-      ),
-    );
-    controlOwner = null;
-    if (owner != null) {
-      manager.handoffControlForModeSwitch(owner: owner, source: source);
-    }
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed<void, bool>(
-      route,
-      result: true,
-      arguments: ControlPageArguments(open: open),
-    );
-  }
+  @override
+  ControlMode get controlMode => ControlMode.joystick;
 
-  Future<void> _openSettings() async {
-    if (editMode || modeSwitchInProgress) return;
-    final result = await Navigator.of(context).push<ControlModeSettingsResult>(
-      controlModeSettingsRoute(
-        mode: ControlMode.joystick,
-        onManageLayouts: showPresetSheet,
-      ),
-    );
-    if (!mounted || result == null) return;
-    switch (result.mode) {
-      case ControlMode.joystick:
-        openFromSettings(result.open);
-      case ControlMode.fourButton:
-        await _switchToControlMode(
-          route: AppRoutes.gamepad4Button,
-          source: 'joystick_to_gamepad_4',
-          open: result.open,
-        );
-      case ControlMode.eightButton:
-        await _switchToControlMode(
-          route: AppRoutes.gamepad8Button,
-          source: 'joystick_to_gamepad_8',
-          open: result.open,
-        );
-    }
-  }
+  Future<void> _openSettings() => openControlSettings(
+    () => controlModeSettingsRoute(
+      mode: controlMode,
+      onManageLayouts: showPresetSheet,
+    ),
+  );
 
   Widget _buildStartHint(GamepadControlLayout layout) {
     final padding = MediaQuery.paddingOf(context);

@@ -28,6 +28,17 @@ class ControlPageArguments {
   final ControlModeOpen? open;
 }
 
+/// Route names of the control pages; [AppRoutes] uses the same values.
+const String kGamepad4ButtonRoute = '/gamepad-4-button';
+const String kGamepad8ButtonRoute = '/gamepad-8-button';
+const String kJoystickRoute = '/dual-joystick-mode1';
+
+String controlModeRoute(ControlMode mode) => switch (mode) {
+  ControlMode.fourButton => kGamepad4ButtonRoute,
+  ControlMode.eightButton => kGamepad8ButtonRoute,
+  ControlMode.joystick => kJoystickRoute,
+};
+
 String controlModeName(ControlMode mode) => switch (mode) {
   ControlMode.fourButton => '4 BTN',
   ControlMode.eightButton => '8 BTN',
