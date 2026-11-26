@@ -16,6 +16,7 @@ import '../ui/lavender_glass.dart';
 import 'ble_connection_status.dart';
 import 'ble_device_row.dart';
 import 'ble_status_orb.dart';
+import 'bluetooth_off_prompt.dart';
 import 'cat_glass_popup.dart';
 
 /// What the sheet header shows.
@@ -91,6 +92,7 @@ class BleConnectionSheet extends StatefulWidget {
     required this.enableBlePlatformBindings,
     this.presentationState,
     this.pairingPromptEnabled = true,
+    this.adapterStates,
   });
 
   final Future<void> Function(bool automatic) onPairingRequested;
@@ -106,12 +108,21 @@ class BleConnectionSheet extends StatefulWidget {
   /// and Forget stay reachable.
   final bool pairingPromptEnabled;
 
+  /// Replaces FlutterBluePlus.adapterState in tests.
+  @visibleForTesting
+  final Stream<BluetoothAdapterState> Function()? adapterStates;
+
   @override
   State<BleConnectionSheet> createState() => _BleConnectionSheetState();
 }
 
 class _BleConnectionSheetState extends State<BleConnectionSheet> {
   Timer? _cleanupTimer;
+
+  /// Set after Open settings from the Bluetooth-off prompt: scans once
+  /// Bluetooth is on, like the Bluetooth page.
+  StreamSubscription<BluetoothAdapterState>? _scanWhenOnSub;
+  bool _bluetoothOffPromptOpen = false;
   final Map<String, _BleEntry> _deviceMap = {};
   bool _pairingRequestPending = false;
   BleConnectionCoordinator get _bleCoordinator => widget.coordinator;
@@ -216,6 +227,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       ..removeListener(_onFlowChanged)
       ..dispose();
     _cleanupTimer?.cancel();
+    _scanWhenOnSub?.cancel();
     _copiedTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -263,6 +275,36 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
   }
 
   Future<void> _startScan() => _bleCoordinator.startScan();
+
+  /// The Scan button: with Bluetooth off, asks to turn it on (as the
+  /// Bluetooth page does) instead of a scan that cannot run.
+  Future<void> _onScanPressed() async {
+    final adapterStates =
+        widget.adapterStates ?? () => FlutterBluePlus.adapterState;
+    final adapter = await adapterStates().first;
+    if (!mounted) return;
+    if (adapter == BluetoothAdapterState.on) {
+      await _startScan();
+      return;
+    }
+    if (_bluetoothOffPromptOpen) return;
+    _bluetoothOffPromptOpen = true;
+    final bool openedSettings;
+    try {
+      openedSettings = await promptToTurnOnBluetooth(context);
+    } finally {
+      _bluetoothOffPromptOpen = false;
+    }
+    if (!openedSettings || !mounted) return;
+    await _scanWhenOnSub?.cancel();
+    _scanWhenOnSub = adapterStates()
+        .where((state) => state == BluetoothAdapterState.on)
+        .take(1)
+        .listen((_) {
+          _scanWhenOnSub = null;
+          if (mounted) unawaited(_startScan());
+        });
+  }
 
   Future<void> _stopScan() => _bleCoordinator.stopScan();
 
@@ -620,7 +662,7 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
           icon: Icons.search_rounded,
           height: 48,
           busy: scanBusy,
-          onPressed: inProgress ? null : _startScan,
+          onPressed: inProgress ? null : _onScanPressed,
         ),
       ];
       stretch = connectLast;
