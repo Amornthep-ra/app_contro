@@ -67,10 +67,10 @@ void main() {
     'Last control mode defaults to 4 BTN and persists the selection',
     () async {
       SharedPreferences.setMockInitialValues({});
-      expect(await ControlModePreference.load(), LastControlMode.fourButton);
+      expect(await ControlModePreference.load(), ControlMode.fourButton);
 
-      await ControlModePreference.save(LastControlMode.joystick);
-      expect(await ControlModePreference.load(), LastControlMode.joystick);
+      await ControlModePreference.save(ControlMode.joystick);
+      expect(await ControlModePreference.load(), ControlMode.joystick);
     },
   );
 

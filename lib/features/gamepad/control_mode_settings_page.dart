@@ -208,13 +208,7 @@ class _ControlModeSettingsPageState extends State<ControlModeSettingsPage> {
     if (_selectedMode == mode) return;
     HapticFeedback.selectionClick();
     setState(() => _selectedMode = mode);
-    unawaited(
-      ControlModePreference.save(switch (mode) {
-        ControlMode.fourButton => LastControlMode.fourButton,
-        ControlMode.eightButton => LastControlMode.eightButton,
-        ControlMode.joystick => LastControlMode.joystick,
-      }),
-    );
+    unawaited(ControlModePreference.save(mode));
   }
 
   void _closeSettings(BuildContext context) {

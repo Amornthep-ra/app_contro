@@ -424,7 +424,7 @@ class _JoystickPageState extends State<JoystickPage>
   @override
   void initState() {
     super.initState();
-    unawaited(ControlModePreference.save(LastControlMode.joystick));
+    unawaited(ControlModePreference.save(controlMode));
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     final layoutLoaded = _loadLayout();

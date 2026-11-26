@@ -884,7 +884,7 @@ class _Gamepad4ButtonPageState extends State<Gamepad4ButtonPage>
   @override
   void initState() {
     super.initState();
-    unawaited(ControlModePreference.save(LastControlMode.fourButton));
+    unawaited(ControlModePreference.save(controlMode));
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     _sendSpeed('Med');

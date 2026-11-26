@@ -341,7 +341,7 @@ class _GamepadModeEditState extends State<GamepadModeEdit>
   @override
   void initState() {
     super.initState();
-    unawaited(ControlModePreference.save(LastControlMode.eightButton));
+    unawaited(ControlModePreference.save(controlMode));
     initControlSession();
     unawaited(OrientationUtils.request(AppOrientation.landscape));
     unawaited(_loadSpeedPrefs());

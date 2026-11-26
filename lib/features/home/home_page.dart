@@ -12,6 +12,7 @@ import '../../core/ble/ble_connection_coordinator.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/ble/ble_presentation_state.dart';
 import '../../core/ui/app_assets.dart';
+import '../../core/ui/control_mode.dart';
 import '../../core/ui/control_mode_preference.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/utils/orientation_utils.dart';
@@ -308,9 +309,9 @@ class _HomePageState extends State<HomePage>
       final mode = await ControlModePreference.load();
       if (!mounted) return;
       final page = switch (mode) {
-        LastControlMode.fourButton => const Gamepad4ButtonPage(),
-        LastControlMode.eightButton => const GamepadModeEdit(),
-        LastControlMode.joystick => const JoystickPage(),
+        ControlMode.fourButton => const Gamepad4ButtonPage(),
+        ControlMode.eightButton => const GamepadModeEdit(),
+        ControlMode.joystick => const JoystickPage(),
       };
       modeSwitched =
           await Navigator.of(

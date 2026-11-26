@@ -23,12 +23,6 @@ const _modeSwitchSources = <(ControlMode, ControlMode), String>{
   (ControlMode.joystick, ControlMode.eightButton): 'joystick_to_gamepad_8',
 };
 
-LastControlMode _lastControlModeFor(ControlMode mode) => switch (mode) {
-  ControlMode.fourButton => LastControlMode.fourButton,
-  ControlMode.eightButton => LastControlMode.eightButton,
-  ControlMode.joystick => LastControlMode.joystick,
-};
-
 /// What the 4 BTN, 8 BTN and Joystick pages share: the control session
 /// (BLE ownership, Start/Stop, leaving the page), the layout editor and
 /// opening from Settings. Each page only says what it sends.
@@ -257,7 +251,7 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
     });
     resetInputState();
     stopSendingForExit();
-    unawaited(ControlModePreference.save(_lastControlModeFor(target)));
+    unawaited(ControlModePreference.save(target));
     controlOwner = null;
     if (owner != null) {
       BleManager.instance.handoffControlForModeSwitch(
