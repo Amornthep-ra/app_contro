@@ -6,6 +6,7 @@ import 'package:pb_controller/core/ble/ble_manager.dart';
 import 'package:pb_controller/core/utils/orientation_utils.dart';
 import 'package:pb_controller/core/widgets/control_start_stop.dart';
 import 'package:pb_controller/core/widgets/gamepad_appbar_controls.dart';
+import 'package:pb_controller/features/gamepad/control_mode_settings_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_4_button_page.dart';
 import 'package:pb_controller/features/gamepad/gamepad_mode_edit.dart';
 import 'package:pb_controller/features/joystick/joystick/presentation/joystick.dart';
@@ -87,6 +88,82 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    /// Root, Home, then the control page; Start pressed.
+    Future<GlobalKey<NavigatorState>> openDriving(WidgetTester tester) async {
+      useLandscapePhone(tester);
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          home: const Scaffold(body: Text('Root')),
+        ),
+      );
+      unawaited(
+        navigator.currentState!.push<void>(
+          MaterialPageRoute(builder: (_) => const Scaffold(body: Text('Home'))),
+        ),
+      );
+      await tester.pumpAndSettle();
+      unawaited(
+        navigator.currentState!.push<void>(
+          MaterialPageRoute(builder: (_) => mode.value()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(ControlStartStopButton));
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel('Emergency Stop'), findsOneWidget);
+      return navigator;
+    }
+
+    /// Taps Back the way the app bar does, without waiting: the stop
+    /// packet is still being sent when the next line runs.
+    void pressBack(WidgetTester tester) => tester
+        .widget<GamepadAppBarBackButton>(find.byType(GamepadAppBarBackButton))
+        .onPressed();
+
+    testWidgets('${mode.key}: Settings tapped while leaving is ignored', (
+      tester,
+    ) async {
+      await openDriving(tester);
+
+      final settings = tester
+          .widget<GamepadAppBarActionGroup>(
+            find.byType(GamepadAppBarActionGroup),
+          )
+          .items
+          .singleWhere((item) => item.label == 'Settings');
+      pressBack(tester);
+      settings.onTap!();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.byType(ControlModeSettingsPage), findsNothing);
+      expect(find.byType(GamepadAppBarBackButton), findsNothing);
+      expectControlReleased();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('${mode.key}: a dialog opened while leaving is closed with '
+        'the page', (tester) async {
+      final navigator = await openDriving(tester);
+
+      pressBack(tester);
+      unawaited(
+        showDialog<void>(
+          context: navigator.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('Pairing')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Pairing'), findsNothing);
+      expect(find.byType(GamepadAppBarBackButton), findsNothing);
+      expectControlReleased();
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('${mode.key}: opening the editor stops driving', (
       tester,

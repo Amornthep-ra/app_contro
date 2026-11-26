@@ -201,10 +201,16 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   Future<void> exitControlPage() async {
     if (leavingControlPage) return;
     leavingControlPage = true;
+    final route = ModalRoute.of(context);
     stopSendingForExit();
     await releaseControl();
     if (!mounted) return;
     final navigator = Navigator.of(context);
+    // A dialog (or Settings) may have opened while the stop packet was
+    // sent: close what sits on this page, then the page itself.
+    if (route != null && route.isActive && !route.isCurrent) {
+      navigator.popUntil((r) => r == route);
+    }
     if (navigator.canPop()) {
       navigator.pop();
     } else {
@@ -226,9 +232,9 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
   Future<void> openControlSettings(
     Route<ControlModeSettingsResult> Function() buildRoute,
   ) async {
-    if (editMode || modeSwitchInProgress) return;
+    if (editMode || modeSwitchInProgress || leavingControlPage) return;
     final result = await Navigator.of(context).push(buildRoute());
-    if (!mounted || result == null) return;
+    if (!mounted || result == null || leavingControlPage) return;
     if (result.mode == controlMode) {
       openFromSettings(result.open);
       return;
@@ -242,7 +248,12 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
     ControlMode target, {
     ControlModeOpen? open,
   }) async {
-    if (modeSwitchInProgress || editMode || target == controlMode) return;
+    if (modeSwitchInProgress ||
+        editMode ||
+        leavingControlPage ||
+        target == controlMode) {
+      return;
+    }
     final owner = controlOwner;
     setState(() {
       modeSwitchInProgress = true;
@@ -312,6 +323,7 @@ mixin ControlPageMixin<T extends StatefulWidget> on State<T> {
 
   /// Opens what Settings asked for, on this page.
   void openFromSettings(ControlModeOpen? open) {
+    if (leavingControlPage) return;
     switch (open) {
       case ControlModeOpen.layoutEditor:
         if (!editMode) toggleEdit();
