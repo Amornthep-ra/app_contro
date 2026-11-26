@@ -121,7 +121,6 @@ class _BluetoothBlePageState extends State<BluetoothBlePage>
       onCoordinatorState: _onCoordinatorState,
     )..addListener(_onFlowChanged);
     if (widget.enableBlePlatformBindings) {
-      _bleCoordinator.acquire();
       _bleTrafficOwner = BleManager.instance.claimTrafficMode(
         BleTrafficMode.textCommand,
         ownerName: 'bluetooth_page',
