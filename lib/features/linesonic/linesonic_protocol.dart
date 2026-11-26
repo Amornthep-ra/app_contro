@@ -206,15 +206,9 @@ abstract final class LineSonicProtocol {
         return value;
       }
 
-      int? whole(String raw, LineSonicField field, int max, {int min = 0}) {
+      int? whole(String raw, LineSonicField field, int max) {
         final value = decimal(raw, field);
         if (value == null) return null;
-        if (value < min) {
-          errors.add(
-            LineSonicFieldError(number, field, 'Must be more than 0.'),
-          );
-          return null;
-        }
         if (value != value.truncateToDouble()) {
           errors.add(LineSonicFieldError(number, field, 'Use a whole number.'));
           return null;
@@ -228,31 +222,6 @@ abstract final class LineSonicProtocol {
         return value.toInt();
       }
 
-      // Without a mode, or with a length or target of 0, the board ends the
-      // step at once and moves on.
-      if (input.mode == null) {
-        errors.add(
-          LineSonicFieldError(
-            number,
-            LineSonicField.mode,
-            'Pick Time or CheckSum.',
-          ),
-        );
-      }
-      final checksum = input.mode == LineSonicStepMode.checksum;
-      final value = input.mode == null
-          ? null
-          : checksum
-          ? whole(
-              input.value,
-              LineSonicField.checksumValue,
-              maxSensorSum,
-              min: 1,
-            )
-          : whole(input.value, LineSonicField.value, maxInt, min: 1);
-      final kp = decimal(input.kp, LineSonicField.kp);
-      final kd = decimal(input.kd, LineSonicField.kd);
-      final speed = whole(input.speed, LineSonicField.speed, maxSpeed);
       final afterMs = input.continueAfter
           ? whole(input.afterMs, LineSonicField.afterMs, maxInt)
           : 0;
@@ -262,6 +231,47 @@ abstract final class LineSonicProtocol {
       final stopMs = input.stopBetween
           ? whole(input.stopMs, LineSonicField.stopMs, maxInt)
           : 0;
+
+      // Without a mode the board ends the step at once and moves on. With a
+      // length or target of 0 it skips only the line following: Continue
+      // and Stop still run, so such a step is refused only without them.
+      if (input.mode == null) {
+        errors.add(
+          LineSonicFieldError(
+            number,
+            LineSonicField.mode,
+            'Pick Time or CheckSum.',
+          ),
+        );
+      }
+      final valueField = input.mode == LineSonicStepMode.checksum
+          ? LineSonicField.checksumValue
+          : LineSonicField.value;
+      var value = input.mode == null
+          ? null
+          : whole(
+              input.value,
+              valueField,
+              valueField == LineSonicField.checksumValue
+                  ? maxSensorSum
+                  : maxInt,
+            );
+      // A bad Continue or Stop time is named on its own field.
+      final runsAfter =
+          afterMs == null || stopMs == null || afterMs > 0 || stopMs > 0;
+      if (value == 0 && !runsAfter) {
+        errors.add(
+          LineSonicFieldError(
+            number,
+            valueField,
+            'Must be more than 0, or turn on Continue or Stop.',
+          ),
+        );
+        value = null;
+      }
+      final kp = decimal(input.kp, LineSonicField.kp);
+      final kd = decimal(input.kd, LineSonicField.kd);
+      final speed = whole(input.speed, LineSonicField.speed, maxSpeed);
       final holding = input.holdMode != 0;
       final holdMs = holding
           ? whole(input.holdMs, LineSonicField.holdMs, maxInt)

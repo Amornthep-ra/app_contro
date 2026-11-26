@@ -107,7 +107,10 @@ void main() {
     test('a length or target of 0 is refused; 1 is fine', () {
       final time = LineSonicProtocol.checkSteps([input(value: '0')]);
       expect(time.errors.single.field, LineSonicField.value);
-      expect(time.errors.single.message, 'Must be more than 0.');
+      expect(
+        time.errors.single.message,
+        'Must be more than 0, or turn on Continue or Stop.',
+      );
 
       final checksum = LineSonicProtocol.checkSteps([
         input(mode: LineSonicStepMode.checksum, value: ''),
@@ -116,6 +119,54 @@ void main() {
 
       steps([input(value: '1')]);
       steps([input(mode: LineSonicStepMode.checksum, value: '1')]);
+    });
+
+    test('a 0 step with Continue or Stop on is sent: the board still runs '
+        'them', () {
+      final payload = LineSonicProtocol.sequence(
+        steps([
+          input(
+            value: '0',
+            continueAfter: true,
+            afterMs: '300',
+            afterSpeed: '40',
+          ),
+          input(
+            mode: LineSonicStepMode.checksum,
+            value: '0',
+            stopBetween: true,
+            stopMs: '500',
+          ),
+        ]),
+      );
+      expect(
+        payload,
+        'SEQ=TIME,0,1.5,0.8,50,300,40,0,0,0,0,0;'
+        'CHECKSUM,0,1.5,0.8,50,0,0,500,0,0,0,0',
+      );
+    });
+
+    test('a 0 step that would still do nothing is refused', () {
+      for (final step in [
+        // Switched on with 0 ms.
+        input(value: '0', continueAfter: true, afterMs: '0'),
+        input(value: '0', stopBetween: true, stopMs: '0'),
+        // A time set but the option off.
+        input(value: '0', afterMs: '300', stopMs: '500'),
+        // Straight runs inside the step, so it never starts.
+        input(value: '0', holdMode: 1, holdMs: '200', holdThreshold: '10'),
+      ]) {
+        final result = LineSonicProtocol.checkSteps([step]);
+        expect(result.ok, isFalse);
+        expect(result.errors.single.field, LineSonicField.value);
+      }
+    });
+
+    test('a 0 step with a bad Continue time names only that field', () {
+      final result = LineSonicProtocol.checkSteps([
+        input(value: '0', continueAfter: true, afterMs: 'x'),
+      ]);
+      expect(result.errors.single.field, LineSonicField.afterMs);
     });
 
     test('fixed commands', () {

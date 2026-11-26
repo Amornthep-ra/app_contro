@@ -88,6 +88,20 @@ void main() {
     expect(find.textContaining('Command not sent'), findsNothing);
   });
 
+  testWidgets('a stop-only step goes to the BLE write', (tester) async {
+    await openWithSteps(tester, [
+      step()
+        ..['value'] = '0'
+        ..['stopBetween'] = true
+        ..['stopMs'] = '500',
+    ]);
+    await tapSendAll(tester);
+
+    expect(find.textContaining('Must be more than 0'), findsNothing);
+    // The test link has no characteristic, so the write itself fails.
+    expect(find.textContaining('Command not sent'), findsOneWidget);
+  });
+
   testWidgets('steps that need more than one write are not sent', (
     tester,
   ) async {
