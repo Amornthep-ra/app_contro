@@ -427,6 +427,33 @@ void main() {
     expect(coordinator.forgetCalls, 1);
   });
 
+  testWidgets('pairing needed while Forget? is open closes both', (
+    tester,
+  ) async {
+    final state = BleConnectionCoordinatorState(
+      devices: _robots,
+      lastDeviceId: _lastId,
+      lastDeviceName: 'PB-Robot-02',
+    );
+    await openSheet(tester, state, connected: true);
+    await tester.tap(find.byTooltip('More options'));
+    await settle(tester);
+    await tester.tap(find.text('Forget device'));
+    await settle(tester);
+    expect(find.text('Forget PB-Robot-02?'), findsOneWidget);
+
+    coordinator.debugEmitForTesting(
+      state.copyWith(securityState: BleControlSecurityState.pairingRequired),
+    );
+    await settle(tester);
+
+    // Before: only the dialog closed and the sheet stayed, stuck.
+    expect(find.text('Forget PB-Robot-02?'), findsNothing);
+    expect(find.byType(BleConnectionSheet), findsNothing);
+    expect(find.byType(ConnectionStatusBadge), findsOneWidget);
+    expect(coordinator.forgetCalls, 0);
+  });
+
   testWidgets('no Forget menu without a remembered robot', (tester) async {
     await openSheet(tester, BleConnectionCoordinatorState(devices: _robots));
     expect(find.byTooltip('More options'), findsNothing);

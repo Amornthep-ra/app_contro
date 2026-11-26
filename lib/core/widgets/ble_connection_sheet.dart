@@ -183,8 +183,16 @@ class _BleConnectionSheetState extends State<BleConnectionSheet> {
       return;
     }
     _pairingRequestPending = true;
+    final sheetRoute = ModalRoute.of(context);
+    final navigator = Navigator.of(context);
     final request = widget.onPairingRequested(automatic);
-    Navigator.of(context).pop();
+    // Close this sheet, also when a dialog (such as Forget?) is open over
+    // it: a plain pop would close only the dialog and leave the sheet
+    // waiting for a request it already made.
+    if (sheetRoute != null && !sheetRoute.isCurrent) {
+      navigator.popUntil((route) => route == sheetRoute);
+    }
+    navigator.pop();
     await request;
   }
 
