@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below. The BLE pairing codes (flutter_secure_storage)
+     are encrypted with this phone's Keystore key, which is not backed up:
+     restored on another phone they could not be read. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+</full-backup-content>

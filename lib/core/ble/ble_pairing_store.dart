@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class BlePairingRecord {
@@ -43,7 +44,20 @@ class SecureBlePairingStore implements BlePairingStore {
 
   @override
   Future<List<int>?> readSecret(String boardId) async {
-    final encoded = await _storage.read(key: '$_prefix$boardId');
+    final key = '$_prefix$boardId';
+    final String? encoded;
+    try {
+      encoded = await _storage.read(key: key);
+    } on PlatformException {
+      // Unreadable here, e.g. restored from another phone whose Keystore key
+      // is not on this one. Drop it: the board just asks for its code again.
+      try {
+        await _storage.delete(key: key);
+      } on PlatformException {
+        // Nothing more to do; it stays unreadable.
+      }
+      return null;
+    }
     if (encoded == null) return null;
     try {
       final secret = base64Url.decode(base64Url.normalize(encoded));
